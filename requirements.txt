@@ -1,0 +1,5 @@
+# requirements.txt
+flask==3.0.2
+docker==7.0.0
+requests-unixsocket==0.3.0
+requests<2.32.0
