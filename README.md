@@ -36,6 +36,9 @@ It displays **CPU and RAM consumption** per container in a simple, visual interf
   ```bash
   docker compose up --build -d
   ```
+1. Clone the repository:
+
+2. Run using Docker Compose:
 
 ## 🖥️ Access
 Once running, open your browser and go to:
@@ -51,3 +54,4 @@ Use the **Server IP** field (and "Use Custom IP" checkbox) in the UI controls to
 ## 📝 License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+MIT License
