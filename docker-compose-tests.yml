@@ -7,3 +7,6 @@ services:
       - "5001:5000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      AUTH_USER: "admin"
+      AUTH_PASSWORD: "admin"

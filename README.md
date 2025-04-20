@@ -22,6 +22,8 @@ It displays **CPU and RAM consumption** per container in a simple, visual interf
 - 🆔 Custom Server IP: choose between localhost or custom IP for UI links
 - 🛠️ Persisted settings: remembers filters, theme, chart type, and column visibility via localStorage
 - 🔄 Dynamic column toggles: show or hide any column on demand
+- 📥 Export selected metrics to CSV
+- ⚙️ Container control buttons: start, stop & restart from the UI
 
 ---
 
@@ -36,9 +38,6 @@ It displays **CPU and RAM consumption** per container in a simple, visual interf
   ```bash
   docker compose up --build -d
   ```
-1. Clone the repository:
-
-2. Run using Docker Compose:
 
 ## 🖥️ Access
 Once running, open your browser and go to:
@@ -51,7 +50,15 @@ Use the **Server IP** field (and "Use Custom IP" checkbox) in the UI controls to
 
 ---
 
+## 📸 Screenshots
+<div align="center">
+  <img src="screenshots/Screenshot 1.png" alt="Screenshot 1" width="600">
+  <img src="screenshots/Screenshot 2.png" alt="Screenshot 2" width="600">
+  <img src="screenshots/Screenshot 3.png" alt="Screenshot 3" width="600">
+</div>
+
+---
+
 ## 📝 License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
-MIT License

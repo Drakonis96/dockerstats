@@ -4,7 +4,8 @@ import datetime
 import time  # Add time import
 from flask import Blueprint, jsonify, request, render_template, Response, stream_with_context  # Quitado escape
 from markupsafe import escape  # Añadido para compatibilidad Flask >=2.3
-from docker import errors
+import docker
+errors = docker.errors
 
 # Importar estado compartido y clientes/utilidades necesarias
 from sampler import history # Necesario para /api/metrics y /api/compare
@@ -13,6 +14,17 @@ from metrics_utils import parse_datetime, format_uptime # Necesario para /api/me
 
 # Crear un Blueprint para las rutas
 main_routes = Blueprint('main_routes', __name__, template_folder='templates', static_folder='static')
+
+# --- Simple HTTP Basic Authentication ---
+from config import AUTH_USER, AUTH_PASSWORD
+@main_routes.before_request
+def require_auth():
+    # If credentials not set, skip authentication
+    if not AUTH_USER or not AUTH_PASSWORD:
+        return
+    auth = request.authorization
+    if not auth or auth.username != AUTH_USER or auth.password != AUTH_PASSWORD:
+        return Response('Authentication required', 401, {'WWW-Authenticate': 'Basic realm="Login Required"'})
 
 # --- Ruta Index ---
 @main_routes.route('/')
@@ -85,8 +97,6 @@ def api_metrics():
         restart_count = 0
         uptime_sec = None
         formatted_uptime = "N/A"
-        size_rw_mb = None
-        size_rootfs_mb = None
         current_status = status_hist # Fallback status
 
         try:
@@ -124,17 +134,6 @@ def api_metrics():
 
             # Contador de Reinicios
             restart_count = attrs.get('RestartCount', 0)
-            # Tamaño RW: usar inspect con size=True para obtener SizeRw
-            try:
-                inspect_data = client.api.inspect_container(cid, size=True)
-                size_rw_bytes = inspect_data.get('SizeRw')
-                size_rw_mb = round(size_rw_bytes / (1024*1024), 2) if size_rw_bytes is not None else None
-                # Add total filesystem size (layers + RW)
-                size_rootfs_bytes = inspect_data.get('SizeRootFs')
-                size_rootfs_mb = round(size_rootfs_bytes / (1024*1024), 2) if size_rootfs_bytes is not None else None
-            except Exception:
-                size_rw_mb = None
-                size_rootfs_mb = None
 
             # Uptime (basado en estado actual)
             started_at_str = state.get('StartedAt')
@@ -204,8 +203,6 @@ def api_metrics():
             'status': current_status,
             'uptime_sec': uptime_sec, # Puede ser None
             'uptime': formatted_uptime,
-            'size_rw': size_rw_mb, # Puede ser None
-            'size_rootfs': size_rootfs_mb, # Total FS size en MB
             'net_io_rx': net_rx,
             'net_io_tx': net_tx,
             'block_io_r': blk_r,
@@ -217,7 +214,7 @@ def api_metrics():
 
     # --- Ordenación ---
     reverse_sort = (sort_dir == 'desc')
-    numeric_keys = ['cpu', 'mem', 'combined', 'uptime_sec', 'restarts', 'size_rw', 'size_rootfs', 'net_io_rx', 'net_io_tx', 'block_io_r', 'block_io_w', 'pid_count', 'mem_limit']
+    numeric_keys = ['cpu', 'mem', 'combined', 'uptime_sec', 'restarts', 'net_io_rx', 'net_io_tx', 'block_io_r', 'block_io_w', 'pid_count', 'mem_limit']
     string_keys = ['name', 'status', 'image', 'ports', 'uptime']
 
     def sort_key(item):
@@ -399,7 +396,6 @@ def compare_page(compare_type):
     top_n = request.args.get('topN', 5, type=int) # Default a 5
     valid_types = {
         "usage": "CPU/RAM Usage",
-        "size": "Size (RW)",
         "uptime": "Uptime"
     }
     if compare_type not in valid_types:
@@ -427,7 +423,7 @@ def api_compare_data(compare_type):
     except ValueError:
         top_n = 5
 
-    valid_types = ["usage", "size", "uptime"]
+    valid_types = ["usage", "uptime"]
     if compare_type not in valid_types:
         return jsonify({"error": "Invalid comparison type"}), 400
 
@@ -450,31 +446,17 @@ def api_compare_data(compare_type):
         else: continue
 
         container_name = name_hist
-        size_rw_mb = None
-        size_rootfs_mb = None
         uptime_sec = None
         formatted_uptime = "N/A"
         current_status = status_hist
 
-        # Obtener detalles adicionales necesarios para size y uptime
-        if compare_type in ["size", "uptime"]:
+        # Obtener detalles adicionales necesarios para uptime
+        if compare_type == "uptime":
             try:
                 container = client.containers.get(cid)
                 current_status = container.status # Actualizar estado
                 attrs = container.attrs or {}
                 state = attrs.get('State', {})
-
-                # Tamaño RW: usar inspect con size=True para obtener SizeRw
-                try:
-                    inspect_data = client.api.inspect_container(cid, size=True)
-                    size_rw_bytes = inspect_data.get('SizeRw')
-                    size_rw_mb = round(size_rw_bytes / (1024*1024), 2) if size_rw_bytes is not None else None
-                    # Add total filesystem size (layers + RW)
-                    size_rootfs_bytes = inspect_data.get('SizeRootFs')
-                    size_rootfs_mb = round(size_rootfs_bytes / (1024*1024), 2) if size_rootfs_bytes is not None else None
-                except Exception:
-                    size_rw_mb = None
-                    size_rootfs_mb = None
 
                 # Uptime
                 started_at_str = state.get('StartedAt')
@@ -489,16 +471,12 @@ def api_compare_data(compare_type):
                 else: uptime_sec = None; formatted_uptime = "N/A"
 
             except errors.NotFound:
-                # Contenedor no existe, no se puede obtener size/uptime
-                size_rw_mb = None
-                size_rootfs_mb = None
+                # Contenedor no existe, no se puede obtener uptime
                 uptime_sec = None
                 formatted_uptime = "N/A (Removed)"
                 current_status = status_hist # Usar estado histórico
             except Exception as e:
                 print(f"WARN COMPARE API: Error obteniendo detalles para {cid[:6]}..: {e}")
-                size_rw_mb = None
-                size_rootfs_mb = None
                 uptime_sec = None
                 formatted_uptime = "Error Fetching"
                 current_status = status_hist
@@ -510,8 +488,6 @@ def api_compare_data(compare_type):
             'cpu': cpu,
             'mem': mem,
             'combined': (cpu or 0) + (mem or 0),
-            'size_rw': size_rw_mb,
-            'size_rootfs': size_rootfs_mb,
             'uptime_sec': uptime_sec,
             'uptime': formatted_uptime, # Incluir formateado para tooltip
             'status': current_status # Incluir estado por si acaso
@@ -520,7 +496,6 @@ def api_compare_data(compare_type):
     # --- Ordenación específica para la comparación ---
     sort_key_map = {
         "usage": "combined",
-        "size": "size_rw",
         "uptime": "uptime_sec"
     }
     sort_field = sort_key_map.get(compare_type, "combined")
@@ -541,3 +516,40 @@ def api_compare_data(compare_type):
 
     print(f"DEBUG COMPARE API: Retornando {len(top_rows)} filas para comparación '{compare_type}'.")
     return jsonify(top_rows)
+
+# --- CSV Export Endpoint ---
+@main_routes.route('/api/export/csv', methods=['POST'])
+def export_csv():
+    data = request.get_json() or {}
+    metrics = data.get('metrics', [])
+    import csv, io
+    si = io.StringIO()
+    writer = csv.writer(si)
+    if metrics:
+        headers = list(metrics[0].keys())
+        writer.writerow(headers)
+        for row in metrics:
+            writer.writerow([row.get(h) for h in headers])
+    output = si.getvalue()
+    return Response(output, mimetype='text/csv', headers={
+        'Content-Disposition': 'attachment; filename=metrics.csv'
+    })
+
+# --- Container Control Endpoints ---
+@main_routes.route('/api/containers/<container_id>/<action>', methods=['POST'])
+def container_action(container_id, action):
+    """Start, stop or restart a Docker container"""
+    try:
+        client = get_docker_client()
+        container = client.containers.get(container_id)
+        if action == 'start':
+            container.start()
+        elif action == 'stop':
+            container.stop()
+        elif action == 'restart':
+            container.restart()
+        else:
+            return jsonify({'error': 'Invalid action'}), 400
+        return jsonify({'status': f'{action}ed'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

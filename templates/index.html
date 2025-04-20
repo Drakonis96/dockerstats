@@ -7,6 +7,7 @@
   <link rel="icon" href="{{ url_for('static', filename='logo.png') }}">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script> <!-- Add Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js"></script> <!-- Chart.js Zoom plugin -->
   <style>
     /* Transparent header matching body */
     nav.navbar {
@@ -32,7 +33,36 @@
     body {
       padding-top: calc(120px + 1rem); /* Match header height */
       padding-bottom: 5rem; /* Add space at the bottom */
+      padding-left: 1rem;
+      padding-right: 1rem;
       transition: background .3s, color .3s;
+    }
+
+    /* Desktop: wrap cells and use full width */
+    @media (min-width: 768px) {
+      #metricsTable {
+        table-layout: fixed;
+        width: 100%;
+      }
+      #metricsTable th,
+      #metricsTable td {
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
+    }
+    /* Mobile: prevent wrapping and enable horizontal scroll */
+    @media (max-width: 767.98px) {
+      #metricsTable {
+        table-layout: auto;
+        width: auto;
+      }
+      #metricsTable th,
+      #metricsTable td {
+        white-space: nowrap !important;
+      }
+      #tableView {
+        overflow-x: auto;
+      }
     }
 
     /* Controls & table styling */
@@ -90,10 +120,8 @@
      #metricsTable th.col-netio, #metricsTable td.col-netio,
      #metricsTable th.col-blockio, #metricsTable td.col-blockio,
      #metricsTable th.col-restarts, #metricsTable td.col-restarts,
-     #metricsTable th.col-size, #metricsTable td.col-size,
      #metricsTable th.col-pid, #metricsTable td.col-pid,
-     #metricsTable th.col-memlimit, #metricsTable td.col-memlimit,
-     #metricsTable th.col-rootfs, #metricsTable td.col-rootfs { text-align: right; }
+     #metricsTable th.col-memlimit, #metricsTable td.col-memlimit { text-align: right; }
      #metricsTable td.col-uptime { font-family: monospace; font-size: 0.9em; } /* Monospace for uptime alignment */
      /* Center for Status */
      #metricsTable th.col-status, #metricsTable td.col-status { text-align: center; }
@@ -101,7 +129,8 @@
      #metricsTable th.col-charts, #metricsTable td.col-charts { text-align: center; }
      /* Center for UI */
      #metricsTable th.col-ui, #metricsTable td.col-ui { text-align: center; }
-
+     /* Center for Actions */
+     #metricsTable th.col-actions, #metricsTable td.col-actions { text-align: center; }
 
     /* Dark mode */
     [data-bs-theme="dark"] body { /* Target Bootstrap 5.3+ dark mode */
@@ -194,7 +223,6 @@
      .hide-col-cpu th.col-cpu, .hide-col-cpu td.col-cpu { display: none; }
      .hide-col-ram th.col-ram, .hide-col-ram td.col-ram { display: none; }
      .hide-col-status th.col-status, .hide-col-status td.col-status { display: none; }
-     .hide-col-size th.col-size, .hide-col-size td.col-size { display: none; }
      .hide-col-uptime th.col-uptime, .hide-col-uptime td.col-uptime { display: none; }
      .hide-col-netio th.col-netio, .hide-col-netio td.col-netio { display: none; }
      .hide-col-blockio th.col-blockio, .hide-col-blockio td.col-blockio { display: none; }
@@ -206,7 +234,7 @@
      .hide-col-logs th.col-logs, .hide-col-logs td.col-logs { display: none; }
      .hide-col-charts th.col-charts, .hide-col-charts td.col-charts { display: none; } /* Add rule for charts */
      .hide-col-ui th.col-ui, .hide-col-ui td.col-ui { display: none; } /* Add rule for UI column */
-     .hide-col-rootfs th.col-rootfs, .hide-col-rootfs td.col-rootfs { display: none; } /* Hide Total FS column */
+     .hide-col-actions th.col-actions, .hide-col-actions td.col-actions { display: none; } /* Add rule for Actions column */
 
      /* --- Chart Container Styling --- */
      #chartContainer {
@@ -261,7 +289,7 @@
   <button type="button" id="themeToggle" aria-label="Toggle theme">🌙</button>
   <button type="button" id="scrollTop" aria-label="Scroll to top">⬆️</button>
 
-  <div class="container">
+  <div class="container-fluid px-3">
     <div class="row g-3 mb-3 align-items-center">
       <div class="col-lg-2 col-md-4 col-sm-6"><input id="filterName" class="form-control form-control-sm" placeholder="Filter by name"></div>
       <div class="col-lg-2 col-md-4 col-sm-6">
@@ -296,8 +324,6 @@
           <option value="mem">Sort by RAM %</option>
           <option value="combined" selected>Sort by Combined %</option>
           <option value="status">Sort by Status</option>
-          <option value="size_rw">Sort by Size (RW)</option>
-          <option value="size_rootfs">Sort by Total FS</option>
           <option value="uptime_sec">Sort by Uptime</option>
           <option value="restarts">Sort by Restarts</option>
         </select>
@@ -338,14 +364,18 @@
                     <input class="form-check-input" type="checkbox" value="ram" id="toggleColRAM" checked>
                     <label class="form-check-label" for="toggleColRAM">RAM %</label>
                 </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" value="pid" id="toggleColPID" checked>
+                    <label class="form-check-label" for="toggleColPID">Procs</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" value="memlimit" id="toggleColMemlimit" checked>
+                    <label class="form-check-label" for="toggleColMemlimit">Mem Limit (MB)</label>
+                </div>
                  <div class="form-check form-check-inline">
                     <input class="form-check-input" type="checkbox" value="status" id="toggleColStatus" checked>
                     <label class="form-check-label" for="toggleColStatus">Status</label>
                 </div>
-                 <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="checkbox" value="size" id="toggleColSize" checked>
-                    <label class="form-check-label" for="toggleColSize">Size (RW)</label>
-                 </div>
                  <div class="form-check form-check-inline">
                     <input class="form-check-input" type="checkbox" value="uptime" id="toggleColUptime" checked>
                     <label class="form-check-label" for="toggleColUptime">Uptime (D H M S)</label>
@@ -383,16 +413,8 @@
                     <label class="form-check-label" for="toggleColUI">UI</label>
                 </div>
                 <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="checkbox" value="rootfs" id="toggleColRootFs" checked>
-                    <label class="form-check-label" for="toggleColRootFs">Total FS</label>
-                </div>
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="checkbox" value="pid" id="toggleColPID" checked>
-                    <label class="form-check-label" for="toggleColPID">Procs</label>
-                </div>
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="checkbox" value="memlimit" id="toggleColMemLimit" checked>
-                    <label class="form-check-label" for="toggleColMemLimit">Mem Limit (MB)</label>
+                    <input class="form-check-input" type="checkbox" value="actions" id="toggleColActions" checked>
+                    <label class="form-check-label" for="toggleColActions">Actions</label>
                 </div>
             </div>
         </div>
@@ -401,6 +423,7 @@
       <div class="col-12">
         <button id="saveSettingsBtn" class="btn btn-primary btn-sm">💾 Save Settings</button>
         <button id="toggleColsBtn" class="btn btn-secondary btn-sm ms-2">🔄 Select/Deselect All</button>
+        <button id="exportCsvBtn" class="btn btn-secondary btn-sm ms-2">📤 Export CSV</button>
       </div>
     </div>
 
@@ -413,7 +436,6 @@
           </button>
           <ul class="dropdown-menu" aria-labelledby="compareDropdown">
             <li><a class="dropdown-item compare-action" href="#" data-compare-type="usage">CPU/RAM Usage</a></li>
-            <li><a class="dropdown-item compare-action" href="#" data-compare-type="size">Size (RW)</a></li>
             <li><a class="dropdown-item compare-action" href="#" data-compare-type="uptime">Uptime</a></li>
           </ul>
         </div>
@@ -432,8 +454,6 @@
             <th class="col-pid">⚙️ Procs</th>
             <th class="col-memlimit">💾 Mem Limit (MB)</th>
             <th class="col-status">🚦 Status</th>
-            <th class="col-size">📦 Size (RW MB)</th>
-            <th class="col-rootfs">📦 FS (MB)</th>
             <th class="col-uptime">⏱️ Uptime (D H M S)</th>
             <th class="col-netio">🌐 Net I/O (Rx/Tx MB)</th>
             <th class="col-blockio">💾 Block I/O (R/W MB)</th>
@@ -443,6 +463,7 @@
             <th class="col-logs">📜 Logs</th>
             <th class="col-charts">📊 Charts</th>
             <th class="col-ui">🌐 UI</th>
+            <th class="col-actions">⚙️ Actions</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -461,6 +482,7 @@
                 <label class="btn btn-outline-primary btn-sm" for="barChartBtn">Bar Chart</label>
             </div>
         </div>
+        <div class="text-center text-muted small">Use mouse wheel to zoom and pan the chart.</div>
         <canvas id="usageChart"></canvas>
         <div id="chartStatus">Select a container's 'Show Chart' button to view history.</div>
     </div>
@@ -469,8 +491,8 @@
   </div> <!-- End Main Container -->
 
   <!-- Footer -->
-  <footer class="footer container">
-    <p>Version: v0.2.0</p>
+  <footer class="footer container-fluid">
+    <p>Dockerstats. Version: v0.3.0</p>
   </footer>
   <!-- End Footer -->
 
@@ -479,6 +501,8 @@
 
   <script>
     console.log("DEBUG: Script block started."); // <-- Added log
+    // Register zoom plugin for Chart.js
+    Chart.register(ChartZoom);
     // --- Global Variables ---
     const metricsTable = document.getElementById('metricsTable');
     const metricsTableBody = metricsTable.querySelector('tbody');
@@ -490,6 +514,7 @@
     const chartCanvas = document.getElementById('usageChart');
     const chartTitle = document.getElementById('chartTitle');
     const chartStatus = document.getElementById('chartStatus');
+    const exportCsvBtn = document.getElementById('exportCsvBtn');
     let refreshIntervalId = null; // To store the interval ID
     const REFRESH_INTERVAL_MS = 5000; // 5 seconds (Should match SAMPLE_INTERVAL ideally)
     let usageChart = null; // To store the Chart.js instance
@@ -614,10 +639,16 @@
         const portInfo = d.ports || 'N/A';
         // Derive host port and server IP for UI link
         const hostPort = portInfo.split('->')[0].split(':').pop();
-        const baseIP = localStorage.getItem('useCustomIP') === 'true' ? localStorage.getItem('serverIP') : 'localhost';
-        // Check for null/undefined size BEFORE calling toFixed
-        const sizeText = (d.size_rw !== null && d.size_rw !== undefined) ? d.size_rw.toFixed(2) : 'N/A';
-        const rootFsText = (d.size_rootfs !== null && d.size_rootfs !== undefined) ? d.size_rootfs.toFixed(2) : 'N/A';
+        // Determine base host for UI link, sanitize custom IP input
+        let baseHost = 'localhost';
+        if (localStorage.getItem('useCustomIP') === 'true') {
+            let raw = (localStorage.getItem('serverIP') || '').trim();
+            raw = raw.split(/[,\s]+/)[0];           // take first segment before comma/space
+            raw = raw.replace(/\/$/, '');            // remove trailing slash
+            raw = raw.replace(/^https?:\/\//i, ''); // strip protocol if provided
+            baseHost = raw || 'localhost';
+        }
+        const baseIP = baseHost;
         // Use the formatted uptime string directly from backend
         const uptimeText = d.uptime || 'N/A';
         // Check for null/undefined restarts
@@ -663,8 +694,6 @@
           <td class="col-pid">${d.pid_count !== null ? d.pid_count : 'N/A'}</td>
           <td class="col-memlimit">${d.mem_limit !== null ? d.mem_limit.toFixed(2) : 'N/A'}</td>
           <td class="col-status">${d.status || 'N/A'}</td>
-          <td class="col-size">${sizeText}</td>
-          <td class="col-rootfs">${rootFsText}</td>
           <td class="col-uptime">${uptimeText}</td>
           <td class="col-netio">${netRxText} / ${netTxText}</td>
           <td class="col-blockio">${blockRText} / ${blockWText}</td>
@@ -680,6 +709,11 @@
           <td class="col-ui">
             <a href="http://${baseIP}:${hostPort}" target="_blank" class="btn btn-outline-primary btn-sm">Open UI</a>
           </td>
+          <td class="col-actions">
+            <button class="btn btn-outline-success btn-sm start-btn">Start</button>
+            <button class="btn btn-outline-warning btn-sm stop-btn">Stop</button>
+            <button class="btn btn-outline-danger btn-sm restart-btn">Restart</button>
+          </td>
         `;
         metricsTableBody.appendChild(tr);
       });
@@ -688,6 +722,7 @@
       addChartButtonListeners();
       // Re-apply column visibility after rendering new rows
       applyColumnVisibility();
+      bindContainerButtons();
     }
 
     // --- Chart Functions ---
@@ -809,6 +844,7 @@
                 scales: {
                     y: {
                         beginAtZero: true,
+                        min: 0,
                         max: 100, // Assuming percentage
                         title: {
                             display: true,
@@ -835,6 +871,10 @@
                     tooltip: {
                         mode: 'index',
                         intersect: false,
+                    },
+                    zoom: {
+                        zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'xy' },
+                        pan: { enabled: true, mode: 'xy' }
                     }
                 },
                 hover: { // Performance optimization for large datasets
@@ -879,6 +919,58 @@
       });
       applyColumnVisibility();
     }
+
+    // --- Export & Container Controls ---
+    function getSelectedMetrics() {
+      return Array.from(metricsTableBody.querySelectorAll('tr')).map(tr => ({
+        id: tr.querySelector('.show-chart-btn')?.dataset.containerId || '',
+        name: tr.querySelector('.col-name')?.textContent || '',
+        cpu: tr.querySelector('.col-cpu span')?.textContent.replace('%','') || '',
+        ram: tr.querySelector('.col-ram span')?.textContent.replace('%','') || '',
+        status: tr.querySelector('.col-status')?.textContent || '',
+        uptime: tr.querySelector('.col-uptime')?.textContent || ''
+      }));
+    }
+
+    function bindContainerButtons() {
+      document.querySelectorAll('.start-btn').forEach(btn =>
+        btn.addEventListener('click', e => {
+          const id = e.target.closest('tr').querySelector('.show-chart-btn').dataset.containerId;
+          fetch(`/api/containers/${id}/start`, {method: 'POST'}).then(() => fetchMetrics());
+        })
+      );
+      document.querySelectorAll('.stop-btn').forEach(btn =>
+        btn.addEventListener('click', e => {
+          const id = e.target.closest('tr').querySelector('.show-chart-btn').dataset.containerId;
+          fetch(`/api/containers/${id}/stop`, {method: 'POST'}).then(() => fetchMetrics());
+        })
+      );
+      document.querySelectorAll('.restart-btn').forEach(btn =>
+        btn.addEventListener('click', e => {
+          const id = e.target.closest('tr').querySelector('.show-chart-btn').dataset.containerId;
+          fetch(`/api/containers/${id}/restart`, {method: 'POST'}).then(() => fetchMetrics());
+        })
+      );
+    }
+
+    // Export CSV handler
+    exportCsvBtn.addEventListener('click', () => {
+      const data = getSelectedMetrics();
+      fetch('/api/export/csv', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({metrics: data})
+      })
+      .then(res => res.blob())
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'metrics.csv';
+        a.click();
+        URL.revokeObjectURL(url);
+      });
+    });
 
     // --- Initial Load & Event Listeners ---
     document.addEventListener('DOMContentLoaded', () => {
@@ -955,6 +1047,32 @@
                 if (usageChart) fetchAndRenderChart();
             });
         });
+
+        // Add click handlers on column headers to sort table
+        (function addHeaderSorting() {
+            const sortByEl = document.getElementById('sortBy');
+            const sortDirEl = document.getElementById('sortDir');
+            const headerSortMap = { name:'name', cpu:'cpu', ram:'mem', status:'status', uptime:'uptime_sec', restarts:'restarts', combined:'combined' };
+            document.querySelectorAll('#metricsTable thead th').forEach(th => {
+                const colClass = [...th.classList].find(c => c.startsWith('col-'));
+                if (!colClass) return;
+                const key = colClass.replace('col-', '');
+                const sortKey = headerSortMap[key];
+                if (!sortKey) return;
+                th.style.cursor = 'pointer';
+                th.addEventListener('click', () => {
+                    if (sortByEl.value === sortKey) {
+                        sortDirEl.value = sortDirEl.value === 'asc' ? 'desc' : 'asc';
+                    } else {
+                        sortByEl.value = sortKey;
+                        sortDirEl.value = 'desc';
+                    }
+                    localStorage.setItem('sortBy', sortByEl.value);
+                    localStorage.setItem('sortDir', sortDirEl.value);
+                    fetchMetrics();
+                });
+            });
+        })();
 
         console.log(`Docker Monitor UI Initialized. Refreshing every ${REFRESH_INTERVAL_MS / 1000} seconds.`);
     });

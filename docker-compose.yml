@@ -4,6 +4,9 @@ services:
   dockerstats:
     image: drakonis96/dockerstats:latest
     container_name: docker-monitor
+    environment:
+      AUTH_USER: ${AUTH_USER:-}
+      AUTH_PASSWORD: ${AUTH_PASSWORD:-}
     ports:
       - "5001:5000"
     volumes:
