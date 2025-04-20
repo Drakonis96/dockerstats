@@ -1,0 +1,964 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Docker Monitor</title>
+  <link rel="icon" href="{{ url_for('static', filename='logo.png') }}">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script> <!-- Add Chart.js -->
+  <style>
+    /* Transparent header matching body */
+    nav.navbar {
+        /* Use Bootstrap background variable for theme compatibility */
+        background-color: var(--bs-body-bg) !important;
+        padding: 0;
+        /* Add a subtle shadow */
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    /* Container with fixed height to hold logo */
+    nav.navbar .container {
+      height: 120px; /* Center larger logo */
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    /* Logo slightly larger */
+    nav.navbar img {
+      width: 120px; /* Adjust if needed */
+      height: 120px; /* Adjust if needed */
+    }
+    /* Adjust page content down by header height + margin */
+    body {
+      padding-top: calc(120px + 1rem); /* Match header height */
+      padding-bottom: 5rem; /* Add space at the bottom */
+      transition: background .3s, color .3s;
+    }
+
+    /* Controls & table styling */
+    .form-control, .form-select, .form-check-input {
+      transition: background .3s, color .3s, border-color .3s;
+    }
+    .form-control::placeholder { color: #6c757d; transition: color .3s; } /* Bootstrap secondary color */
+    .table, .table th, .table td {
+      transition: background .3s, color .3s;
+      white-space: nowrap; /* Prevent wrapping in table cells */
+    }
+     .table th, .table td {
+        padding: 0.5rem; /* Adjust padding */
+        vertical-align: middle; /* Vertical centering for all */
+        white-space: nowrap; /* Prevent text wrapping */
+    }
+     /* Progress bar styling */
+     .progress {
+        height: 12px; /* Slightly thicker progress bar */
+        margin-bottom: 0; /* Remove default margin */
+        background-color: #e9ecef; /* Light background for contrast */
+        border-radius: .25rem;
+        overflow: hidden;
+        /* width: 100%; Ensure progress bar takes full width of cell */
+     }
+     .progress-bar {
+         transition: width .6s ease;
+         font-size: 0.7rem; /* Smaller text inside bar if needed */
+         line-height: 12px; /* Match height */
+         color: white;
+         text-align: center;
+         white-space: nowrap;
+         background-color: #7b4acf !important; /* custom progress color */
+         /* Colors set by bg-* classes */
+     }
+     /* Space below percentage text */
+     td.col-cpu span, td.col-ram span {
+        display: block;
+        margin-bottom: 3px; /* Small space */
+        text-align: right; /* Keep percentage right aligned */
+        font-size: 0.9em; /* Slightly smaller text for percentage */
+     }
+
+     /* --- Text Alignment by Column --- */
+     /* Default: Left (Name, Image, Ports) */
+     #metricsTable th,
+     #metricsTable td { text-align: left; }
+     #metricsTable th.col-name, #metricsTable td.col-name,
+     #metricsTable th.col-image, #metricsTable td.col-image,
+     #metricsTable th.col-ports, #metricsTable td.col-ports { text-align: left; }
+     /* Right for numeric data + uptime (using fixed width helps) */
+     #metricsTable th.col-cpu, #metricsTable td.col-cpu,
+     #metricsTable th.col-ram, #metricsTable td.col-ram,
+     #metricsTable th.col-uptime, #metricsTable td.col-uptime,
+     #metricsTable th.col-netio, #metricsTable td.col-netio,
+     #metricsTable th.col-blockio, #metricsTable td.col-blockio,
+     #metricsTable th.col-restarts, #metricsTable td.col-restarts,
+     #metricsTable th.col-size, #metricsTable td.col-size,
+     #metricsTable th.col-pid, #metricsTable td.col-pid,
+     #metricsTable th.col-memlimit, #metricsTable td.col-memlimit,
+     #metricsTable th.col-rootfs, #metricsTable td.col-rootfs { text-align: right; }
+     #metricsTable td.col-uptime { font-family: monospace; font-size: 0.9em; } /* Monospace for uptime alignment */
+     /* Center for Status */
+     #metricsTable th.col-status, #metricsTable td.col-status { text-align: center; }
+     /* Center for Charts (Chart button) */
+     #metricsTable th.col-charts, #metricsTable td.col-charts { text-align: center; }
+     /* Center for UI */
+     #metricsTable th.col-ui, #metricsTable td.col-ui { text-align: center; }
+
+
+    /* Dark mode */
+    [data-bs-theme="dark"] body { /* Target Bootstrap 5.3+ dark mode */
+      background: #1c1c1c; /* Slightly off-black */
+      color: #e0e0e0; /* Light gray */
+    }
+    [data-bs-theme="dark"] .form-control, [data-bs-theme="dark"] .form-select {
+      background: #2a2a2a;
+      color: #e0e0e0;
+      border-color: #555; /* Slightly lighter border */
+    }
+    [data-bs-theme="dark"] .form-control::placeholder { color: #aaa; }
+    [data-bs-theme="dark"] .table, [data-bs-theme="dark"] th, [data-bs-theme="dark"] td {
+      color: #e0e0e0;
+      border-color: #444;
+    }
+     /* Striping overrides */
+     [data-bs-theme="dark"] .table-striped>tbody>tr:nth-of-type(odd)>* {
+       background-color: #232323 !important; /* Darker stripe */
+       color: #e0e0e0;
+    }
+     [data-bs-theme="dark"] .table-striped>tbody>tr:nth-of-type(even)>* {
+       background-color: #2a2a2a !important; /* Lighter stripe */
+       color: #e0e0e0;
+    }
+     /* Dark mode progress bar background */
+     [data-bs-theme="dark"] .progress {
+         background-color: #555; /* Darker background */
+     }
+    [data-bs-theme="dark"] .form-check-input {
+        background-color: #2a2a2a;
+        border-color: #555;
+    }
+    [data-bs-theme="dark"] .form-check-input:checked {
+        background-color: #0d6efd; /* Bootstrap primary blue */
+        border-color: #0d6efd;
+    }
+    [data-bs-theme="dark"] .form-check-label {
+        color: #e0e0e0; /* Ensure label text is visible */
+    }
+
+    /* Floating buttons */
+    #themeToggle, #scrollTop {
+      position: fixed;
+      bottom: 1rem;
+      width: 3rem;
+      height: 3rem;
+      font-size: 1.5rem;
+      line-height: 3rem;
+      text-align: center;
+      border-radius: 50%;
+      background: rgba(var(--bs-body-bg-rgb, 255, 255, 255), 0.8); /* Use BS vars for bg */
+      color: var(--bs-body-color, #333); /* Use BS vars for color */
+      cursor: pointer;
+      z-index: 1050; /* Ensure above most content */
+      transition: background .3s, color .3s, transform 0.2s;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+      border: 1px solid rgba(var(--bs-emphasis-color-rgb, 0, 0, 0), 0.1); /* Subtle border */
+      padding: 0; /* Remove default button padding */
+    }
+     #themeToggle:hover, #scrollTop:hover {
+        transform: scale(1.1); /* Slight scale on hover */
+     }
+    #scrollTop { right: 1rem; }
+    #themeToggle { right: 5rem; }
+    /* Dark mode uses the same variables, they just have different values */
+
+
+    /* Column visibility toggles */
+    .column-toggles .form-check {
+        display: inline-block;
+        margin-right: 10px;
+        margin-bottom: 5px;
+    }
+    .column-toggles {
+        margin-bottom: 1rem;
+        padding: 0.75rem 1rem; /* More padding */
+        border: 1px solid var(--bs-border-color-translucent, rgba(0,0,0,0.1));
+        border-radius: 0.375rem;
+        background: rgba(var(--bs-secondary-bg-rgb), 0.1); /* Subtle background */
+    }
+     .column-toggles strong {
+        margin-right: 10px;
+     }
+
+
+     /* Column visibility CSS - Add classes to hide columns */
+     /* Using !important might be needed if other styles conflict, but try without first */
+     .hide-col-name th.col-name, .hide-col-name td.col-name { display: none; }
+     .hide-col-cpu th.col-cpu, .hide-col-cpu td.col-cpu { display: none; }
+     .hide-col-ram th.col-ram, .hide-col-ram td.col-ram { display: none; }
+     .hide-col-status th.col-status, .hide-col-status td.col-status { display: none; }
+     .hide-col-size th.col-size, .hide-col-size td.col-size { display: none; }
+     .hide-col-uptime th.col-uptime, .hide-col-uptime td.col-uptime { display: none; }
+     .hide-col-netio th.col-netio, .hide-col-netio td.col-netio { display: none; }
+     .hide-col-blockio th.col-blockio, .hide-col-blockio td.col-blockio { display: none; }
+     .hide-col-image th.col-image, .hide-col-image td.col-image { display: none; }
+     .hide-col-ports th.col-ports, .hide-col-ports td.col-ports { display: none; }
+     .hide-col-restarts th.col-restarts, .hide-col-restarts td.col-restarts { display: none; }
+     .hide-col-pid th.col-pid, .hide-col-pid td.col-pid { display: none; } /* Hide Procs column */
+     .hide-col-memlimit th.col-memlimit, .hide-col-memlimit td.col-memlimit { display: none; } /* Hide Mem Limit column */
+     .hide-col-logs th.col-logs, .hide-col-logs td.col-logs { display: none; }
+     .hide-col-charts th.col-charts, .hide-col-charts td.col-charts { display: none; } /* Add rule for charts */
+     .hide-col-ui th.col-ui, .hide-col-ui td.col-ui { display: none; } /* Add rule for UI column */
+     .hide-col-rootfs th.col-rootfs, .hide-col-rootfs td.col-rootfs { display: none; } /* Hide Total FS column */
+
+     /* --- Chart Container Styling --- */
+     #chartContainer {
+        margin-top: 1rem; /* Reduced margin */
+        padding: 0.5rem; /* Further reduced padding */
+        border: 1px solid var(--bs-border-color-translucent, rgba(0,0,0,0.1));
+        border-radius: 0.375rem;
+        background: rgba(var(--bs-secondary-bg-rgb), 0.05);
+        max-height: 500px; /* Significantly reduced container height */
+        display: none; /* Initially hidden */
+        overflow: hidden; /* Hide potential overflow */
+     }
+     #chartContainer h5 {
+        margin-bottom: 0.25rem; /* Reduced margin */
+        font-size: 0.9rem; /* Smaller title */
+        text-align: center;
+     }
+     #chartContainer canvas { /* Ensure canvas respects container height */
+        max-height: 360px; /* Significantly reduced max-height for the canvas */
+     }
+     #chartControls {
+        text-align: center;
+        margin-bottom: 0.25rem; /* Reduced margin */
+     }
+     #chartControls .btn-group {
+        margin-bottom: 0.25rem; /* Space below buttons */
+     }
+     #chartControls .btn-sm {
+        padding: 0.15rem 0.4rem; /* Smaller buttons */
+        font-size: 0.8rem;
+     }
+
+     /* Footer Styling */
+     .footer {
+        padding: 1rem 0;
+        margin-top: 2rem; /* Space above footer */
+        text-align: center;
+        font-size: 0.9em;
+        color: var(--bs-secondary-color); /* Use Bootstrap secondary text color */
+        border-top: 1px solid var(--bs-border-color-translucent); /* Subtle top border */
+     }
+
+  </style>
+</head>
+<body data-bs-theme="light">
+  <nav class="navbar fixed-top">
+    <div class="container">
+      <img src="{{ url_for('static', filename='logo.png') }}" alt="Docker Monitor Logo">
+    </div>
+  </nav>
+
+  <button type="button" id="themeToggle" aria-label="Toggle theme">🌙</button>
+  <button type="button" id="scrollTop" aria-label="Scroll to top">⬆️</button>
+
+  <div class="container">
+    <div class="row g-3 mb-3 align-items-center">
+      <div class="col-lg-2 col-md-4 col-sm-6"><input id="filterName" class="form-control form-control-sm" placeholder="Filter by name"></div>
+      <div class="col-lg-2 col-md-4 col-sm-6">
+        <select id="filterStatus" class="form-select form-select-sm" aria-label="Filter by status">
+          <option value="">All statuses</option>
+          <option value="running">Running</option>
+          <option value="exited">Exited</option>
+          <option value="created">Created</option>
+          <option value="restarting">Restarting</option>
+          <option value="paused">Paused</option>
+          <option value="error-sample">Error Sampling</option>
+          <option value="unknown">Unknown</option>
+        </select>
+      </div>
+      <div class="col-lg-2 col-md-4 col-sm-6">
+        <select id="filterRange" class="form-select form-select-sm" aria-label="Filter by time range (History window)">
+          <option value="300">Last 5 minutes</option>
+          <option value="900">Last 15 minutes</option>
+          <option value="1800">Last 30 minutes</option>
+          <option value="3600">Last 1 hour</option>
+          <option value="7200">Last 2 hours</option>
+          <option value="14400">Last 4 hours</option>
+          <option value="21600">Last 6 hours</option>
+          <option value="43200">Last 12 hours</option>
+          <option value="86400" selected>Last 24 hours</option>
+        </select>
+      </div>
+      <div class="col-lg-2 col-md-4 col-sm-6">
+        <select id="sortBy" class="form-select form-select-sm" aria-label="Sort by column">
+          <option value="name">Sort by Name</option>
+          <option value="cpu">Sort by CPU %</option>
+          <option value="mem">Sort by RAM %</option>
+          <option value="combined" selected>Sort by Combined %</option>
+          <option value="status">Sort by Status</option>
+          <option value="size_rw">Sort by Size (RW)</option>
+          <option value="size_rootfs">Sort by Total FS</option>
+          <option value="uptime_sec">Sort by Uptime</option>
+          <option value="restarts">Sort by Restarts</option>
+        </select>
+      </div>
+      <div class="col-lg-1 col-md-2 col-sm-3">
+        <select id="sortDir" class="form-select form-select-sm" aria-label="Sort direction">
+          <option value="asc">Asc</option>
+          <option value="desc" selected>Desc</option>
+        </select>
+      </div>
+      <div class="col-lg-2 col-md-4 col-sm-6">
+        <input id="maxItems" type="number" min="1" value="25" class="form-control form-control-sm" placeholder="Max items" aria-label="Max items">
+      </div>
+      <div class="col-lg-2 col-md-4 col-sm-6">
+        <input id="serverIP" class="form-control form-control-sm" placeholder="Server IP (e.g., 127.0.0.1)" aria-label="Server IP">
+      </div>
+      <div class="col-lg-1 col-md-2 col-sm-3 d-flex align-items-center">
+        <div class="form-check form-check-inline">
+          <input id="useCustomIP" class="form-check-input align-middle" type="checkbox">
+          <label class="form-check-label mb-0 align-middle" for="useCustomIP">Use Custom IP</label>
+        </div>
+      </div>  <!-- End maxItems/IP cols -->
+    </div>
+
+     <div class="row mb-3">
+        <div class="col-12">
+            <div class="column-toggles">
+                <strong>Show columns:</strong>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" value="name" id="toggleColName" checked>
+                    <label class="form-check-label" for="toggleColName">Name</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" value="cpu" id="toggleColCPU" checked>
+                    <label class="form-check-label" for="toggleColCPU">CPU %</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" value="ram" id="toggleColRAM" checked>
+                    <label class="form-check-label" for="toggleColRAM">RAM %</label>
+                </div>
+                 <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" value="status" id="toggleColStatus" checked>
+                    <label class="form-check-label" for="toggleColStatus">Status</label>
+                </div>
+                 <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" value="size" id="toggleColSize" checked>
+                    <label class="form-check-label" for="toggleColSize">Size (RW)</label>
+                 </div>
+                 <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" value="uptime" id="toggleColUptime" checked>
+                    <label class="form-check-label" for="toggleColUptime">Uptime (D H M S)</label>
+                </div>
+                 <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" value="netio" id="toggleColNetIO">
+                    <label class="form-check-label" for="toggleColNetIO">Net I/O</label>
+                </div>
+                 <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" value="blockio" id="toggleColBlockIO">
+                    <label class="form-check-label" for="toggleColBlockIO">Block I/O</label>
+                </div>
+                 <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" value="image" id="toggleColImage">
+                    <label class="form-check-label" for="toggleColImage">Image</label>
+                </div>
+                 <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" value="ports" id="toggleColPorts">
+                    <label class="form-check-label" for="toggleColPorts">Ports</label>
+                </div>
+                 <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" value="restarts" id="toggleColRestarts">
+                    <label class="form-check-label" for="toggleColRestarts">Restarts</label>
+                </div>
+                 <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" value="logs" id="toggleColLogs" checked>
+                    <label class="form-check-label" for="toggleColLogs">Logs</label>
+                </div>
+                 <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" value="charts" id="toggleColCharts" checked>
+                    <label class="form-check-label" for="toggleColCharts">Charts</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" value="ui" id="toggleColUI" checked>
+                    <label class="form-check-label" for="toggleColUI">UI</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" value="rootfs" id="toggleColRootFs" checked>
+                    <label class="form-check-label" for="toggleColRootFs">Total FS</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" value="pid" id="toggleColPID" checked>
+                    <label class="form-check-label" for="toggleColPID">Procs</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" value="memlimit" id="toggleColMemLimit" checked>
+                    <label class="form-check-label" for="toggleColMemLimit">Mem Limit (MB)</label>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="row mb-3">
+      <div class="col-12">
+        <button id="saveSettingsBtn" class="btn btn-primary btn-sm">💾 Save Settings</button>
+        <button id="toggleColsBtn" class="btn btn-secondary btn-sm ms-2">🔄 Select/Deselect All</button>
+      </div>
+    </div>
+
+    <!-- Comparison controls above table -->
+    <div class="row mb-3">
+      <div class="col-12 d-flex justify-content-end align-items-center">
+        <div class="dropdown me-2">
+          <button class="btn btn-secondary btn-sm dropdown-toggle" type="button" id="compareDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+            📊 Comparison graphs
+          </button>
+          <ul class="dropdown-menu" aria-labelledby="compareDropdown">
+            <li><a class="dropdown-item compare-action" href="#" data-compare-type="usage">CPU/RAM Usage</a></li>
+            <li><a class="dropdown-item compare-action" href="#" data-compare-type="size">Size (RW)</a></li>
+            <li><a class="dropdown-item compare-action" href="#" data-compare-type="uptime">Uptime</a></li>
+          </ul>
+        </div>
+        <input id="compareTopN" type="number" min="1" value="10" class="form-control form-control-sm" placeholder="Top N" aria-label="Top N" style="width: 4.5rem;">
+      </div>
+    </div>
+    <!-- End comparison controls -->
+
+    <div id="tableView" class="table-responsive mb-4">
+      <table id="metricsTable" class="table table-striped table-hover table-sm">
+        <thead>
+          <tr>
+            <th class="col-name">🏷️ Name</th>
+            <th class="col-cpu">⚙️ CPU %</th>
+            <th class="col-ram">🧠 RAM %</th>
+            <th class="col-pid">⚙️ Procs</th>
+            <th class="col-memlimit">💾 Mem Limit (MB)</th>
+            <th class="col-status">🚦 Status</th>
+            <th class="col-size">📦 Size (RW MB)</th>
+            <th class="col-rootfs">📦 FS (MB)</th>
+            <th class="col-uptime">⏱️ Uptime (D H M S)</th>
+            <th class="col-netio">🌐 Net I/O (Rx/Tx MB)</th>
+            <th class="col-blockio">💾 Block I/O (R/W MB)</th>
+            <th class="col-image">🖼️ Image</th>
+            <th class="col-ports">🔌 Ports</th>
+            <th class="col-restarts">🔄 Restarts</th>
+            <th class="col-logs">📜 Logs</th>
+            <th class="col-charts">📊 Charts</th>
+            <th class="col-ui">🌐 UI</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div id="tableStatus" class="text-center text-muted mt-2"></div>
+    </div>  <!-- End #tableView -->
+    <!-- Chart Area -->
+    <div id="chartContainer">
+        <h5 id="chartTitle">Historical Usage</h5>
+        <div id="chartControls">
+            <div class="btn-group" role="group" aria-label="Chart type toggle">
+                <input type="radio" class="btn-check" name="chartType" id="lineChartBtn" value="line" autocomplete="off" checked>
+                <label class="btn btn-outline-primary btn-sm" for="lineChartBtn">Line Chart</label>
+
+                <input type="radio" class="btn-check" name="chartType" id="barChartBtn" value="bar" autocomplete="off">
+                <label class="btn btn-outline-primary btn-sm" for="barChartBtn">Bar Chart</label>
+            </div>
+        </div>
+        <canvas id="usageChart"></canvas>
+        <div id="chartStatus">Select a container's 'Show Chart' button to view history.</div>
+    </div>
+    <!-- End Chart Area -->
+
+  </div> <!-- End Main Container -->
+
+  <!-- Footer -->
+  <footer class="footer container">
+    <p>Version: v0.2.0</p>
+  </footer>
+  <!-- End Footer -->
+
+  <!-- Bootstrap Bundle with Popper -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+
+  <script>
+    console.log("DEBUG: Script block started."); // <-- Added log
+    // --- Global Variables ---
+    const metricsTable = document.getElementById('metricsTable');
+    const metricsTableBody = metricsTable.querySelector('tbody');
+    const tableStatusDiv = document.getElementById('tableStatus'); // For 'Loading...' or 'No data' messages
+    const tableDiv = document.getElementById('tableView');
+    const themeToggleButton = document.getElementById('themeToggle');
+    const scrollTopButton = document.getElementById('scrollTop');
+    const chartContainer = document.getElementById('chartContainer');
+    const chartCanvas = document.getElementById('usageChart');
+    const chartTitle = document.getElementById('chartTitle');
+    const chartStatus = document.getElementById('chartStatus');
+    let refreshIntervalId = null; // To store the interval ID
+    const REFRESH_INTERVAL_MS = 5000; // 5 seconds (Should match SAMPLE_INTERVAL ideally)
+    let usageChart = null; // To store the Chart.js instance
+    let currentChartContainerId = null; // Track which container's chart is shown
+    let currentChartType = 'line'; // Default chart type
+    let allMetricsData = []; // Store the full unfiltered data
+
+    // --- Theme Management ---
+    function applyTheme(theme) { // theme = 'light' or 'dark'
+        document.body.setAttribute('data-bs-theme', theme);
+        themeToggleButton.textContent = theme === 'dark' ? '☀️' : '🌙';
+    }
+    // Check preference, default to light if not set or invalid
+    let currentTheme = localStorage.getItem('theme') || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    if (currentTheme !== 'dark' && currentTheme !== 'light') {
+        currentTheme = 'light'; // Default to light if stored value is weird
+    }
+    applyTheme(currentTheme); // Apply initial theme
+
+    themeToggleButton.onclick = () => {
+      currentTheme = (currentTheme === 'light' ? 'dark' : 'light'); // Toggle state
+      localStorage.setItem('theme', currentTheme); // Save preference
+      applyTheme(currentTheme); // Apply the new theme
+    };
+
+    // --- Scroll to Top ---
+    scrollTopButton.onclick = () => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    // --- Column Visibility ---
+    function applyColumnVisibility() {
+        const toggles = document.querySelectorAll('.column-toggles .form-check-input');
+        toggles.forEach(toggle => {
+            const columnClass = `hide-col-${toggle.value}`; // e.g., hide-col-name or hide-col-charts
+            // Toggle class on the TABLE element itself
+            metricsTable.classList.toggle(columnClass, !toggle.checked); // Add class if unchecked, remove if checked
+        });
+    }
+    // Add event listeners to toggles
+    document.querySelectorAll('.column-toggles .form-check-input').forEach(toggle => {
+        // Ensure default state is applied on load
+        const columnClass = `hide-col-${toggle.value}`;
+        metricsTable.classList.toggle(columnClass, !toggle.checked);
+        // Add the change listener
+        toggle.addEventListener('change', applyColumnVisibility);
+    });
+
+
+    // --- Data Fetching and Rendering ---
+    let isFetching = false; // Prevent concurrent fetches
+    async function fetchMetrics() {
+        console.log("DEBUG: fetchMetrics called."); // <-- Added log
+        if (isFetching) {
+            // console.log("Fetch already in progress, skipping.");
+            return;
+        }
+        isFetching = true;
+        // Show loading indicator in table view
+        tableStatusDiv.textContent = 'Loading...';
+
+        const nameFilter = document.getElementById('filterName').value.toLowerCase().trim();
+        const statusFilter = document.getElementById('filterStatus').value;
+        const range = document.getElementById('filterRange').value; // Still sent, backend history buffer uses it implicitly
+        const sortBy = document.getElementById('sortBy').value; // Now might be 'uptime_sec'
+        const sortDir = document.getElementById('sortDir').value;
+        const maxItems = parseInt(document.getElementById('maxItems').value) || 0; // Default to 0 (no limit backend-side)
+
+        // Build API URL (Points to the API route defined in routes.py)
+        let url = `/api/metrics?sort=${sortBy}&dir=${sortDir}`;
+        // Conditionally add filters only if they have a value
+        if (nameFilter) url += `&name=${encodeURIComponent(nameFilter)}`;
+        if (statusFilter) url += `&status=${encodeURIComponent(statusFilter)}`;
+        // Add max items parameter (the backend should handle this)
+        if (maxItems > 0) url += `&max=${maxItems}`;
+        // Add range for potential future backend use or debugging
+        url += `&range=${range}`;
+
+
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                console.error("Failed to fetch metrics:", response.status, await response.text());
+                const errorMsg = `Error loading data (Status: ${response.status}). Check console.`;
+                metricsTableBody.innerHTML = ''; // Clear table body
+                tableStatusDiv.innerHTML = `<span class="text-danger">${errorMsg}</span>`;
+                tableDiv.style.display = ''; // Ensure table container is visible
+                return; // Stop processing on error
+            }
+            const data = await response.json();
+
+            allMetricsData = data; // Store the fetched data globally
+
+            tableDiv.style.display = ''; // Ensure table container is visible
+            renderTable(data); // Render the table data
+
+        } catch (error) {
+            console.error("Error during fetch or processing:", error);
+            const errorMsg = 'Network or processing error. Check console.';
+            metricsTableBody.innerHTML = '';
+            tableStatusDiv.innerHTML = `<span class="text-danger">${errorMsg}</span>`;
+            tableDiv.style.display = ''; // Ensure table container is visible
+        } finally {
+            isFetching = false; // Allow next fetch
+        }
+    }
+
+    function renderTable(data) {
+      metricsTableBody.innerHTML = ''; // Clear previous data
+      tableStatusDiv.textContent = ''; // Clear status message initially
+
+      if (!data || data.length === 0) {
+          // Display a message if no data matching filters
+          tableStatusDiv.textContent = 'No containers match filters or no data available.';
+          return;
+      }
+
+      data.forEach(d => {
+        const tr = document.createElement('tr');
+        // Handle potentially missing data gracefully
+        const imageName = d.image || 'N/A';
+        const portInfo = d.ports || 'N/A';
+        // Derive host port and server IP for UI link
+        const hostPort = portInfo.split('->')[0].split(':').pop();
+        const baseIP = localStorage.getItem('useCustomIP') === 'true' ? localStorage.getItem('serverIP') : 'localhost';
+        // Check for null/undefined size BEFORE calling toFixed
+        const sizeText = (d.size_rw !== null && d.size_rw !== undefined) ? d.size_rw.toFixed(2) : 'N/A';
+        const rootFsText = (d.size_rootfs !== null && d.size_rootfs !== undefined) ? d.size_rootfs.toFixed(2) : 'N/A';
+        // Use the formatted uptime string directly from backend
+        const uptimeText = d.uptime || 'N/A';
+        // Check for null/undefined restarts
+        const restartsText = (d.restarts !== null && d.restarts !== undefined) ? d.restarts : 'N/A';
+        // Check for null/undefined IO values before toFixed
+        const netRxText = (d.net_io_rx !== null && d.net_io_rx !== undefined) ? d.net_io_rx.toFixed(2) : '-';
+        const netTxText = (d.net_io_tx !== null && d.net_io_tx !== undefined) ? d.net_io_tx.toFixed(2) : '-';
+        const blockRText = (d.block_io_r !== null && d.block_io_r !== undefined) ? d.block_io_r.toFixed(2) : '-';
+        const blockWText = (d.block_io_w !== null && d.block_io_w !== undefined) ? d.block_io_w.toFixed(2) : '-';
+
+        // --- CPU Cell with Progress Bar ---
+        // Ensure d.cpu is treated as a number, default to 0 if null/undefined/NaN
+        const cpuNum = Number(d.cpu) || 0;
+        const cpuVal = cpuNum.toFixed(2);
+        const cpuText = (d.cpu !== null && d.cpu !== undefined) ? `${cpuVal}%` : 'N/A'; // Show N/A if original was null/undefined
+        const cpuProgress = Math.max(0, Math.min(100, cpuNum)); // Clamp 0-100
+
+        // --- Memory Cell with Progress Bar ---
+        const memNum = Number(d.mem) || 0;
+        const memVal = memNum.toFixed(2);
+        const memText = (d.mem !== null && d.mem !== undefined) ? `${memVal}%` : 'N/A'; // Show N/A if original was null/undefined
+        const memProgress = Math.max(0, Math.min(100, memNum)); // Clamp 0-100
+
+        // Use template literal for cleaner HTML structure
+        // Added classes like 'col-name', 'col-cpu' etc. to match CSS selectors for hiding
+        tr.innerHTML = `
+          <td class="col-name">${d.name || 'N/A'}</td>
+
+          <td class="col-cpu">
+            <span>${cpuText}</span>
+            <div class="progress" role="progressbar" aria-label="CPU usage for ${d.name || 'container'}" aria-valuenow="${cpuProgress}" aria-valuemin="0" aria-valuemax="100">
+              <div class="progress-bar bg-info text-bg-info" style="width: ${cpuProgress}%;"></div>
+            </div>
+          </td>
+
+          <td class="col-ram">
+            <span>${memText}</span>
+            <div class="progress" role="progressbar" aria-label="Memory usage for ${d.name || 'container'}" aria-valuenow="${memProgress}" aria-valuemin="0" aria-valuemax="100">
+              <div class="progress-bar bg-success text-bg-success" style="width: ${memProgress}%;"></div>
+            </div>
+          </td>
+
+          <td class="col-pid">${d.pid_count !== null ? d.pid_count : 'N/A'}</td>
+          <td class="col-memlimit">${d.mem_limit !== null ? d.mem_limit.toFixed(2) : 'N/A'}</td>
+          <td class="col-status">${d.status || 'N/A'}</td>
+          <td class="col-size">${sizeText}</td>
+          <td class="col-rootfs">${rootFsText}</td>
+          <td class="col-uptime">${uptimeText}</td>
+          <td class="col-netio">${netRxText} / ${netTxText}</td>
+          <td class="col-blockio">${blockRText} / ${blockWText}</td>
+          <td class="col-image" title="${imageName}" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">${imageName}</td>
+          <td class="col-ports" title="${portInfo}" style="max-width: 250px; overflow: hidden; text-overflow: ellipsis;">${portInfo}</td>
+          <td class="col-restarts">${restartsText}</td>
+          <td class="col-logs"><a href="/logs/${d.id}" target="_blank">View Logs</a></td>
+          <td class="col-charts">
+            <button class="btn btn-outline-secondary btn-sm show-chart-btn" data-container-id="${d.id}" data-container-name="${d.name || 'Unknown'}">
+              Show Chart 📈
+            </button>
+          </td>
+          <td class="col-ui">
+            <a href="http://${baseIP}:${hostPort}" target="_blank" class="btn btn-outline-primary btn-sm">Open UI</a>
+          </td>
+        `;
+        metricsTableBody.appendChild(tr);
+      });
+
+      // Add event listeners to the new chart buttons AFTER rendering the table
+      addChartButtonListeners();
+      // Re-apply column visibility after rendering new rows
+      applyColumnVisibility();
+    }
+
+    // --- Chart Functions ---
+    function addChartButtonListeners() {
+        // Listener for individual container history charts
+        document.querySelectorAll('.show-chart-btn').forEach(button => {
+            button.removeEventListener('click', handleShowHistoryChart); // Remove previous listener if any
+            button.addEventListener('click', handleShowHistoryChart);
+        });
+
+        // Listener for comparison chart dropdown items - NOW OPENS NEW TAB
+        document.querySelectorAll('.compare-action').forEach(action => {
+            action.removeEventListener('click', handleOpenComparisonTab); // Remove previous listener
+            action.addEventListener('click', handleOpenComparisonTab);
+        });
+    }
+
+    function handleShowHistoryChart(event) {
+        const containerId = event.target.dataset.containerId;
+        const containerName = event.target.dataset.containerName;
+        currentChartContainerId = containerId; // Store the selected container ID
+        chartTitle.textContent = `Historical Usage for ${containerName} (${containerId.substring(0, 12)})`;
+        chartContainer.style.display = 'block'; // Show the chart container
+        document.getElementById('chartControls').style.display = 'block'; // Show line/bar toggle
+        fetchAndRenderChart(); // Fetch data and render the HISTORY chart
+        chartContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // NEW function to handle opening comparison charts in a new tab
+    function handleOpenComparisonTab(event) {
+        event.preventDefault(); // Prevent default link behavior
+        const compareType = event.target.dataset.compareType;
+        const topN = document.getElementById('compareTopN').value || 5; // Get Top N value
+        const url = `/compare/${compareType}?topN=${topN}`; // Construct URL for the new route
+        window.open(url, '_blank'); // Open the URL in a new tab
+    }
+
+    async function fetchAndRenderChart() {
+        if (!currentChartContainerId) return; // Don't fetch if no container is selected
+
+        const range = document.getElementById('filterRange').value;
+        const url = `/api/history/${currentChartContainerId}?range=${range}`;
+        chartStatus.textContent = 'Loading chart data...';
+        chartStatus.style.color = 'var(--bs-secondary-color)'; // Reset color
+
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                console.error("Failed to fetch history:", response.status, await response.text());
+                chartStatus.textContent = `Error loading chart data (Status: ${response.status}).`;
+                chartStatus.style.color = 'var(--bs-danger)';
+                if (usageChart) {
+                    usageChart.destroy(); // Clear existing chart on error
+                    usageChart = null;
+                }
+                return;
+            }
+            const historyData = await response.json();
+            renderChart(historyData);
+
+        } catch (error) {
+            console.error("Error fetching or processing chart data:", error);
+            chartStatus.textContent = 'Network or processing error loading chart data.';
+            chartStatus.style.color = 'var(--bs-danger)';
+             if (usageChart) {
+                usageChart.destroy();
+                usageChart = null;
+            }
+        }
+    }
+
+    function renderChart(historyData) {
+        if (!historyData || !historyData.timestamps || historyData.timestamps.length === 0) {
+            chartStatus.textContent = 'No historical data available for the selected range.';
+            if (usageChart) {
+                usageChart.destroy();
+                usageChart = null;
+            }
+            return;
+        }
+
+        chartStatus.textContent = ''; // Clear status message
+
+        const labels = historyData.timestamps.map(ts => new Date(ts * 1000).toLocaleString()); // Format timestamps
+        const cpuData = historyData.cpu_usage;
+        const ramData = historyData.ram_usage;
+
+        const datasets = [
+            {
+                label: 'CPU Usage (%)',
+                data: cpuData,
+                borderColor: 'rgb(54, 162, 235)', // Blue
+                backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                tension: 0.1, // For line chart smoothness
+                fill: currentChartType === 'line' ? false : true, // Fill for bar, not line
+            },
+            {
+                label: 'RAM Usage (%)',
+                data: ramData,
+                borderColor: 'rgb(75, 192, 192)', // Green
+                backgroundColor: 'rgba(75, 192, 192, 0.5)',
+                tension: 0.1,
+                fill: currentChartType === 'line' ? false : true,
+            }
+        ];
+
+        const config = {
+            type: currentChartType, // 'line' or 'bar'
+            data: {
+                labels: labels,
+                datasets: datasets
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false, // Allow chart to fill container height
+                animation: {
+                    duration: 500 // Shorter animation
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 100, // Assuming percentage
+                        title: {
+                            display: true,
+                            text: 'Usage (%)'
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Time'
+                        },
+                        ticks: {
+                            maxRotation: 70, // Rotate labels if they overlap
+                            minRotation: 0,
+                            autoSkip: true, // Skip labels automatically if too dense
+                            maxTicksLimit: 20 // Limit number of visible ticks
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                    }
+                },
+                hover: { // Performance optimization for large datasets
+                    mode: 'nearest',
+                    intersect: true
+                }
+            }
+        };
+
+        // Destroy previous chart instance if it exists
+        if (usageChart) {
+            usageChart.destroy();
+        }
+
+        // Create new chart
+        usageChart = new Chart(chartCanvas, config);
+    }
+
+    // Función para guardar todos los ajustes en localStorage
+    function saveSettings() {
+      const ids = ['filterName','filterStatus','filterRange','sortBy','sortDir','maxItems'];
+      ids.forEach(id => localStorage.setItem(id, document.getElementById(id).value));
+      localStorage.setItem('chartType', currentChartType);
+      localStorage.setItem('theme', currentTheme);
+      // Save server IP settings
+      localStorage.setItem('serverIP', document.getElementById('serverIP').value);
+      localStorage.setItem('useCustomIP', document.getElementById('useCustomIP').checked);
+      // Guardar columnas visibles
+      document.querySelectorAll('.column-toggles .form-check-input').forEach(input => {
+        localStorage.setItem(input.id, input.checked);
+      });
+      alert('Settings saved ✅');
+    }
+
+    // Toggle all column visibility
+    function toggleAllColumns() {
+      const inputs = document.querySelectorAll('.column-toggles .form-check-input');
+      const anyChecked = Array.from(inputs).some(i => i.checked);
+      inputs.forEach(i => {
+        i.checked = anyChecked ? false : true;
+        localStorage.setItem(i.id, i.checked);
+      });
+      applyColumnVisibility();
+    }
+
+    // --- Initial Load & Event Listeners ---
+    document.addEventListener('DOMContentLoaded', () => {
+        // Load persisted controls
+        const savedName = localStorage.getItem('filterName');
+        if (savedName) document.getElementById('filterName').value = savedName;
+        const savedStatus = localStorage.getItem('filterStatus');
+        if (savedStatus) document.getElementById('filterStatus').value = savedStatus;
+        const savedRange = localStorage.getItem('filterRange');
+        if (savedRange) document.getElementById('filterRange').value = savedRange;
+        const savedSortBy = localStorage.getItem('sortBy');
+        if (savedSortBy) document.getElementById('sortBy').value = savedSortBy;
+        const savedSortDir = localStorage.getItem('sortDir');
+        if (savedSortDir) document.getElementById('sortDir').value = savedSortDir;
+        const savedMax = localStorage.getItem('maxItems');
+        if (savedMax) document.getElementById('maxItems').value = savedMax;
+        // Load saved server IP and custom IP toggle
+        const savedIP = localStorage.getItem('serverIP');
+        if (savedIP) document.getElementById('serverIP').value = savedIP;
+        const savedUseCustom = localStorage.getItem('useCustomIP');
+        if (savedUseCustom !== null) document.getElementById('useCustomIP').checked = (savedUseCustom === 'true');
+        const savedChartType = localStorage.getItem('chartType');
+        if (savedChartType) {
+            document.getElementById(savedChartType + 'ChartBtn').checked = true;
+            currentChartType = savedChartType;
+        }
+        // Cargar estado guardado de columnas
+        document.querySelectorAll('.column-toggles .form-check-input').forEach(input => {
+          const saved = localStorage.getItem(input.id);
+          if (saved !== null) input.checked = (saved === 'true');
+        });
+        applyColumnVisibility();
+        // Añadir listener para el botón de guardar ajustes
+        document.getElementById('saveSettingsBtn').addEventListener('click', saveSettings);
+        document.getElementById('toggleColsBtn').addEventListener('click', toggleAllColumns);
+
+        // Add listeners to all filter/control elements
+        document.querySelectorAll('#filterName, #filterStatus, #filterRange, #sortBy, #sortDir')
+            .forEach(el => {
+                el.addEventListener('change', fetchMetrics);
+                el.addEventListener('change', e => localStorage.setItem(e.target.id, e.target.value));
+            });
+        // maxItems persistence and fetch
+        const maxEl = document.getElementById('maxItems');
+        maxEl.addEventListener('change', e => { localStorage.setItem('maxItems', e.target.value); fetchMetrics(); });
+
+        // Persist maxItems on change
+        // Chart type persistence
+        
+        // Apply initial column visibility based on default checkbox state (already done in listener setup)
+
+        // Fetch initial data
+        fetchMetrics();
+
+        // Set interval for periodic refresh
+        if (refreshIntervalId) { clearInterval(refreshIntervalId); } // Clear previous interval if any
+        refreshIntervalId = setInterval(fetchMetrics, REFRESH_INTERVAL_MS);
+
+        // Add listener for Range changes to update the chart if visible
+        document.getElementById('filterRange').addEventListener('change', () => {
+            if (chartContainer.style.display === 'block' && currentChartContainerId) {
+                fetchAndRenderChart();
+            } else {
+                // If range changes but no chart is active, just fetch table data
+                fetchMetrics();
+            }
+        });
+
+        // Add listeners for chart type toggle buttons
+        document.querySelectorAll('input[name="chartType"]').forEach(radio => {
+            radio.addEventListener('change', (event) => {
+                currentChartType = event.target.value;
+                localStorage.setItem('chartType', event.target.value);
+                if (usageChart) fetchAndRenderChart();
+            });
+        });
+
+        console.log(`Docker Monitor UI Initialized. Refreshing every ${REFRESH_INTERVAL_MS / 1000} seconds.`);
+    });
+
+  </script>
+</body>
+</html>

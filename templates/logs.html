@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Docker Logs - {{ container_name }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding: 20px;
+            font-family: monospace;
+        }
+        pre {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        @media (prefers-color-scheme: dark) {
+            body {
+                background-color: #1c1c1c;
+                color: #e0e0e0;
+            }
+            pre {
+                background-color: #2a2a2a;
+                color: #e0e0e0;
+                border: 1px solid #444;
+            }
+            h2 { color: #adb5bd; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2 class="mb-4">📜 Logs for {{ container_name }}</h2>
+        <pre>{{ logs }}</pre>
+    </div>
+</body>
+</html>

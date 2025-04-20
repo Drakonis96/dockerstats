@@ -1,11 +1,9 @@
 version: "3.9"
-
 services:
-  dockerstats:
-    image: drakonis96/dockerstats:latest
+  monitor:
+    build: .
     container_name: docker-monitor
     ports:
       - "5001:5000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    restart: unless-stopped

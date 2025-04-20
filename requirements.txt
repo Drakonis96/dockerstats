@@ -1,5 +1,7 @@
-# requirements.txt
-flask==3.0.2
-docker==7.0.0
-requests-unixsocket==0.3.0
-requests<2.32.0
+Flask>=2.0
+docker>=6.0
+requests_unixsocket>=0.2.0
+python-dateutil>=2.8
+waitress>=2.0  # Opcional, si usas Waitress para producción
+gunicorn       # Alternativa a Waitress para producción en Linux/macOS
+

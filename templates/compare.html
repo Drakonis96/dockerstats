@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Docker Monitor - Comparison: {{ title }}</title>
+  <link rel="icon" href="{{ url_for('static', filename='logo.png') }}">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <style>
+    /* Basic styling - adapt or reuse from index.html if needed */
+    body {
+      padding-top: 1rem;
+      padding-bottom: 5rem;
+      transition: background .3s, color .3s;
+    }
+    #chartContainer {
+        margin: 1rem auto; /* Center chart container */
+        padding: 1rem;
+        border: 1px solid var(--bs-border-color-translucent, rgba(0,0,0,0.1));
+        border-radius: 0.375rem;
+        background: rgba(var(--bs-secondary-bg-rgb), 0.05);
+        max-width: 85%; /* Slightly narrower */
+        height: 60vh; /* Increased height */
+        display: flex; /* Use flexbox for centering canvas */
+        flex-direction: column;
+        align-items: center;
+    }
+    #chartContainer h3 {
+        margin-bottom: 1rem;
+        font-size: 1.2rem;
+        text-align: center;
+    }
+    #comparisonChart {
+        max-width: 100%;
+        max-height: 100%; /* Allow canvas to fill container */
+    }
+    #chartStatus {
+        margin-top: 1rem;
+        text-align: center;
+        color: var(--bs-secondary-color);
+    }
+
+    /* Dark mode styles (Simplified from index.html) */
+    [data-bs-theme="dark"] body { background: #1c1c1c; color: #e0e0e0; }
+    [data-bs-theme="dark"] #chartContainer { border-color: #444; background: #232323; }
+    [data-bs-theme="dark"] #chartStatus { color: #aaa; }
+
+    /* Floating theme toggle */
+    #themeToggle {
+      position: fixed;
+      bottom: 1rem;
+      right: 1rem; /* Only one button needed here */
+      width: 3rem;
+      height: 3rem;
+      font-size: 1.5rem;
+      line-height: 3rem;
+      text-align: center;
+      border-radius: 50%;
+      background: rgba(var(--bs-body-bg-rgb, 255, 255, 255), 0.8);
+      color: var(--bs-body-color, #333);
+      cursor: pointer;
+      z-index: 1050;
+      transition: background .3s, color .3s, transform 0.2s;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+      border: 1px solid rgba(var(--bs-emphasis-color-rgb, 0, 0, 0), 0.1);
+      padding: 0;
+    }
+     #themeToggle:hover { transform: scale(1.1); }
+
+     /* Footer Styling */
+     .footer {
+        padding: 1rem 0;
+        margin-top: 2rem; /* Space above footer */
+        text-align: center;
+        font-size: 0.9em;
+        color: var(--bs-secondary-color); /* Use Bootstrap secondary text color */
+        border-top: 1px solid var(--bs-border-color-translucent); /* Subtle top border */
+     }
+  </style>
+</head>
+<body data-bs-theme="light">
+
+  <button type="button" id="themeToggle" aria-label="Toggle theme">🌙</button>
+
+  <div class="container">
+    <div id="chartContainer">
+        <h3 id="chartTitle">Comparison: {{ title }} (Top {{ top_n }})</h3>
+        <canvas id="comparisonChart"></canvas>
+        <div id="chartStatus">Loading chart data...</div>
+    </div>
+  </div> <!-- End Main Container -->
+
+  <!-- Footer -->
+  <footer class="footer container">
+    <p>Docker Monitor v0.2.0</p> <!-- Update version if needed -->
+  </footer>
+  <!-- End Footer -->
+
+  <!-- Bootstrap Bundle with Popper -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+
+  <script>
+    // --- Global Variables ---
+    const chartCanvas = document.getElementById('comparisonChart');
+    const chartStatus = document.getElementById('chartStatus');
+    const chartTitleElement = document.getElementById('chartTitle');
+    const themeToggleButton = document.getElementById('themeToggle');
+    let comparisonChart = null; // Chart.js instance
+
+    // Passed from Flask template rendering
+    const compareType = "{{ compare_type }}";
+    const topN = {{ top_n }};
+    const pageTitle = "{{ title }}"; // e.g., "CPU/RAM Usage", "Size (RW)", "Uptime"
+
+    // --- Theme Management ---
+    function applyTheme(theme) {
+        document.body.setAttribute('data-bs-theme', theme);
+        themeToggleButton.textContent = theme === 'dark' ? '☀️' : '🌙';
+        // Update chart colors if chart exists
+        if (comparisonChart) {
+            updateChartTheme(theme);
+        }
+    }
+    let currentTheme = localStorage.getItem('theme') || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    if (currentTheme !== 'dark' && currentTheme !== 'light') {
+        currentTheme = 'light';
+    }
+    applyTheme(currentTheme); // Apply initial theme
+
+    themeToggleButton.onclick = () => {
+      currentTheme = (currentTheme === 'light' ? 'dark' : 'light');
+      localStorage.setItem('theme', currentTheme);
+      applyTheme(currentTheme);
+    };
+
+    // --- Chart Data Fetching and Rendering ---
+    async function fetchAndRenderComparisonChart() {
+        const url = `/api/compare/${compareType}?topN=${topN}`;
+        chartStatus.textContent = 'Loading chart data...';
+        chartStatus.style.color = 'var(--bs-secondary-color)';
+
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error(`Failed to fetch comparison data (${compareType}):`, response.status, errorText);
+                chartStatus.textContent = `Error loading chart data (Status: ${response.status}). Check console.`;
+                chartStatus.style.color = 'var(--bs-danger)';
+                if (comparisonChart) {
+                    comparisonChart.destroy();
+                    comparisonChart = null;
+                }
+                return;
+            }
+            const data = await response.json();
+            renderComparisonChart(data);
+
+        } catch (error) {
+            console.error("Error fetching or processing comparison chart data:", error);
+            chartStatus.textContent = 'Network or processing error loading chart data.';
+            chartStatus.style.color = 'var(--bs-danger)';
+             if (comparisonChart) {
+                comparisonChart.destroy();
+                comparisonChart = null;
+            }
+        }
+    }
+
+    function renderComparisonChart(data) {
+        if (!data || data.length === 0) {
+            chartStatus.textContent = `No container data available for comparison (${pageTitle}).`;
+            if (comparisonChart) {
+                comparisonChart.destroy();
+                comparisonChart = null;
+            }
+            return;
+        }
+
+        chartStatus.textContent = ''; // Clear status
+
+        let chartConfig;
+        const labels = data.map(d => `${d.name} (${d.id.substring(0, 6)})`); // Use name and short ID
+
+        // --- Define Chart Configuration based on compareType ---
+        if (compareType === 'usage') {
+            chartConfig = getUsageChartConfig(data, labels);
+        } else if (compareType === 'size') {
+            chartConfig = getSizeChartConfig(data, labels);
+        } else if (compareType === 'uptime') {
+            chartConfig = getUptimeChartConfig(data, labels);
+        } else {
+            console.error("Unknown compare type:", compareType);
+            chartStatus.textContent = `Unknown comparison type: ${compareType}`;
+            return;
+        }
+
+        // Destroy previous chart instance if it exists
+        if (comparisonChart) {
+            comparisonChart.destroy();
+        }
+
+        // Create new chart
+        comparisonChart = new Chart(chartCanvas, chartConfig);
+        updateChartTheme(currentTheme); // Apply current theme colors
+    }
+
+    // --- Specific Chart Config Functions ---
+
+    function getChartColors(theme) {
+        // Define colors for light and dark themes
+        const isDark = theme === 'dark';
+        return {
+            gridColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+            ticksColor: isDark ? '#e0e0e0' : '#333',
+            titleColor: isDark ? '#e0e0e0' : '#333',
+            legendColor: isDark ? '#e0e0e0' : '#333',
+            // Define specific dataset colors if needed, or use Chart.js defaults
+            cpuColor: 'rgba(54, 162, 235, 0.8)', // Blue
+            ramColor: 'rgba(75, 192, 192, 0.8)', // Green
+            sizeColor: 'rgba(255, 159, 64, 0.8)', // Orange
+            uptimeColor: 'rgba(153, 102, 255, 0.8)' // Purple
+        };
+    }
+
+    function getBaseChartOptions(theme, yAxisTitle) {
+        const colors = getChartColors(theme);
+        return {
+            responsive: true,
+            maintainAspectRatio: false, // Important for container height
+            indexAxis: 'y', // Bar chart: Show container names on Y-axis
+            scales: {
+                y: { // Container names
+                    ticks: { color: colors.ticksColor, font: { size: 10 } }, // Smaller font for names
+                    grid: { display: false } // Hide vertical grid lines for y-axis bars
+                },
+                x: { // Values (Usage %, Size MB, Uptime Sec)
+                    beginAtZero: true,
+                    title: { display: true, text: yAxisTitle, color: colors.titleColor },
+                    ticks: { color: colors.ticksColor },
+                    grid: { color: colors.gridColor }
+                }
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                    labels: { color: colors.legendColor }
+                },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false,
+                }
+            },
+            animation: { duration: 500 }
+        };
+    }
+
+    function getUsageChartConfig(data, labels) {
+        const cpuData = data.map(d => d.cpu || 0);
+        const ramData = data.map(d => d.mem || 0);
+        const colors = getChartColors(currentTheme);
+
+        return {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'CPU Usage (%)',
+                        data: cpuData,
+                        backgroundColor: colors.cpuColor,
+                        borderColor: colors.cpuColor.replace('0.8', '1'), // Darker border
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'RAM Usage (%)',
+                        data: ramData,
+                        backgroundColor: colors.ramColor,
+                        borderColor: colors.ramColor.replace('0.8', '1'),
+                        borderWidth: 1
+                    }
+                ]
+            },
+            options: getBaseChartOptions(currentTheme, 'Usage (%)')
+        };
+    }
+
+    function getSizeChartConfig(data, labels) {
+        const sizeData = data.map(d => d.size_rw || 0);
+        const colors = getChartColors(currentTheme);
+
+        return {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Size (RW MB)',
+                    data: sizeData,
+                    backgroundColor: colors.sizeColor,
+                    borderColor: colors.sizeColor.replace('0.8', '1'),
+                    borderWidth: 1
+                }]
+            },
+            options: getBaseChartOptions(currentTheme, 'Size (MB)')
+        };
+    }
+
+    function getUptimeChartConfig(data, labels) {
+        const uptimeData = data.map(d => d.uptime_sec || 0); // Use seconds for scale
+        const colors = getChartColors(currentTheme);
+
+        const options = getBaseChartOptions(currentTheme, 'Uptime (Seconds)');
+        // Customize tooltip for uptime to show formatted string
+        options.plugins.tooltip.callbacks = {
+            label: function(context) {
+                let label = context.dataset.label || '';
+                if (label) {
+                    label += ': ';
+                }
+                if (context.parsed.x !== null) {
+                    // Find the original data point to get the formatted string
+                    const index = context.dataIndex;
+                    const formattedUptime = data[index]?.uptime || context.parsed.x; // Fallback to seconds
+                    label += `${formattedUptime} (${context.parsed.x.toLocaleString()} sec)`;
+                }
+                return label;
+            }
+        };
+         // Customize X-axis ticks to be more readable if needed (e.g., for very large numbers)
+         options.scales.x.ticks.callback = function(value, index, ticks) {
+             // Simple check for large numbers, could format to hours/days if needed
+             if (value > 3600 * 24) return (value / (3600*24)).toFixed(1) + 'd';
+             if (value > 3600) return (value / 3600).toFixed(1) + 'h';
+             if (value > 60) return (value / 60).toFixed(1) + 'm';
+             return value + 's';
+         };
+         options.scales.x.title.text = 'Uptime'; // Change axis title
+
+        return {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Uptime (Seconds)',
+                    data: uptimeData,
+                    backgroundColor: colors.uptimeColor,
+                    borderColor: colors.uptimeColor.replace('0.8', '1'),
+                    borderWidth: 1
+                }]
+            },
+            options: options
+        };
+    }
+
+    function updateChartTheme(theme) {
+        if (!comparisonChart) return;
+
+        const colors = getChartColors(theme);
+        let yAxisTitle = 'Value'; // Default
+        if (compareType === 'usage') yAxisTitle = 'Usage (%)';
+        else if (compareType === 'size') yAxisTitle = 'Size (MB)';
+        else if (compareType === 'uptime') yAxisTitle = 'Uptime (Seconds)'; // Keep seconds for scale
+
+        // Update options that depend on theme
+        comparisonChart.options.scales.x.title.color = colors.titleColor;
+        comparisonChart.options.scales.x.ticks.color = colors.ticksColor;
+        comparisonChart.options.scales.x.grid.color = colors.gridColor;
+        comparisonChart.options.scales.y.ticks.color = colors.ticksColor;
+        comparisonChart.options.plugins.legend.labels.color = colors.legendColor;
+
+        // Re-apply specific options if needed (like uptime tooltip/ticks)
+        if (compareType === 'uptime') {
+            comparisonChart.options.scales.x.title.text = 'Uptime'; // Update axis title
+            comparisonChart.options.scales.x.ticks.callback = function(value, index, ticks) {
+                 if (value > 3600 * 24) return (value / (3600*24)).toFixed(1) + 'd';
+                 if (value > 3600) return (value / 3600).toFixed(1) + 'h';
+                 if (value > 60) return (value / 60).toFixed(1) + 'm';
+                 return value + 's';
+            };
+        } else {
+             comparisonChart.options.scales.x.title.text = yAxisTitle;
+             comparisonChart.options.scales.x.ticks.callback = undefined; // Reset callback for others
+        }
+
+
+        comparisonChart.update();
+    }
+
+
+    // --- Initial Load ---
+    document.addEventListener('DOMContentLoaded', () => {
+        console.log(`Initializing comparison chart for type: ${compareType}, topN: ${topN}`);
+        fetchAndRenderComparisonChart();
+    });
+
+  </script>
+</body>
+</html>

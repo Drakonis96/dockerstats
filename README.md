@@ -12,30 +12,42 @@ It displays **CPU and RAM consumption** per container in a simple, visual interf
 
 ## 🚀 Features
 
-- 🟢 Real-time or near real-time container monitoring
-- 📊 Multiple visualization modes: Table, Bar Chart, Line Chart, Pie Chart
-- 🧠 Advanced filters:
-  - By container name
-  - By status (running, exited)
-  - By time range: 5 minutes to 24 hours
-  - By sorting: name, CPU, RAM, combined usage
+- 🟢 Real-time container monitoring
+- 📊 Multiple visualization modes: Table, Bar Chart, Line Chart
+- 🧠 Advanced filters: 
+  - Name CPU % RAM % Status Size (RW) Uptime (D H M S) Net I/O Block I/O Image Ports Restarts Logs Charts UI Total FS Procs Mem Limit (MB)
 - 🌗 Light / Dark mode toggle (☀️ / 🌙)
 - 🔝 Scroll-to-top button for long lists
-- 📁 Simple Docker-based deployment
+- 🌐 UI Button: opens container’s exposed port in a new browser tab
+- 🆔 Custom Server IP: choose between localhost or custom IP for UI links
+- 🛠️ Persisted settings: remembers filters, theme, chart type, and column visibility via localStorage
+- 🔄 Dynamic column toggles: show or hide any column on demand
 
 ---
 
 ## 📦 Installation
 
-1. Clone the repository:
-
-2. Build and run using Docker Compose:
+- Clone the repository:
+  ```bash
+  git clone https://github.com/Drakonis96/dockerstats
+  cd docker-monitor
+  ```
+- Start the service via Docker Compose:
+  ```bash
+  docker compose up --build -d
+  ```
 
 ## 🖥️ Access
 Once running, open your browser and go to:
 
+```
 http://localhost:5001
-docker compose up --build -d
+```
+
+Use the **Server IP** field (and "Use Custom IP" checkbox) in the UI controls to point the UI buttons to a different host if needed.
+
+---
 
 ## 📝 License
-MIT License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
