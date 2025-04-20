@@ -29,7 +29,7 @@ It displays **CPU and RAM consumption** per container in a simple, visual interf
 
 1. Clone the repository:
 
-2. Build and run using Docker Compose:
+2. Run using Docker Compose:
 
 ## 🖥️ Access
 Once running, open your browser and go to:
