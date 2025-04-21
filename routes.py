@@ -5,6 +5,7 @@ import time  # Add time import
 from flask import Blueprint, jsonify, request, render_template, Response, stream_with_context  # Quitado escape
 from markupsafe import escape  # Añadido para compatibilidad Flask >=2.3
 import docker
+import json  # Add json import for embedding data
 errors = docker.errors
 
 # Importar estado compartido y clientes/utilidades necesarias
@@ -30,7 +31,6 @@ def require_auth():
 @main_routes.route('/')
 def index():
     """Sirve la página HTML principal."""
-    # render_template buscará 'index.html' en la carpeta 'templates' asociada al blueprint
     print("DEBUG: Sirviendo página index.html") # Añadido para depuración
     return render_template('index.html')
 
@@ -47,6 +47,7 @@ def api_metrics():
          return jsonify({"error": "Docker client not initialized"}), 500
 
     # Obtener parámetros de consulta
+    project_filter = request.args.get('project','').strip()  # Nuevo filtro de proyecto
     name_filter   = request.args.get('name','').lower().strip()
     status_filter = request.args.get('status','').strip()
     sort_by  = request.args.get('sort','combined')
@@ -71,11 +72,16 @@ def api_metrics():
             try:
                 # Tomar la última muestra; si falla, el contenedor puede estar en error
                 latest_sample = dq[-1]
-                 # Orden: time, cpu%, mem%, status, name, net_rx, net_tx, blk_r, blk_w
-                ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w = latest_sample
+                 # Orden: time, cpu%, mem%, status, name, net_rx, net_tx, blk_r, blk_w, update_available
+                if len(latest_sample) == 10:
+                    ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w, update_available = latest_sample
+                else:
+                    ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w = latest_sample
+                    update_available = None
+
                 # Asegurar que cpu y mem son números o None para la API
                 cpu = float(cpu) if cpu is not None else None
-                mem = float(mem) if cpu is not None else None
+                mem = float(mem) if mem is not None else None
 
             except (ValueError, IndexError, TypeError) as sample_err:
                  print(f"DEBUG API: Error procesando última muestra para {cid[:6]}..: {sample_err}")
@@ -98,18 +104,28 @@ def api_metrics():
         uptime_sec = None
         formatted_uptime = "N/A"
         current_status = status_hist # Fallback status
+        compose_project = None
+        compose_service = None
 
         try:
             # Intentar obtener el objeto contenedor completo
             container = client.containers.get(cid)
             current_status = container.status # Obtener estado más reciente
 
+            # Extraer etiquetas de Compose
+            attrs = container.attrs or {}
+            labels = attrs.get('Config',{}).get('Labels',{}) or {}
+            compose_project = labels.get('com.docker.compose.project')
+            compose_service = labels.get('com.docker.compose.service')
+            # Filtrar por proyecto si se ha seleccionado uno
+            if project_filter and project_filter != compose_project:
+                continue
+
             # --- Aplicar Filtro de Estado (sobre el estado más reciente) ---
             if status_filter and current_status != status_filter:
                 continue
 
             # --- Extraer Detalles ---
-            attrs = container.attrs or {}
             state = attrs.get('State', {})
 
             # Imagen
@@ -156,7 +172,6 @@ def api_metrics():
              current_status = status_hist # Usar estado histórico
              formatted_uptime = "N/A (Removed)"
              uptime_sec = None
-             # Otros datos ya vienen del historial (cpu, mem, net, blk, name)
 
         except errors.DockerException as e:
             print(f"WARN API: Docker error obteniendo detalles para {cid[:6]}.. ({container_name}): {e}")
@@ -175,20 +190,23 @@ def api_metrics():
         # Get process count
         pid_count = None
         try:
-            top_info = container.top()
-            processes = top_info.get('Processes', []) if isinstance(top_info, dict) else []
-            pid_count = len(processes)
+            if 'container' in locals() and container:
+                top_info = container.top()
+                processes = top_info.get('Processes', []) if isinstance(top_info, dict) else []
+                pid_count = len(processes)
         except Exception:
             pid_count = None
 
         # Get memory limit in MB: si no hay límite, usar memoria total del host
-        mem_limit_bytes = container.attrs.get('HostConfig', {}).get('Memory', 0)
-        if not mem_limit_bytes:
-            try:
+        mem_limit_bytes = 0
+        try:
+            if 'container' in locals() and container:
+                mem_limit_bytes = container.attrs.get('HostConfig', {}).get('Memory', 0)
+            if not mem_limit_bytes:
                 host_info = client.info()
                 mem_limit_bytes = host_info.get('MemTotal', 0)
-            except Exception:
-                mem_limit_bytes = 0
+        except Exception:
+            mem_limit_bytes = 0
         mem_limit_mb = round(mem_limit_bytes / (1024*1024), 2) if mem_limit_bytes > 0 else None
 
         # --- Añadir Fila ---
@@ -209,39 +227,57 @@ def api_metrics():
             'block_io_w': blk_w,
             'image': image_name,
             'ports': ports_str,
-            'restarts': restart_count
+            'restarts': restart_count,
+            'update_available': update_available,  # Indica si hay nueva versión de imagen
+            'compose_project': compose_project,    # Proyecto de Compose
+            'compose_service': compose_service     # Servicio de Compose
         })
 
     # --- Ordenación ---
     reverse_sort = (sort_dir == 'desc')
-    numeric_keys = ['cpu', 'mem', 'combined', 'uptime_sec', 'restarts', 'net_io_rx', 'net_io_tx', 'block_io_r', 'block_io_w', 'pid_count', 'mem_limit']
+    numeric_keys = ['cpu', 'mem', 'combined', 'uptime_sec', 'restarts', 'net_io_rx', 'net_io_tx', 'block_io_r', 'block_io_w', 'pid_count', 'mem_limit', 'update_available']
     string_keys = ['name', 'status', 'image', 'ports', 'uptime']
 
     def sort_key(item):
         key_value = item.get(sort_by)
         if sort_by in numeric_keys:
-             # Tratar None como -infinito para que se ordene consistentemente
+             if isinstance(key_value, bool):
+                 return int(key_value)
+             if sort_by == 'update_available' and key_value is None:
+                 return -1
              return key_value if key_value is not None else float('-inf')
         elif sort_by in string_keys:
-             # Tratar None como string vacío
              return str(key_value) if key_value is not None else ''
-        # Fallback (no debería pasar si sort_by es válido)
         return key_value if key_value is not None else ''
 
     try:
-        # Usar una clave lambda segura que maneje None
         rows.sort(key=sort_key, reverse=reverse_sort)
     except TypeError as e:
         print(f"WARN API: Error durante ordenación (key '{sort_by}', type: {type(e)}): {e}. Usando orden por nombre.")
-        rows.sort(key=lambda x: str(x.get('name', '')).lower(), reverse=False) # Fallback a nombre
+        rows.sort(key=lambda x: str(x.get('name', '')).lower(), reverse=False)
 
-    # --- Limitar Resultados ---
     if max_items > 0:
         rows = rows[:max_items]
 
     print(f"DEBUG API: Retornando {len(rows)} filas.")
     return jsonify(rows)
 
+# --- Ruta API para proyectos de Compose ---
+@main_routes.route('/api/projects')
+def api_projects():
+    """Devuelve la lista de proyectos de Compose activos."""
+    try:
+        client = get_docker_client()
+    except RuntimeError as e:
+        print(f"ERROR API: /api/projects cliente Docker no inicializado: {e}")
+        return jsonify([]), 500
+    projects = set()
+    for c in client.containers.list(all=True):
+        lbls = c.attrs.get('Config', {}).get('Labels', {}) or {}
+        proj = lbls.get('com.docker.compose.project')
+        if proj:
+            projects.add(proj)
+    return jsonify(sorted(projects))
 
 # --- Ruta API para Historial del Contenedor (para Gráficos) ---
 @main_routes.route('/api/history/<container_id>')
@@ -249,22 +285,19 @@ def api_container_history(container_id):
     """Devuelve datos históricos de CPU y RAM para un contenedor específico."""
     print(f"DEBUG HISTORY: Petición recibida para historial de {container_id[:12]}")
     try:
-        # Verificar que el cliente Docker esté inicializado (aunque no se use directamente aquí)
         get_docker_client()
     except RuntimeError as e:
          print(f"ERROR API: /api/history llamado pero el cliente Docker no está inicializado: {e}")
          return jsonify({"error": "Docker client not initialized"}), 500
 
-    # Obtener parámetro de rango (en segundos)
     try:
-        range_seconds = int(request.args.get('range', 86400)) # Default a 24 horas
-        if range_seconds <= 0: range_seconds = 86400 # Asegurar rango positivo
+        range_seconds = int(request.args.get('range', 86400))
+        if range_seconds <= 0: range_seconds = 86400
     except ValueError:
-        range_seconds = 86400 # Default si el parámetro no es un entero válido
+        range_seconds = 86400
 
     print(f"DEBUG HISTORY: Rango solicitado: {range_seconds} segundos para {container_id[:12]}")
 
-    # Obtener historial para el CID
     if container_id not in history:
         print(f"WARN HISTORY: No se encontró historial para {container_id[:12]}")
         return jsonify({"error": "No history found for this container ID"}), 404
@@ -273,32 +306,30 @@ def api_container_history(container_id):
     now = time.time()
     cutoff_time = now - range_seconds
 
-    # Filtrar datos dentro del rango de tiempo
-    # Formato muestra: (timestamp, cpu%, mem%, status, name, net_rx, net_tx, blk_r, blk_w)
     timestamps = []
     cpu_usage = []
     ram_usage = []
 
-    # Iterar sobre una copia para evitar problemas de concurrencia si el deque cambia
     try:
-        dq_copy = list(dq) # Crear una copia para iteración segura
+        dq_copy = list(dq)
         print(f"DEBUG HISTORY: Procesando {len(dq_copy)} muestras para {container_id[:12]}")
         for sample in dq_copy:
             try:
-                ts, cpu, mem, _, _, _, _, _, _ = sample # Desempaquetar, ignorando lo no necesario
+                if len(sample) == 10:
+                    ts, cpu, mem, _, _, _, _, _, _, _ = sample
+                else:
+                    ts, cpu, mem, _, _, _, _, _, _ = sample
+
                 if ts >= cutoff_time:
                     timestamps.append(ts)
-                    # Convertir a float, manejar None como 0 para el gráfico
                     cpu_usage.append(float(cpu) if cpu is not None else 0)
                     ram_usage.append(float(mem) if mem is not None else 0)
             except (ValueError, TypeError, IndexError) as sample_err:
-                # Saltar muestras malformadas
                 print(f"WARN HISTORY: Saltando muestra inválida para {container_id[:12]}: {sample_err} - Muestra: {sample}")
                 continue
 
         print(f"DEBUG HISTORY: Encontradas {len(timestamps)} muestras dentro del rango para {container_id[:12]}")
 
-        # Preparar respuesta JSON
         response_data = {
             "container_id": container_id,
             "range_seconds": range_seconds,
@@ -312,16 +343,14 @@ def api_container_history(container_id):
         print(f"ERROR HISTORY: Error inesperado procesando historial para {container_id[:12]}: {e}")
         return jsonify({"error": "Internal server error processing history"}), 500
 
-
 # --- Ruta API para Logs del Contenedor ---
 @main_routes.route('/api/logs/<container_id>')
 def stream_container_logs(container_id):
-    """Devuelve los logs de un contenedor específico, formateados para el navegador."""
-    print(f"DEBUG LOGS: Petición recibida para logs de {container_id[:12]}") # Añadido para depuración
+    print(f"DEBUG LOGS: Petición recibida para logs de {container_id[:12]}")
     try:
         client = get_docker_client()
         container = client.containers.get(container_id)
-        container_name = escape(container.name) # Obtener nombre para título
+        container_name = escape(container.name)
     except errors.NotFound:
         print(f"WARN LOGS: Contenedor {container_id[:12]} no encontrado.")
         return f"<html><body><h1>Error 404</h1><p>Container '{escape(container_id)}' not found.</p></body></html>", 404
@@ -330,7 +359,6 @@ def stream_container_logs(container_id):
         return f"<html><body><h1>Error 500</h1><p>Error accessing container: {escape(str(e))}</p></body></html>", 500
 
     def generate_logs():
-        # Encabezado HTML
         yield '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">'
         yield f'<title>Logs: {container_name} ({container_id[:12]})</title>'
         yield '''<style>
@@ -345,16 +373,15 @@ def stream_container_logs(container_id):
         </style></head><body>'''
         yield f'<h2>Logs for {container_name}</h2><pre>'
 
-        # Obtener y streamear logs
         log_stream = None
         try:
             print(f"DEBUG LOGS: Obteniendo stream de logs para {container_id[:12]}")
-            log_stream = container.logs(stream=True, follow=False, tail=200, timestamps=True) # Obtener últimas 200 líneas
+            log_stream = container.logs(stream=True, follow=False, tail=200, timestamps=True)
             processed_lines = 0
             for chunk in log_stream:
                 try:
                     decoded_line = chunk.decode('utf-8', errors='replace')
-                    yield escape(decoded_line) # Escapar para seguridad
+                    yield escape(decoded_line)
                     processed_lines += 1
                 except UnicodeDecodeError:
                     yield "[log decode error]\n"
@@ -367,15 +394,12 @@ def stream_container_logs(container_id):
              print(f"ERROR LOGS: Error inesperado streameando logs para {container_id[:12]}: {log_e}")
              yield f"\n--- Error streaming logs: {escape(str(log_e))} ---"
         finally:
-             # Cerrar las etiquetas HTML
              yield '</pre></body></html>'
-             # Aunque follow=False, cerrar explícitamente si es posible (puede no ser necesario)
              if hasattr(log_stream, 'close'):
                  try: log_stream.close()
                  except Exception: pass
              print(f"DEBUG LOGS: Stream de logs cerrado para {container_id[:12]}")
 
-    # Devolver una respuesta que streamea el contenido HTML
     return Response(stream_with_context(generate_logs()), mimetype='text/html')
 
 # --- Ruta para obtener logs de un contenedor ---
@@ -392,8 +416,12 @@ def get_container_logs(container_id):
 # --- Ruta para la página de comparación ---
 @main_routes.route('/compare/<compare_type>')
 def compare_page(compare_type):
-    """Sirve la página HTML para los gráficos de comparación."""
-    top_n = request.args.get('topN', 5, type=int) # Default a 5
+    try:
+        top_n = int(request.args.get('topN', 5))
+        if top_n <= 0: top_n = 5
+    except ValueError:
+        top_n = 5
+
     valid_types = {
         "usage": "CPU/RAM Usage",
         "uptime": "Uptime"
@@ -402,24 +430,130 @@ def compare_page(compare_type):
         return "Invalid comparison type", 404
 
     title = valid_types[compare_type]
-    print(f"DEBUG COMPARE PAGE: Sirviendo página de comparación para '{title}' (Top {top_n})")
-    return render_template('compare.html', compare_type=compare_type, top_n=top_n, title=title)
+    print(f"DEBUG COMPARE PAGE: Sirviendo página de comparación para '{title}' (Top {top_n}) con datos embebidos.")
+
+    comparison_data = []
+    try:
+        client = get_docker_client()
+        get_api_client()
+
+        rows = []
+        current_history_keys = list(history.keys())
+
+        for cid in current_history_keys:
+            if cid not in history: continue
+            dq = history[cid]
+            latest_sample = None
+            if dq:
+                try:
+                    latest_sample = dq[-1]
+                    sample_len = len(latest_sample)
+                    ts = latest_sample[0] if sample_len > 0 else None
+                    cpu = float(latest_sample[1]) if sample_len > 1 and latest_sample[1] is not None else None
+                    mem = float(latest_sample[2]) if sample_len > 2 and latest_sample[2] is not None else None
+                    status_hist = latest_sample[3] if sample_len > 3 else "unknown"
+                    name_hist = latest_sample[4] if sample_len > 4 else f"container_{cid[:6]}"
+                except (ValueError, IndexError, TypeError): continue
+            else: continue
+
+            container_name = name_hist
+            uptime_sec = None
+            formatted_uptime = "N/A"
+            current_status = status_hist
+
+            if compare_type == "uptime":
+                try:
+                    container = client.containers.get(cid)
+                    current_status = container.status
+                    attrs = container.attrs or {}
+                    state = attrs.get('State', {})
+
+                    started_at_str = state.get('StartedAt')
+                    if current_status == 'running' and started_at_str:
+                        started_dt = parse_datetime(started_at_str)
+                        if started_dt:
+                            now_utc = datetime.datetime.now(datetime.timezone.utc)
+                            if started_dt.tzinfo is None: started_dt = started_dt.replace(tzinfo=datetime.timezone.utc)
+                            uptime_sec = max(0, int((now_utc - started_dt).total_seconds()))
+                            formatted_uptime = format_uptime(uptime_sec)
+                        else: uptime_sec = None; formatted_uptime = "Error Parse"
+                    else: uptime_sec = None; formatted_uptime = "N/A"
+
+                except errors.NotFound:
+                    uptime_sec = None; formatted_uptime = "N/A (Removed)"; current_status = status_hist
+                except Exception as e:
+                    print(f"WARN COMPARE PAGE: Error obteniendo detalles para {cid[:6]}..: {e}")
+                    uptime_sec = None; formatted_uptime = "Error Fetching"; current_status = status_hist
+
+            row_data = {
+                'id': cid,
+                'name': container_name,
+                'cpu': cpu,
+                'mem': mem,
+                'combined': (cpu or 0) + (mem or 0),
+                'uptime_sec': uptime_sec,
+                'uptime': formatted_uptime,
+                'status': current_status
+            }
+            keys_to_keep = {'id', 'name'}
+            if compare_type == 'usage':
+                keys_to_keep.update({'cpu', 'mem'})
+            elif compare_type == 'uptime':
+                keys_to_keep.update({'uptime_sec', 'uptime'})
+
+            filtered_row_data = {k: v for k, v in row_data.items() if k in keys_to_keep}
+            rows.append(filtered_row_data)
+
+        sort_key_map = {
+            "usage": "combined",
+            "uptime": "uptime_sec"
+        }
+        primary_sort_field = sort_key_map.get(compare_type)
+
+        def compare_sort_key(item):
+            primary_value = item.get(primary_sort_field) if primary_sort_field else None
+            name_value = item.get('name', '')
+
+            numeric_primary = primary_value if primary_value is not None else float('-inf')
+
+            return (-numeric_primary, name_value.lower())
+
+        try:
+             rows.sort(key=compare_sort_key, reverse=False)
+        except TypeError as e:
+            print(f"WARN COMPARE PAGE: Error durante ordenación (key '{primary_sort_field}'): {e}. Usando orden por nombre.")
+            rows.sort(key=lambda x: str(x.get('name', '')).lower(), reverse=False)
+
+        comparison_data = rows[:top_n]
+        print(f"DEBUG COMPARE PAGE: Datos preparados para {len(comparison_data)} contenedores.")
+
+    except RuntimeError as e:
+         print(f"ERROR COMPARE PAGE: Cliente Docker no inicializado: {e}")
+         comparison_data = []
+    except Exception as e:
+        print(f"ERROR COMPARE PAGE: Error inesperado preparando datos: {e}")
+        comparison_data = []
+
+    return render_template('compare.html',
+                           compare_type=compare_type,
+                           top_n=top_n,
+                           title=title,
+                           comparison_data=comparison_data)
 
 # --- Ruta API para datos de comparación ---
 @main_routes.route('/api/compare/<compare_type>')
 def api_compare_data(compare_type):
-    """Endpoint API para obtener datos para los gráficos de comparación."""
     print(f"DEBUG COMPARE API: Petición recibida para /api/compare/{compare_type}")
     try:
         client = get_docker_client()
-        get_api_client() # Verificar inicialización
+        get_api_client()
     except RuntimeError as e:
          print(f"ERROR API: /api/compare llamado pero el cliente Docker no está inicializado: {e}")
          return jsonify({"error": "Docker client not initialized"}), 500
 
     try:
-        top_n = int(request.args.get('topN', 5)) # Default a 5
-        if top_n <= 0: top_n = 5 # Asegurar valor positivo
+        top_n = int(request.args.get('topN', 5))
+        if top_n <= 0: top_n = 5
     except ValueError:
         top_n = 5
 
@@ -427,7 +561,6 @@ def api_compare_data(compare_type):
     if compare_type not in valid_types:
         return jsonify({"error": "Invalid comparison type"}), 400
 
-    # --- Lógica similar a /api/metrics para obtener datos actuales ---
     rows = []
     current_history_keys = list(history.keys())
     print(f"DEBUG COMPARE API: Procesando {len(current_history_keys)} CIDs para comparación '{compare_type}' (Top {top_n})")
@@ -439,9 +572,13 @@ def api_compare_data(compare_type):
         if dq:
             try:
                 latest_sample = dq[-1]
-                ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w = latest_sample
+                if len(latest_sample) == 10:
+                    ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w, update_available = latest_sample
+                else:
+                    ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w = latest_sample
+                    update_available = None
                 cpu = float(cpu) if cpu is not None else None
-                mem = float(mem) if cpu is not None else None
+                mem = float(mem) if mem is not None else None
             except (ValueError, IndexError, TypeError): continue
         else: continue
 
@@ -450,15 +587,13 @@ def api_compare_data(compare_type):
         formatted_uptime = "N/A"
         current_status = status_hist
 
-        # Obtener detalles adicionales necesarios para uptime
         if compare_type == "uptime":
             try:
                 container = client.containers.get(cid)
-                current_status = container.status # Actualizar estado
+                current_status = container.status
                 attrs = container.attrs or {}
                 state = attrs.get('State', {})
 
-                # Uptime
                 started_at_str = state.get('StartedAt')
                 if current_status == 'running' and started_at_str:
                     started_dt = parse_datetime(started_at_str)
@@ -471,17 +606,15 @@ def api_compare_data(compare_type):
                 else: uptime_sec = None; formatted_uptime = "N/A"
 
             except errors.NotFound:
-                # Contenedor no existe, no se puede obtener uptime
                 uptime_sec = None
                 formatted_uptime = "N/A (Removed)"
-                current_status = status_hist # Usar estado histórico
+                current_status = status_hist
             except Exception as e:
                 print(f"WARN COMPARE API: Error obteniendo detalles para {cid[:6]}..: {e}")
                 uptime_sec = None
                 formatted_uptime = "Error Fetching"
                 current_status = status_hist
 
-        # Añadir datos relevantes para la comparación
         rows.append({
             'id': cid,
             'name': container_name,
@@ -489,11 +622,10 @@ def api_compare_data(compare_type):
             'mem': mem,
             'combined': (cpu or 0) + (mem or 0),
             'uptime_sec': uptime_sec,
-            'uptime': formatted_uptime, # Incluir formateado para tooltip
-            'status': current_status # Incluir estado por si acaso
+            'uptime': formatted_uptime,
+            'status': current_status
         })
 
-    # --- Ordenación específica para la comparación ---
     sort_key_map = {
         "usage": "combined",
         "uptime": "uptime_sec"
@@ -502,16 +634,14 @@ def api_compare_data(compare_type):
 
     def compare_sort_key(item):
         key_value = item.get(sort_field)
-        # Tratar None como -infinito para ordenar consistentemente
         return key_value if key_value is not None else float('-inf')
 
     try:
-        rows.sort(key=compare_sort_key, reverse=True) # Siempre descendente para Top N
+        rows.sort(key=compare_sort_key, reverse=True)
     except TypeError as e:
         print(f"WARN COMPARE API: Error durante ordenación (key '{sort_field}'): {e}. Usando orden por nombre.")
         rows.sort(key=lambda x: str(x.get('name', '')).lower(), reverse=False)
 
-    # --- Limitar a Top N ---
     top_rows = rows[:top_n]
 
     print(f"DEBUG COMPARE API: Retornando {len(top_rows)} filas para comparación '{compare_type}'.")
@@ -538,18 +668,71 @@ def export_csv():
 # --- Container Control Endpoints ---
 @main_routes.route('/api/containers/<container_id>/<action>', methods=['POST'])
 def container_action(container_id, action):
-    """Start, stop or restart a Docker container"""
+    """Start, stop, restart or update a Docker container"""
     try:
         client = get_docker_client()
         container = client.containers.get(container_id)
+        container_name = escape(container.name)
+
         if action == 'start':
             container.start()
+            return jsonify({'status': f'Container {container_name} started'})
         elif action == 'stop':
             container.stop()
+            return jsonify({'status': f'Container {container_name} stopped'})
         elif action == 'restart':
             container.restart()
+            return jsonify({'status': f'Container {container_name} restarted'})
+        elif action == 'update':
+            def generate_update_logs():
+                try:
+                    yield f"Starting update for {container_name} ({container_id[:12]})...\n"
+                    if container.image and container.image.tags:
+                        latest_tag = container.image.tags[0]
+                        yield f"Pulling latest image: {latest_tag}...\n"
+                        try:
+                            pull_stream = client.api.pull(latest_tag, stream=True, decode=True)
+                            for chunk in pull_stream:
+                                status = chunk.get('status', '')
+                                progress = chunk.get('progress', '')
+                                line = f"{status} {progress}\n" if progress else f"{status}\n"
+                                yield escape(line)
+                            yield f"Image {latest_tag} pulled successfully.\n"
+                        except errors.APIError as pull_err:
+                            yield f"ERROR pulling image {latest_tag}: {escape(str(pull_err))}\n"
+                            yield "Update aborted due to pull error.\n"
+                            return
+                        except Exception as pull_ex:
+                            yield f"UNEXPECTED ERROR during pull: {escape(str(pull_ex))}\n"
+                            yield "Update aborted due to unexpected pull error.\n"
+                            return
+                    else:
+                        yield "No image tag found. Cannot pull/update image from registry. Skipping pull.\n"
+
+                    yield f"Restarting container {container_name}...\n"
+                    try:
+                        container.restart()
+                        yield f"Container {container_name} restarted successfully.\n"
+                        yield "Update process completed.\n"
+                    except errors.APIError as restart_err:
+                        yield f"ERROR restarting container: {escape(str(restart_err))}\n"
+                        yield "Update failed during restart.\n"
+                    except Exception as restart_ex:
+                        yield f"UNEXPECTED ERROR during restart: {escape(str(restart_ex))}\n"
+                        yield "Update failed due to unexpected restart error.\n"
+
+                except errors.NotFound:
+                    yield f"ERROR: Container {container_id[:12]} not found during update.\n"
+                except Exception as e:
+                    yield f"FATAL ERROR during update process: {escape(str(e))}\n"
+
+            # Return a streaming response
+            return Response(stream_with_context(generate_update_logs()), mimetype='text/plain')
         else:
             return jsonify({'error': 'Invalid action'}), 400
-        return jsonify({'status': f'{action}ed'})
+
+    except errors.NotFound:
+        return jsonify({'error': f'Container {container_id} not found'}), 404
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"ERROR in container_action ({action} for {container_id[:12]}): {e}")
+        return jsonify({'error': f'An unexpected error occurred: {escape(str(e))}'}), 500

@@ -13,25 +13,47 @@
     nav.navbar {
         /* Use Bootstrap background variable for theme compatibility */
         background-color: var(--bs-body-bg) !important;
-        padding: 0;
+        padding: 0.5rem 1rem; /* Adjust padding */
         /* Add a subtle shadow */
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        height: 60px; /* Set a fixed height for the new navbar */
     }
-    /* Container with fixed height to hold logo */
-    nav.navbar .container {
-      height: 120px; /* Center larger logo */
+    /* Container within navbar */
+    nav.navbar .container-fluid { /* Use container-fluid for full width */
       display: flex;
       align-items: center;
-      justify-content: center;
+      justify-content: space-between; /* Space out left and right groups */
+      height: 100%;
     }
-    /* Logo slightly larger */
+    /* Logo smaller */
     nav.navbar img {
-      width: 120px; /* Adjust if needed */
-      height: 120px; /* Adjust if needed */
+      width: 40px; /* Smaller logo */
+      height: 40px; /* Smaller logo */
+      margin-right: 0.5rem; /* Space between logo and title */
+    }
+    /* Title Style */
+    .navbar-title {
+        font-size: 1.25rem; /* Adjust size as needed */
+        font-weight: bold;
+        text-transform: uppercase;
+        color: var(--bs-body-color); /* Use theme color */
+        margin-right: auto; /* Push search/buttons to the right */
+    }
+    /* Search input style */
+    #navbarSearchInput {
+        width: 250px; /* Adjust width */
+        margin-right: 1rem; /* Space before buttons */
+    }
+    /* Navbar buttons */
+    .navbar-buttons .btn {
+        margin-left: 0.5rem; /* Space between buttons */
+        font-size: 1.2rem; /* Adjust icon size */
+        padding: 0.25rem 0.5rem; /* Adjust padding */
+        line-height: 1; /* Ensure vertical alignment */
     }
     /* Adjust page content down by header height + margin */
     body {
-      padding-top: calc(120px + 1rem); /* Match header height */
+      padding-top: calc(60px + 1rem); /* Match new header height */
       padding-bottom: 5rem; /* Add space at the bottom */
       padding-left: 1rem;
       padding-right: 1rem;
@@ -41,7 +63,7 @@
     /* Desktop: wrap cells and use full width */
     @media (min-width: 768px) {
       #metricsTable {
-        table-layout: fixed;
+        table-layout: auto;
         width: 100%;
       }
       #metricsTable th,
@@ -62,6 +84,9 @@
       }
       #tableView {
         overflow-x: auto;
+      }
+      body {
+        padding-top: 130px; /* Adjust this value as needed */
       }
     }
 
@@ -131,6 +156,8 @@
      #metricsTable th.col-ui, #metricsTable td.col-ui { text-align: center; }
      /* Center for Actions */
      #metricsTable th.col-actions, #metricsTable td.col-actions { text-align: center; }
+     /* Center for Update */
+     #metricsTable th.col-update, #metricsTable td.col-update { text-align: center; }
 
     /* Dark mode */
     [data-bs-theme="dark"] body { /* Target Bootstrap 5.3+ dark mode */
@@ -172,32 +199,57 @@
         color: #e0e0e0; /* Ensure label text is visible */
     }
 
+    [data-bs-theme="dark"] #statusMessageArea {
+      background: #232323 !important;
+      color: #fff !important;
+    }
+
     /* Floating buttons */
-    #themeToggle, #scrollTop {
+    #scrollTop { /* Keep scroll top fixed */
       position: fixed;
       bottom: 1rem;
+      right: 1rem; /* Adjust position if needed */
       width: 3rem;
       height: 3rem;
       font-size: 1.5rem;
       line-height: 3rem;
       text-align: center;
       border-radius: 50%;
-      background: rgba(var(--bs-body-bg-rgb, 255, 255, 255), 0.8); /* Use BS vars for bg */
-      color: var(--bs-body-color, #333); /* Use BS vars for color */
+      background: rgba(var(--bs-body-bg-rgb, 255, 255, 255), 0.8);
+      color: var(--bs-body-color, #333);
       cursor: pointer;
-      z-index: 1050; /* Ensure above most content */
+      z-index: 1050;
       transition: background .3s, color .3s, transform 0.2s;
       box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-      border: 1px solid rgba(var(--bs-emphasis-color-rgb, 0, 0, 0), 0.1); /* Subtle border */
-      padding: 0; /* Remove default button padding */
+      border: 1px solid rgba(var(--bs-emphasis-color-rgb, 0, 0, 0), 0.1);
+      padding: 0;
     }
-     #themeToggle:hover, #scrollTop:hover {
-        transform: scale(1.1); /* Slight scale on hover */
+     #scrollTop:hover {
+        transform: scale(1.1);
      }
-    #scrollTop { right: 1rem; }
-    #themeToggle { right: 5rem; }
-    /* Dark mode uses the same variables, they just have different values */
 
+    /* Notification panel styling - Position below header button */
+    #notifPanel {
+      display: none;
+      position: absolute; /* Position relative to nearest positioned ancestor (navbar) */
+      top: 100%; /* Position below the navbar */
+      right: 0; /* Align with the right edge of the button's container */
+      width: 300px;
+      max-height: 400px;
+      overflow-y: auto;
+      background: var(--bs-body-bg);
+      color: var(--bs-body-color);
+      border: 1px solid var(--bs-border-color-translucent);
+      border-radius: .375rem;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+      padding: 1rem;
+      z-index: 1060; /* Ensure above content, below modals if any */
+      margin-top: 0.5rem; /* Small gap below the button */
+    }
+    /* Container for notification button to position panel correctly */
+    .navbar-buttons .position-relative {
+        position: relative; /* Needed for absolute positioning of the panel */
+    }
 
     /* Column visibility toggles */
     .column-toggles .form-check {
@@ -216,25 +268,75 @@
         margin-right: 10px;
      }
 
+     /* --- Mobile Adjustments --- */
+     @media (max-width: 767.98px) {
+        /* Header adjustments */
+        nav.navbar .container-fluid {
+            flex-wrap: wrap; /* Allow items to wrap */
+            justify-content: space-between;
+        }
+        .navbar-title {
+            margin-right: 0; /* Remove auto margin */
+            margin-bottom: 0.5rem; /* Add space below title when wrapped */
+            flex-basis: 100%; /* Make title take full width initially */
+            text-align: center; /* Center title on mobile */
+        }
+        .navbar-buttons {
+            width: 100%; /* Make search/buttons take full width */
+            justify-content: space-between; /* Space out search and buttons */
+            margin-top: 0.5rem; /* Space above search/buttons */
+        }
+        #navbarSearchInput {
+            width: auto; /* Allow search to shrink/grow */
+            flex-grow: 1; /* Allow search to take available space */
+            margin-right: 0.5rem; /* Smaller margin */
+        }
+        .navbar-buttons .btn {
+            font-size: 1rem; /* Slightly smaller icons */
+            padding: 0.2rem 0.4rem;
+        }
+        nav.navbar {
+            height: auto; /* Allow header height to adjust */
+            padding-bottom: 0.5rem; /* Add padding at bottom when wrapped */
+        }
+        body {
+             padding-top: 130px; /* Adjust this value as needed */
+        }
 
-     /* Column visibility CSS - Add classes to hide columns */
-     /* Using !important might be needed if other styles conflict, but try without first */
-     .hide-col-name th.col-name, .hide-col-name td.col-name { display: none; }
-     .hide-col-cpu th.col-cpu, .hide-col-cpu td.col-cpu { display: none; }
-     .hide-col-ram th.col-ram, .hide-col-ram td.col-ram { display: none; }
-     .hide-col-status th.col-status, .hide-col-status td.col-status { display: none; }
-     .hide-col-uptime th.col-uptime, .hide-col-uptime td.col-uptime { display: none; }
-     .hide-col-netio th.col-netio, .hide-col-netio td.col-netio { display: none; }
-     .hide-col-blockio th.col-blockio, .hide-col-blockio td.col-blockio { display: none; }
-     .hide-col-image th.col-image, .hide-col-image td.col-image { display: none; }
-     .hide-col-ports th.col-ports, .hide-col-ports td.col-ports { display: none; }
-     .hide-col-restarts th.col-restarts, .hide-col-restarts td.col-restarts { display: none; }
-     .hide-col-pid th.col-pid, .hide-col-pid td.col-pid { display: none; } /* Hide Procs column */
-     .hide-col-memlimit th.col-memlimit, .hide-col-memlimit td.col-memlimit { display: none; } /* Hide Mem Limit column */
-     .hide-col-logs th.col-logs, .hide-col-logs td.col-logs { display: none; }
-     .hide-col-charts th.col-charts, .hide-col-charts td.col-charts { display: none; } /* Add rule for charts */
-     .hide-col-ui th.col-ui, .hide-col-ui td.col-ui { display: none; } /* Add rule for UI column */
-     .hide-col-actions th.col-actions, .hide-col-actions td.col-actions { display: none; } /* Add rule for Actions column */
+        /* Action buttons row adjustments */
+        .action-buttons-row .col-12 > * { /* Target direct children of the column */
+            margin-bottom: 0.5rem; /* Add space below each button/group */
+            margin-right: 0.5rem; /* Add space between buttons */
+        }
+        .action-buttons-row .col-12 {
+            display: flex;
+            flex-wrap: wrap; /* Allow buttons to wrap */
+            align-items: center;
+        }
+        /* Ensure comparison group stays together */
+        .comparison-controls {
+            display: inline-flex; /* Keep dropdown and input together */
+            align-items: center;
+            margin-left: 0.5rem; /* Space before comparison controls */
+        }
+        #compareTopN {
+            width: 4.5rem; /* Keep width */
+            margin-left: 0.5rem; /* Space between dropdown and input */
+        }
+
+        /* Table view scroll */
+        #tableView {
+            overflow-x: auto;
+        }
+        #metricsTable {
+            table-layout: auto;
+            width: auto; /* Allow table to be wider than screen */
+        }
+        #metricsTable th,
+        #metricsTable td {
+            white-space: nowrap !important;
+        }
+     }
 
      /* --- Chart Container Styling --- */
      #chartContainer {
@@ -283,17 +385,91 @@
        border-color: #7a49cd !important;
      }
 
+     /* Status Message Area Styling */
+     #statusMessageArea {
+        margin-top: 0.5rem; /* Space above the message */
+        min-height: 1.5em; /* Prevent layout shifts when empty */
+        font-weight: 500; /* Slightly bolder text */
+     }
+
+     /* Evitar que las columnas se encojan: layout fijo y ancho según contenido */
+     #metricsTable {
+       table-layout: fixed; /* Removed !important */
+       width: max-content !important; /* Ancho según el contenido mínimo */
+     }
+     #metricsTable th,
+     #metricsTable td {
+       min-width: 120px; /* Ajusta este valor a tu preferencia */
+     }
+
+     /* Asegura scroll horizontal siempre que el contenido exceda el viewport */
+     .table-responsive {
+       overflow-x: auto;
+     }
+
+     /* Column visibility CSS - Add classes to hide columns */
+     /* Using !important might be needed if other styles conflict, but try without first */
+     /* Apply display: none when the corresponding hide class is on the TABLE element */
+     .hide-col-name th.col-name, .hide-col-name td.col-name { display: none; }
+     .hide-col-cpu th.col-cpu, .hide-col-cpu td.col-cpu { display: none; }
+     .hide-col-ram th.col-ram, .hide-col-ram td.col-ram { display: none; }
+     .hide-col-pid th.col-pid, .hide-col-pid td.col-pid { display: none; }
+     .hide-col-memlimit th.col-memlimit, .hide-col-memlimit td.col-memlimit { display: none; }
+     .hide-col-status th.col-status, .hide-col-status td.col-status { display: none; }
+     .hide-col-uptime th.col-uptime, .hide-col-uptime td.col-uptime { display: none; }
+     .hide-col-netio th.col-netio, .hide-col-netio td.col-netio { display: none; }
+     .hide-col-blockio th.col-blockio, .hide-col-blockio td.col-blockio { display: none; }
+     .hide-col-image th.col-image, .hide-col-image td.col-image { display: none; }
+     .hide-col-ports th.col-ports, .hide-col-ports td.col-ports { display: none; }
+     .hide-col-restarts th.col-restarts, .hide-col-restarts td.col-restarts { display: none; }
+     .hide-col-logs th.col-logs, .hide-col-logs td.col-logs { display: none; }
+     .hide-col-charts th.col-charts, .hide-col-charts td.col-charts { display: none; }
+     .hide-col-ui th.col-ui, .hide-col-ui td.col-ui { display: none; }
+     .hide-col-actions th.col-actions, .hide-col-actions td.col-actions { display: none; }
+     .hide-col-update th.col-update, .hide-col-update td.col-update { display: none; }
+
   </style>
 </head>
 <body data-bs-theme="light">
   <nav class="navbar fixed-top">
-    <div class="container">
-      <img src="{{ url_for('static', filename='logo.png') }}" alt="Docker Monitor Logo">
+    <div class="container-fluid">
+      <!-- Left side: Logo and Title -->
+      <div class="d-flex align-items-center">
+        <img src="{{ url_for('static', filename='logo.png') }}" alt="Docker Monitor Logo">
+        <span class="navbar-title">Docker Stats</span>
+      </div>
+
+      <!-- Right side: Search and Buttons -->
+      <div class="d-flex align-items-center navbar-buttons">
+        <input type="search" id="navbarSearchInput" class="form-control form-control-sm" placeholder="Search containers...">
+        <!-- Wrap notification button in a relative div for panel positioning -->
+        <div class="position-relative">
+            <button type="button" id="notifToggle" class="btn btn-outline-secondary" aria-label="Notifications">
+              🔔
+              <span id="notifBadge" class="badge bg-danger position-absolute top-0 start-100 translate-middle" style="display:none; font-size:0.6rem; padding: 0.2em 0.4em;"></span>
+            </button>
+            <!-- Notification Panel moved inside relative container -->
+            <div id="notifPanel">
+                <h5>Notifications</h5>
+                <div id="notifConfig" class="mb-2">
+                  <h6>Settings</h6>
+                  <div class="mb-1"><label class="form-label">CPU Threshold (%): <input type="number" id="notifCpuThreshold" class="form-control form-control-sm" min="0" max="100"></label></div>
+                  <div class="mb-1"><label class="form-label">RAM Threshold (%): <input type="number" id="notifRamThreshold" class="form-control form-control-sm" min="0" max="100"></label></div>
+                  <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="notifStatusChange"><label class="form-check-label" for="notifStatusChange">Status Change</label></div>
+                  <button type="button" id="saveNotifSettingsBtn" class="btn btn-sm btn-primary">Save</button>
+                </div>
+                <div id="notifList" class="mb-2"><p class="small text-muted">No notifications</p></div>
+                <button type="button" id="clearNotifsBtn" class="btn btn-sm btn-secondary">Clear Notifications</button>
+            </div>
+        </div>
+        <button type="button" id="themeToggle" class="btn btn-outline-secondary" aria-label="Toggle theme">🌙</button>
+      </div>
     </div>
   </nav>
 
-  <button type="button" id="themeToggle" aria-label="Toggle theme">🌙</button>
+  <!-- ScrollTop button remains outside the nav -->
   <button type="button" id="scrollTop" aria-label="Scroll to top">⬆️</button>
+  <!-- Notification Panel HTML is now inside the navbar's relative div -->
 
   <div class="container-fluid px-3">
     <div class="row g-3 mb-3 align-items-center">
@@ -311,6 +487,11 @@
         </select>
       </div>
       <div class="col-lg-2 col-md-4 col-sm-6">
+        <select id="filterProject" class="form-select form-select-sm" aria-label="Filter by project">
+          <option value="">All Projects</option>
+        </select>
+      </div>
+      <div class="col-lg-2 col-md-4 col-sm-6">
         <select id="filterRange" class="form-select form-select-sm" aria-label="Filter by time range (History window)">
           <option value="300">Last 5 minutes</option>
           <option value="900">Last 15 minutes</option>
@@ -323,15 +504,32 @@
           <option value="86400" selected>Last 24 hours</option>
         </select>
       </div>
+      <!-- Add Refresh Interval Dropdown -->
+      <div class="col-lg-2 col-md-4 col-sm-6">
+        <select id="refreshInterval" class="form-select form-select-sm" aria-label="Select refresh interval">
+          <option value="5000" selected>Refresh every 5s</option>
+          <option value="10000">Refresh every 10s</option>
+          <option value="15000">Refresh every 15s</option>
+          <option value="30000">Refresh every 30s</option>
+          <option value="60000">Refresh every 60s</option>
+          <option value="75000">Refresh every 75s</option>
+        </select>
+      </div>
+      <!-- End Refresh Interval Dropdown -->
       <div class="col-lg-2 col-md-4 col-sm-6">
         <select id="sortBy" class="form-select form-select-sm" aria-label="Sort by column">
           <option value="name">Sort by Name</option>
           <option value="cpu">Sort by CPU %</option>
           <option value="mem">Sort by RAM %</option>
+          <option value="pid_count">Sort by Procs</option> <!-- Added -->
           <option value="combined" selected>Sort by Combined %</option>
           <option value="status">Sort by Status</option>
           <option value="uptime_sec">Sort by Uptime</option>
           <option value="restarts">Sort by Restarts</option>
+          <option value="mem_limit">Sort by Mem Limit</option> <!-- Changed value -->
+          <option value="net_io_rx">Sort by Net I/O (Rx)</option> <!-- Added -->
+          <option value="block_io_r">Sort by Block I/O (R)</option> <!-- Added -->
+          <option value="update_available">Sort by Updates</option> <!-- Added -->
         </select>
       </div>
       <div class="col-lg-1 col-md-2 col-sm-3">
@@ -358,10 +556,6 @@
         <div class="col-12">
             <div class="column-toggles">
                 <strong>Show columns:</strong>
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="checkbox" value="name" id="toggleColName" checked>
-                    <label class="form-check-label" for="toggleColName">Name</label>
-                </div>
                 <div class="form-check form-check-inline">
                     <input class="form-check-input" type="checkbox" value="cpu" id="toggleColCPU" checked>
                     <label class="form-check-label" for="toggleColCPU">CPU %</label>
@@ -422,33 +616,42 @@
                     <input class="form-check-input" type="checkbox" value="actions" id="toggleColActions" checked>
                     <label class="form-check-label" for="toggleColActions">Actions</label>
                 </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" value="update" id="toggleColUpdate" checked>
+                    <label class="form-check-label" for="toggleColUpdate">Update</label>
+                </div>
             </div>
         </div>
     </div>
-    <div class="row mb-3">
+    <!-- Action Buttons Row -->
+    <div class="row mb-3 action-buttons-row">
       <div class="col-12">
         <button id="saveSettingsBtn" class="btn btn-primary btn-sm">💾 Save Settings</button>
         <button id="toggleColsBtn" class="btn btn-secondary btn-sm ms-2">🔄 Select/Deselect All</button>
         <button id="exportCsvBtn" class="btn btn-secondary btn-sm ms-2">📤 Export CSV</button>
+        <!-- Comparison controls moved here -->
+        <div class="comparison-controls d-inline-flex align-items-center ms-2">
+          <div class="dropdown">
+            <button class="btn btn-secondary btn-sm dropdown-toggle" type="button" id="compareDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+              📊 Comparison graphs
+            </button>
+            <ul class="dropdown-menu" aria-labelledby="compareDropdown">
+              <li><a class="dropdown-item compare-action" href="#" data-compare-type="usage">CPU/RAM Usage</a></li>
+              <li><a class="dropdown-item compare-action" href="#" data-compare-type="uptime">Uptime</a></li>
+            </ul>
+          </div>
+          <input id="compareTopN" type="number" min="1" value="10" class="form-control form-control-sm ms-1" placeholder="Top N" aria-label="Top N" style="width: 4.5rem;">
+        </div>
+        <!-- End comparison controls -->
+        <!-- Status Message Area - Changed to pre for better formatting -->
+        <pre id="statusMessageArea" class="mt-2 p-2 border rounded bg-light text-dark" style="min-height: 3em; white-space: pre-wrap; word-wrap: break-word;"></pre>
+        <!-- Info text below buttons -->
+        <div id="updateInfoText" class="small text-muted mt-1"></div>
       </div>
     </div>
 
-    <!-- Comparison controls above table -->
-    <div class="row mb-3">
-      <div class="col-12 d-flex justify-content-end align-items-center">
-        <div class="dropdown me-2">
-          <button class="btn btn-secondary btn-sm dropdown-toggle" type="button" id="compareDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-            📊 Comparison graphs
-          </button>
-          <ul class="dropdown-menu" aria-labelledby="compareDropdown">
-            <li><a class="dropdown-item compare-action" href="#" data-compare-type="usage">CPU/RAM Usage</a></li>
-            <li><a class="dropdown-item compare-action" href="#" data-compare-type="uptime">Uptime</a></li>
-          </ul>
-        </div>
-        <input id="compareTopN" type="number" min="1" value="10" class="form-control form-control-sm" placeholder="Top N" aria-label="Top N" style="width: 4.5rem;">
-      </div>
-    </div>
-    <!-- End comparison controls -->
+    <!-- Add Containers heading -->
+    <h4 class="mt-4 mb-3"><strong>Containers</strong></h4>
 
     <div id="tableView" class="table-responsive mb-4">
       <table id="metricsTable" class="table table-striped table-hover table-sm">
@@ -469,6 +672,7 @@
             <th class="col-logs">📜 Logs</th>
             <th class="col-charts">📊 Charts</th>
             <th class="col-ui">🌐 UI</th>
+            <th class="col-update sortable" data-sort="update_available">⬆️ Update</th>
             <th class="col-actions">⚙️ Actions</th>
           </tr>
         </thead>
@@ -498,7 +702,7 @@
 
   <!-- Footer -->
   <footer class="footer container-fluid">
-    <p>Dockerstats. Version: v0.3.0</p>
+    <p>DockerStats. Version 0.4.0</p>
   </footer>
   <!-- End Footer -->
 
@@ -514,24 +718,33 @@
     const metricsTableBody = metricsTable.querySelector('tbody');
     const tableStatusDiv = document.getElementById('tableStatus'); // For 'Loading...' or 'No data' messages
     const tableDiv = document.getElementById('tableView');
-    const themeToggleButton = document.getElementById('themeToggle');
+    const themeToggleButton = document.getElementById('themeToggle'); // Selector remains valid
     const scrollTopButton = document.getElementById('scrollTop');
     const chartContainer = document.getElementById('chartContainer');
     const chartCanvas = document.getElementById('usageChart');
     const chartTitle = document.getElementById('chartTitle');
     const chartStatus = document.getElementById('chartStatus');
     const exportCsvBtn = document.getElementById('exportCsvBtn');
+    const notifications = [];
+    const notifBadge = document.getElementById('notifBadge'); // Selector remains valid
+    const notifPanel = document.getElementById('notifPanel'); // Selector remains valid
+    const notifList = document.getElementById('notifList');
+    const navbarSearchInput = document.getElementById('navbarSearchInput'); // New search input
+    const statusMessageArea = document.getElementById('statusMessageArea'); // <-- Add reference to status area
+    let prevMetricsData = [];
     let refreshIntervalId = null; // To store the interval ID
-    const REFRESH_INTERVAL_MS = 5000; // 5 seconds (Should match SAMPLE_INTERVAL ideally)
+    let REFRESH_INTERVAL_MS = 5000; // Default 5 seconds, now mutable
     let usageChart = null; // To store the Chart.js instance
     let currentChartContainerId = null; // Track which container's chart is shown
     let currentChartType = 'line'; // Default chart type
     let allMetricsData = []; // Store the full unfiltered data
+    let searchDebounceTimer = null; // Timer for debouncing search input
 
     // --- Theme Management ---
     function applyTheme(theme) { // theme = 'light' or 'dark'
         document.body.setAttribute('data-bs-theme', theme);
-        themeToggleButton.textContent = theme === 'dark' ? '☀️' : '🌙';
+        // Update button icon based on theme
+        themeToggleButton.innerHTML = theme === 'dark' ? '☀️' : '🌙';
     }
     // Check preference, default to light if not set or invalid
     let currentTheme = localStorage.getItem('theme') || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
@@ -553,37 +766,72 @@
 
     // --- Column Visibility ---
     function applyColumnVisibility() {
-        const toggles = document.querySelectorAll('.column-toggles .form-check-input');
-        toggles.forEach(toggle => {
-            const columnClass = `hide-col-${toggle.value}`; // e.g., hide-col-name or hide-col-charts
-            // Toggle class on the TABLE element itself
-            metricsTable.classList.toggle(columnClass, !toggle.checked); // Add class if unchecked, remove if checked
+        // Apply/remove hide classes on the TABLE element
+        document.querySelectorAll('.column-toggles .form-check-input').forEach(toggle => {
+            const columnKey = toggle.value;
+            const cls = `hide-col-${columnKey}`;
+            metricsTable.classList.toggle(cls, !toggle.checked);
+        });
+
+        // Update colspan for project rows after visibility changes
+        updateProjectRowColspans();
+
+        // Clear the status message if needed
+        if (allMetricsData && allMetricsData.length > 0) {
+            tableStatusDiv.textContent = '';
+        }
+    }
+
+    function updateProjectRowColspans() {
+        const currentVisibleCols = calculateVisibleColumns();
+        document.querySelectorAll('.project-row td[colspan]').forEach(td => {
+            td.setAttribute('colspan', currentVisibleCols);
         });
     }
-    // Add event listeners to toggles
+
+    function calculateVisibleColumns() {
+        let visibleColumnCount = 0;
+        const tableClasses = metricsTable.classList;
+        document.querySelectorAll('#metricsTable thead th').forEach(th => {
+            const colClassIdentifier = [...th.classList].find(c => c.startsWith('col-'));
+            if (colClassIdentifier) {
+                const hideClass = `hide-${colClassIdentifier}`;
+                if (!tableClasses.contains(hideClass)) {
+                    visibleColumnCount++;
+                }
+            }
+        });
+        return Math.max(1, visibleColumnCount); // Ensure at least 1
+    }
+
     document.querySelectorAll('.column-toggles .form-check-input').forEach(toggle => {
-        // Ensure default state is applied on load
-        const columnClass = `hide-col-${toggle.value}`;
-        metricsTable.classList.toggle(columnClass, !toggle.checked);
-        // Add the change listener
-        toggle.addEventListener('change', applyColumnVisibility);
+        // Load saved state
+        const savedState = localStorage.getItem('colVisible-' + toggle.value);
+        // Default to checked (visible) if no saved state, EXCEPT for 'ui' and 'update'
+        const defaultChecked = !['ui', 'update'].includes(toggle.value);
+        toggle.checked = savedState ? savedState === 'true' : defaultChecked;
+
+        // Add listener
+        toggle.addEventListener('change', () => {
+            localStorage.setItem('colVisible-' + toggle.value, toggle.checked);
+            applyColumnVisibility();
+        });
     });
 
-
-    // --- Data Fetching and Rendering ---
     let isFetching = false; // Prevent concurrent fetches
     async function fetchMetrics() {
         console.log("DEBUG: fetchMetrics called."); // <-- Added log
         if (isFetching) {
-            // console.log("Fetch already in progress, skipping.");
-            return;
+            console.log("DEBUG: Fetch already in progress, skipping.");
+            return; // Don't start a new fetch if one is already running
         }
         isFetching = true;
         // Show loading indicator in table view
         tableStatusDiv.textContent = 'Loading...';
 
-        const nameFilter = document.getElementById('filterName').value.toLowerCase().trim();
+        const nameFilter = navbarSearchInput.value.toLowerCase().trim() || document.getElementById('filterName').value.toLowerCase().trim();
         const statusFilter = document.getElementById('filterStatus').value;
+        const projectFilter = document.getElementById('filterProject').value;
         const range = document.getElementById('filterRange').value; // Still sent, backend history buffer uses it implicitly
         const sortBy = document.getElementById('sortBy').value; // Now might be 'uptime_sec'
         const sortDir = document.getElementById('sortDir').value;
@@ -594,142 +842,230 @@
         // Conditionally add filters only if they have a value
         if (nameFilter) url += `&name=${encodeURIComponent(nameFilter)}`;
         if (statusFilter) url += `&status=${encodeURIComponent(statusFilter)}`;
+        if (projectFilter) url += `&project=${encodeURIComponent(projectFilter)}`;
         // Add max items parameter (the backend should handle this)
         if (maxItems > 0) url += `&max=${maxItems}`;
         // Add range for potential future backend use or debugging
         url += `&range=${range}`;
 
+        console.log(`DEBUG: Fetching URL: ${url}`); // <-- Added log
 
         try {
             const response = await fetch(url);
             if (!response.ok) {
-                console.error("Failed to fetch metrics:", response.status, await response.text());
-                const errorMsg = `Error loading data (Status: ${response.status}). Check console.`;
-                metricsTableBody.innerHTML = ''; // Clear table body
-                tableStatusDiv.innerHTML = `<span class="text-danger">${errorMsg}</span>`;
-                tableDiv.style.display = ''; // Ensure table container is visible
-                return; // Stop processing on error
+                throw new Error(`HTTP error! status: ${response.status}`);
             }
             const data = await response.json();
-
-            allMetricsData = data; // Store the fetched data globally
-
-            tableDiv.style.display = ''; // Ensure table container is visible
-            renderTable(data); // Render the table data
-
+            console.log(`DEBUG: Received ${data.length} rows from API.`); // <-- Added log
+            allMetricsData = data; // Store the full data
+            renderTable(data); // Render the potentially filtered/sorted data
+            statusMessageArea.textContent = '';
         } catch (error) {
-            console.error("Error during fetch or processing:", error);
-            const errorMsg = 'Network or processing error. Check console.';
-            metricsTableBody.innerHTML = '';
-            tableStatusDiv.innerHTML = `<span class="text-danger">${errorMsg}</span>`;
-            tableDiv.style.display = ''; // Ensure table container is visible
+            console.error('Error fetching metrics:', error);
+            tableStatusDiv.textContent = 'Error loading data.';
+            statusMessageArea.textContent = 'Error during fetch or processing.'; // Update status on error
         } finally {
             isFetching = false; // Allow next fetch
+            console.log("DEBUG: fetchMetrics finished."); // <-- Added log
         }
+    }
+
+    // Helper function for project toggle click
+    function handleProjectToggle(event) {
+        const btn = event.target;
+        const proj = btn.dataset.project;
+        const childRows = document.querySelectorAll(`.project-${proj}`);
+        const isCollapsed = btn.textContent === '[+]';
+        btn.textContent = isCollapsed ? '[-]' : '[+]';
+        childRows.forEach(r => r.style.display = isCollapsed ? '' : 'none');
+        // Save state
+        localStorage.setItem('projectToggle-' + proj, isCollapsed ? 'open' : 'closed');
     }
 
     function renderTable(data) {
-      metricsTableBody.innerHTML = ''; // Clear previous data
-      tableStatusDiv.textContent = ''; // Clear status message initially
+       metricsTableBody.innerHTML = '';
+       tableStatusDiv.textContent = '';
 
-      if (!data || data.length === 0) {
-          // Display a message if no data matching filters
-          tableStatusDiv.textContent = 'No containers match filters or no data available.';
-          return;
-      }
+       // Get the project filter value *before* processing data
+       const projectFilterValue = document.getElementById('filterProject').value;
 
-      data.forEach(d => {
-        const tr = document.createElement('tr');
-        // Handle potentially missing data gracefully
-        const imageName = d.image || 'N/A';
-        const portInfo = d.ports || 'N/A';
-        // Derive host port and server IP for UI link
-        const hostPort = portInfo.split('->')[0].split(':').pop();
-        // Determine base host for UI link, sanitize custom IP input
-        let baseHost = 'localhost';
-        if (localStorage.getItem('useCustomIP') === 'true') {
-            let raw = (localStorage.getItem('serverIP') || '').trim();
-            raw = raw.split(/[,\s]+/)[0];           // take first segment before comma/space
-            raw = raw.replace(/\/$/, '');            // remove trailing slash
-            raw = raw.replace(/^https?:\/\//i, ''); // strip protocol if provided
-            baseHost = raw || 'localhost';
-        }
-        const baseIP = baseHost;
-        // Use the formatted uptime string directly from backend
-        const uptimeText = d.uptime || 'N/A';
-        // Check for null/undefined restarts
-        const restartsText = (d.restarts !== null && d.restarts !== undefined) ? d.restarts : 'N/A';
-        // Check for null/undefined IO values before toFixed
-        const netRxText = (d.net_io_rx !== null && d.net_io_rx !== undefined) ? d.net_io_rx.toFixed(2) : '-';
-        const netTxText = (d.net_io_tx !== null && d.net_io_tx !== undefined) ? d.net_io_tx.toFixed(2) : '-';
-        const blockRText = (d.block_io_r !== null && d.block_io_r !== undefined) ? d.block_io_r.toFixed(2) : '-';
-        const blockWText = (d.block_io_w !== null && d.block_io_w !== undefined) ? d.block_io_w.toFixed(2) : '-';
+       // Filter data based on project filter *if* a filter is selected
+       // NOTE: The backend already handles filtering and sorting.
+       // This client-side filter might be redundant if the backend filter logic changes.
+       // However, keeping it ensures consistency if the backend filter logic changes.
+       const filteredData = projectFilterValue
+           ? data.filter(d => d.compose_project === projectFilterValue || (!d.compose_project && projectFilterValue === ''))
+           : data;
 
-        // --- CPU Cell with Progress Bar ---
-        // Ensure d.cpu is treated as a number, default to 0 if null/undefined/NaN
-        const cpuNum = Number(d.cpu) || 0;
-        const cpuVal = cpuNum.toFixed(2);
-        const cpuText = (d.cpu !== null && d.cpu !== undefined) ? `${cpuVal}%` : 'N/A'; // Show N/A if original was null/undefined
-        const cpuProgress = Math.max(0, Math.min(100, cpuNum)); // Clamp 0-100
+       if (!filteredData || filteredData.length === 0) {
+           tableStatusDiv.textContent = 'No containers match filters or no data available.';
+           return;
+       }
 
-        // --- Memory Cell with Progress Bar ---
-        const memNum = Number(d.mem) || 0;
-        const memVal = memNum.toFixed(2);
-        const memText = (d.mem !== null && d.mem !== undefined) ? `${memVal}%` : 'N/A'; // Show N/A if original was null/undefined
-        const memProgress = Math.max(0, Math.min(100, memNum)); // Clamp 0-100
+       // Determine saved collapse state per project
+       const projectStates = {};
+       // Pre-calculate collapse states for all potential projects in the filtered data
+       const uniqueProjects = [...new Set(filteredData.map(d => d.compose_project).filter(p => p))];
+       uniqueProjects.forEach(proj => {
+         const saved = localStorage.getItem('projectToggle-' + proj);
+         projectStates[proj] = saved === 'closed'; // Default to open if not 'closed'
+       });
 
-        // Use template literal for cleaner HTML structure
-        // Added classes like 'col-name', 'col-cpu' etc. to match CSS selectors for hiding
-        tr.innerHTML = `
-          <td class="col-name">${d.name || 'N/A'}</td>
+       let currentProject = null; // Track the current project group being rendered
+       let projectContainerCount = 0; // Track containers within the current project group
+       let projectHasHeader = false; // Track if the current project header has been added
+       let updateAvailableCount = 0; // Track available updates
 
-          <td class="col-cpu">
-            <span>${cpuText}</span>
-            <div class="progress" role="progressbar" aria-label="CPU usage for ${d.name || 'container'}" aria-valuenow="${cpuProgress}" aria-valuemin="0" aria-valuemax="100">
-              <div class="progress-bar bg-info text-bg-info" style="width: ${cpuProgress}%;"></div>
-            </div>
-          </td>
+       // --- Iterate through the already sorted data ---
+       filteredData.forEach((d, index) => {
+         // Increment update count if applicable
+         if (d.update_available) {
+             updateAvailableCount++;
+         }
 
-          <td class="col-ram">
-            <span>${memText}</span>
-            <div class="progress" role="progressbar" aria-label="Memory usage for ${d.name || 'container'}" aria-valuenow="${memProgress}" aria-valuemin="0" aria-valuemax="100">
-              <div class="progress-bar bg-success text-bg-success" style="width: ${memProgress}%;"></div>
-            </div>
-          </td>
+         const projectName = d.compose_project || null; // Use null for containers without a project
 
-          <td class="col-pid">${d.pid_count !== null ? d.pid_count : 'N/A'}</td>
-          <td class="col-memlimit">${d.mem_limit !== null ? d.mem_limit.toFixed(2) : 'N/A'}</td>
-          <td class="col-status">${d.status || 'N/A'}</td>
-          <td class="col-uptime">${uptimeText}</td>
-          <td class="col-netio">${netRxText} / ${netTxText}</td>
-          <td class="col-blockio">${blockRText} / ${blockWText}</td>
-          <td class="col-image" title="${imageName}" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">${imageName}</td>
-          <td class="col-ports" title="${portInfo}" style="max-width: 250px; overflow: hidden; text-overflow: ellipsis;">${portInfo}</td>
-          <td class="col-restarts">${restartsText}</td>
-          <td class="col-logs"><a href="/logs/${d.id}" target="_blank">View Logs</a></td>
-          <td class="col-charts">
-            <button class="btn btn-outline-secondary btn-sm show-chart-btn" data-container-id="${d.id}" data-container-name="${d.name || 'Unknown'}">
-              Show Chart 📈
-            </button>
-          </td>
-          <td class="col-ui">
-            <a href="http://${baseIP}:${hostPort}" target="_blank" class="btn btn-outline-primary btn-sm">Open UI</a>
-          </td>
-          <td class="col-actions">
-            <button class="btn btn-outline-success btn-sm start-btn">Start</button>
-            <button class="btn btn-outline-warning btn-sm stop-btn">Stop</button>
-            <button class="btn btn-outline-danger btn-sm restart-btn">Restart</button>
-          </td>
-        `;
-        metricsTableBody.appendChild(tr);
-      });
+         // --- Project Header Logic ---
+         // Check if the project has changed OR if it's the first container and has a project
+         if (projectName !== currentProject) {
+             // If we were previously rendering a project, reset count
+             if (currentProject !== null) {
+                 projectContainerCount = 0;
+                 projectHasHeader = false;
+             }
+             currentProject = projectName;
 
-      // Add event listeners to the new chart buttons AFTER rendering the table
-      addChartButtonListeners();
-      // Re-apply column visibility after rendering new rows
-      applyColumnVisibility();
-      bindContainerButtons();
-    }
+             // Only add a header if the container belongs to a project
+             if (currentProject !== null) {
+                 // Count how many items belong to this new project in the *remaining* filtered data
+                 // This is needed to decide if a header row is necessary (e.g., > 1 container)
+                 // Note: This count might not be perfectly accurate if filtering hides items later,
+                 // but it's a reasonable approach for header display.
+                 const remainingInProject = filteredData.slice(index).filter(item => item.compose_project === currentProject).length;
+
+                 // Show project header if more than one item in the project OR if filtering by this specific project
+                 if (remainingInProject > 1 || projectFilterValue === currentProject) {
+                     const effectiveColspan = calculateVisibleColumns();
+                     const trProj = document.createElement('tr');
+                     trProj.classList.add('project-row');
+                     const collapsed = projectStates[currentProject] === true;
+                     trProj.innerHTML = `
+                       <td class="col-name" colspan="${effectiveColspan}">
+                         <button class="btn btn-sm btn-link project-toggle" data-project="${currentProject}">${collapsed ? '[+]' : '[-]'}</button>
+                         ${currentProject} (${remainingInProject})
+                       </td>`;
+                     metricsTableBody.appendChild(trProj);
+                     projectHasHeader = true; // Mark that header was added
+                 }
+             }
+         }
+
+         // Increment count for the current project if it has one
+         if (currentProject !== null) {
+             projectContainerCount++;
+         }
+         // --- End Project Header Logic ---
+
+
+         // --- Service/Container Row Rendering ---
+         const tr = document.createElement('tr');
+         // Add project class and manage visibility if it belongs to a project
+         if (projectName) { // Check if projectName is not null/undefined
+           tr.classList.add('child-row', `project-${projectName}`);
+           // Hide if the project is collapsed AND a header was actually rendered for it
+           if (projectHasHeader && projectStates[projectName] === true) {
+               tr.style.display = 'none';
+           } else {
+               tr.style.display = ''; // Ensure it's visible otherwise
+           }
+         }
+
+         const imageName = d.image || 'N/A';
+         const portInfo = d.ports || 'N/A';
+         const hostPort = portInfo.split('->')[0].split(':').pop();
+         let baseHost = 'localhost';
+         if (localStorage.getItem('useCustomIP') === 'true') {
+             let raw = (localStorage.getItem('serverIP') || '').trim();
+             raw = raw.split(/[,\s]+/)[0];
+             raw = raw.replace(/\/$/, '');
+             raw = raw.replace(/^https?:\/\//i, '');
+             baseHost = raw || 'localhost';
+         }
+         const baseIP = baseHost;
+         const uptimeText = d.uptime || 'N/A';
+         const restartsText = (d.restarts !== null && d.restarts !== undefined) ? d.restarts : 'N/A';
+         const netRxText = (d.net_io_rx !== null && d.net_io_rx !== undefined) ? d.net_io_rx.toFixed(2) : '-';
+         const netTxText = (d.net_io_tx !== null && d.net_io_tx !== undefined) ? d.net_io_tx.toFixed(2) : '-';
+         const blockRText = (d.block_io_r !== null && d.block_io_r !== undefined) ? d.block_io_r.toFixed(2) : '-';
+         const blockWText = (d.block_io_w !== null && d.block_io_w !== undefined) ? d.block_io_w.toFixed(2) : '-';
+         const cpuNum = Number(d.cpu) || 0;
+         const cpuVal = cpuNum.toFixed(2);
+         const cpuText = (d.cpu !== null && d.cpu !== undefined) ? `${cpuVal}%` : 'N/A';
+         const cpuProgress = Math.max(0, Math.min(100, cpuNum));
+         const memNum = Number(d.mem) || 0;
+         const memVal = memNum.toFixed(2);
+         const memText = (d.mem !== null && d.mem !== undefined) ? `${memVal}%` : 'N/A';
+         const memProgress = Math.max(0, Math.min(100, memNum));
+         tr.innerHTML = `
+           <td class="col-name">${d.name || 'N/A'}</td>
+           <td class="col-cpu">
+             <span>${cpuText}</span>
+             <div class="progress" role="progressbar" aria-label="CPU usage for ${d.name || 'container'}" aria-valuenow="${cpuProgress}" aria-valuemin="0" aria-valuemax="100">
+               <div class="progress-bar bg-info text-bg-info" style="width: ${cpuProgress}%;"></div>
+             </div>
+           </td>
+           <td class="col-ram">
+             <span>${memText}</span>
+             <div class="progress" role="progressbar" aria-label="Memory usage for ${d.name || 'container'}" aria-valuenow="${memProgress}" aria-valuemin="0" aria-valuemax="100">
+               <div class="progress-bar bg-success text-bg-success" style="width: ${memProgress}%;"></div>
+             </div>
+           </td>
+           <td class="col-pid">${d.pid_count !== null ? d.pid_count : 'N/A'}</td>
+           <td class="col-memlimit">${d.mem_limit !== null ? d.mem_limit.toFixed(2) : 'N/A'}</td>
+           <td class="col-status">${d.status || 'N/A'}</td>
+           <td class="col-uptime">${uptimeText}</td>
+           <td class="col-netio">${netRxText} / ${netTxText}</td>
+           <td class="col-blockio">${blockRText} / ${blockWText}</td>
+           <td class="col-image" title="${imageName}" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">${imageName}</td>
+           <td class="col-ports" title="${portInfo}" style="max-width: 250px; overflow: hidden; text-overflow: ellipsis;">${portInfo}</td>
+           <td class="col-restarts">${restartsText}</td>
+           <td class="col-logs"><a href="/logs/${d.id}" target="_blank">View Logs</a></td>
+           <td class="col-charts">
+             <button class="btn btn-outline-secondary btn-sm show-chart-btn" data-container-id="${d.id}" data-container-name="${d.name || 'Unknown'}">
+               Show Chart 📈
+             </button>
+           </td>
+           <td class="col-ui">
+             <a href="http://${baseIP}:${hostPort}" target="_blank" class="btn btn-outline-primary btn-sm">Open UI</a>
+           </td>
+           <td class="col-update">
+             ${d.update_available ? `<button class="btn btn-warning btn-sm update-btn" data-container-id="${d.id}">Update</button>` : `<span title="Image is up-to-date" class="text-success">✅</span>`}
+           </td>
+           <td class="col-actions">
+             <button class="btn btn-outline-success btn-sm start-btn">Start</button>
+             <button class="btn btn-outline-warning btn-sm stop-btn">Stop</button>
+             <button class="btn btn-outline-danger btn-sm restart-btn">Restart</button>
+           </td>
+         `;
+         metricsTableBody.appendChild(tr);
+         // --- End Service/Container Row Rendering ---
+       });
+
+       // Update the info text with the count
+       const updateInfoTextElement = document.getElementById('updateInfoText');
+       if (updateInfoTextElement) {
+           updateInfoTextElement.textContent = updateAvailableCount > 0 ? `(${updateAvailableCount} updates available)` : '';
+       }
+
+       // Add project toggle listeners AFTER all rows are added
+       document.querySelectorAll('.project-toggle').forEach(btn => {
+         btn.removeEventListener('click', handleProjectToggle); // Prevent duplicates
+         btn.addEventListener('click', handleProjectToggle);
+       });
+
+       addChartButtonListeners();
+       bindContainerButtons();
+     }
 
     // --- Chart Functions ---
     function addChartButtonListeners() {
@@ -775,7 +1111,7 @@
         chartStatus.style.color = 'var(--bs-secondary-color)'; // Reset color
 
         try {
-            const response = await fetch(url);
+            const response = await fetch(url, { credentials: 'include' });
             if (!response.ok) {
                 console.error("Failed to fetch history:", response.status, await response.text());
                 chartStatus.textContent = `Error loading chart data (Status: ${response.status}).`;
@@ -901,7 +1237,13 @@
 
     // Función para guardar todos los ajustes en localStorage
     function saveSettings() {
-      const ids = ['filterName','filterStatus','filterRange','sortBy','sortDir','maxItems'];
+      // Persist project toggle states
+      document.querySelectorAll('.project-toggle').forEach(btn => {
+        const proj = btn.dataset.project;
+        const open = btn.textContent === '[-]';
+        localStorage.setItem('projectToggle-' + proj, open ? 'open' : 'closed');
+      });
+      const ids = ['filterName','filterStatus','filterRange','sortBy','sortDir','maxItems', 'refreshInterval']; // Added refreshInterval
       ids.forEach(id => localStorage.setItem(id, document.getElementById(id).value));
       localStorage.setItem('chartType', currentChartType);
       localStorage.setItem('theme', currentTheme);
@@ -912,7 +1254,9 @@
       document.querySelectorAll('.column-toggles .form-check-input').forEach(input => {
         localStorage.setItem(input.id, input.checked);
       });
-      alert('Settings saved ✅');
+      // Show message in status area instead of alert
+      statusMessageArea.textContent = 'Settings saved ✅';
+      statusMessageArea.style.color = '#7a49cd';
     }
 
     // Toggle all column visibility
@@ -939,24 +1283,87 @@
     }
 
     function bindContainerButtons() {
-      document.querySelectorAll('.start-btn').forEach(btn =>
-        btn.addEventListener('click', e => {
-          const id = e.target.closest('tr').querySelector('.show-chart-btn').dataset.containerId;
-          fetch(`/api/containers/${id}/start`, {method: 'POST'}).then(() => fetchMetrics());
-        })
-      );
-      document.querySelectorAll('.stop-btn').forEach(btn =>
-        btn.addEventListener('click', e => {
-          const id = e.target.closest('tr').querySelector('.show-chart-btn').dataset.containerId;
-          fetch(`/api/containers/${id}/stop`, {method: 'POST'}).then(() => fetchMetrics());
-        })
-      );
-      document.querySelectorAll('.restart-btn').forEach(btn =>
-        btn.addEventListener('click', e => {
-          const id = e.target.closest('tr').querySelector('.show-chart-btn').dataset.containerId;
-          fetch(`/api/containers/${id}/restart`, {method: 'POST'}).then(() => fetchMetrics());
-        })
-      );
+        // Use event delegation for better reliability
+        metricsTableBody.addEventListener('click', async (event) => {
+            const btn = event.target;
+            if (!btn.classList.contains('action-btn') && !btn.classList.contains('update-btn') && !btn.classList.contains('start-btn') && !btn.classList.contains('stop-btn') && !btn.classList.contains('restart-btn')) return;
+            let action, containerId, containerName;
+            if (btn.classList.contains('update-btn')) {
+                action = 'update';
+                containerId = btn.dataset.containerId;
+                containerName = btn.closest('tr').querySelector('.col-name')?.textContent || containerId?.substring(0, 12) || '';
+            } else if (btn.classList.contains('start-btn')) {
+                action = 'start';
+                containerId = btn.closest('tr').querySelector('.show-chart-btn')?.dataset.containerId;
+                containerName = btn.closest('tr').querySelector('.col-name')?.textContent || containerId?.substring(0, 12) || '';
+            } else if (btn.classList.contains('stop-btn')) {
+                action = 'stop';
+                containerId = btn.closest('tr').querySelector('.show-chart-btn')?.dataset.containerId;
+                containerName = btn.closest('tr').querySelector('.col-name')?.textContent || containerId?.substring(0, 12) || '';
+            } else if (btn.classList.contains('restart-btn')) {
+                action = 'restart';
+                containerId = btn.closest('tr').querySelector('.show-chart-btn')?.dataset.containerId;
+                containerName = btn.closest('tr').querySelector('.col-name')?.textContent || containerId?.substring(0, 12) || '';
+            } else if (btn.classList.contains('action-btn')) {
+                action = btn.dataset.action;
+                containerId = btn.dataset.id;
+                containerName = btn.dataset.name || containerId?.substring(0, 12) || '';
+            } else {
+                return;
+            }
+            if (!containerId || !action) return;
+            const url = `/api/containers/${containerId}/${action}`;
+            btn.disabled = true;
+            statusMessageArea.textContent = `Starting '${action}' for ${containerName}...\n`;
+            statusMessageArea.style.color = '#7a49cd';
+            try {
+                const response = await fetch(url, { method: 'POST' });
+                if (action === 'update' && response.ok && response.headers.get('content-type')?.includes('text/plain')) {
+                    statusMessageArea.textContent = `Updating ${containerName}...\n`;
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let hadOutput = false;
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        const chunk = decoder.decode(value, { stream: true });
+                        if (chunk) {
+                            statusMessageArea.textContent += chunk;
+                            statusMessageArea.scrollTop = statusMessageArea.scrollHeight;
+                            hadOutput = true;
+                        }
+                    }
+                    if (!hadOutput) {
+                        statusMessageArea.textContent += '\nNo output received from update operation.';
+                    }
+                    statusMessageArea.textContent += '\nUpdate process finished.';
+                    setTimeout(fetchMetrics, 1000);
+                } else {
+                    let result = null;
+                    let text = '';
+                    try {
+                        text = await response.text();
+                        result = JSON.parse(text);
+                    } catch (e) {
+                        // Not JSON, fallback to text
+                    }
+                    if (!response.ok) {
+                        statusMessageArea.textContent = result?.error ? `Error: ${result.error}` : `Error: ${text || 'Unknown error'}`;
+                        statusMessageArea.style.color = 'red';
+                    } else {
+                        let msg = result?.status || text || `Action '${action}' completed successfully.`;
+                        statusMessageArea.textContent = msg;
+                        statusMessageArea.style.color = '#7a49cd';
+                        fetchMetrics();
+                    }
+                }
+            } catch (error) {
+                statusMessageArea.textContent = `Network or server error: ${error.message}`;
+                statusMessageArea.style.color = 'red';
+            } finally {
+                btn.disabled = false;
+            }
+        });
     }
 
     // Export CSV handler
@@ -965,7 +1372,8 @@
       fetch('/api/export/csv', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({metrics: data})
+        body: JSON.stringify({metrics: data}),
+        credentials: 'include'
       })
       .then(res => res.blob())
       .then(blob => {
@@ -978,8 +1386,67 @@
       });
     });
 
+    // --- Notification Functions ---
+    function addNotification(type, containerName, containerId) {
+      const timestamp = new Date();
+      notifications.push({type, containerName, containerId, timestamp});
+      updateNotifBadge();
+      // Only render if panel is already visible
+      const notifPanelElement = document.getElementById('notifPanel'); // Get panel element
+      if (notifPanelElement && notifPanelElement.style.display === 'block') {
+        renderNotifList();
+      }
+    }
+
+    function updateNotifBadge() {
+      if (notifications.length > 0) {
+        notifBadge.textContent = notifications.length;
+        notifBadge.style.display = 'inline-block';
+      } else {
+        notifBadge.style.display = 'none';
+      }
+    }
+
+    function renderNotifList() {
+      if (notifications.length === 0) {
+        notifList.innerHTML = '<p class="small text-muted">No notifications</p>';
+        return;
+      }
+      notifList.innerHTML = notifications.map(n => {
+        const time = n.timestamp.toLocaleTimeString();
+        return `<div class="notif-item"><strong>${n.type}</strong> ${n.containerName} at ${time}</div>`;
+      }).join('');
+    }
+
+    function checkNotifications(data) {
+      data.forEach(d => {
+        const prev = prevMetricsData.find(p => p.id === d.id);
+        // CPU notification: prevCpu defaults to 0 if first run
+        const cpu = Number(d.cpu) || 0;
+        const prevCpu = prev ? (Number(prev.cpu) || 0) : 0;
+        const cpuThresh = Number(document.getElementById('notifCpuThreshold').value) || 0;
+        if (cpu >= cpuThresh && prevCpu < cpuThresh) {
+          addNotification('CPU', d.name, d.id);
+        }
+        // RAM notification
+        const mem = Number(d.mem) || 0;
+        const prevMem = prev ? (Number(prev.mem) || 0) : 0;
+        const memThresh = Number(document.getElementById('notifRamThreshold').value) || 0;
+        if (mem >= memThresh && prevMem < memThresh) {
+          addNotification('RAM', d.name, d.id);
+        }
+        // Status change notification only when previous status exists
+        const statusChangeEnabled = document.getElementById('notifStatusChange').checked;
+        if (prev && statusChangeEnabled && d.status !== prev.status) {
+          addNotification('Status', `${d.name} (${prev.status}→${d.status})`, d.id);
+        }
+      });
+      prevMetricsData = JSON.parse(JSON.stringify(data));
+    }
+
     // --- Initial Load & Event Listeners ---
     document.addEventListener('DOMContentLoaded', () => {
+      try {
         // Load persisted controls
         const savedName = localStorage.getItem('filterName');
         if (savedName) document.getElementById('filterName').value = savedName;
@@ -993,6 +1460,36 @@
         if (savedSortDir) document.getElementById('sortDir').value = savedSortDir;
         const savedMax = localStorage.getItem('maxItems');
         if (savedMax) document.getElementById('maxItems').value = savedMax;
+
+        // Load saved refresh interval
+        const savedInterval = localStorage.getItem('refreshInterval');
+        const refreshIntervalSelect = document.getElementById('refreshInterval');
+        if (savedInterval) {
+            refreshIntervalSelect.value = savedInterval;
+            REFRESH_INTERVAL_MS = parseInt(savedInterval, 10);
+        } else {
+            // Use default if nothing saved
+            REFRESH_INTERVAL_MS = parseInt(refreshIntervalSelect.value, 10);
+        }
+
+        const savedProject = localStorage.getItem('filterProject');
+        // Populate project dropdown
+        fetch('/api/projects', { credentials: 'include' })
+          .then(res => res.json())
+          .then(projects => {
+            const sel = document.getElementById('filterProject');
+            projects.forEach(p => {
+                const opt = document.createElement('option'); opt.value = p; opt.textContent = p;
+                sel.appendChild(opt);
+            });
+            if (savedProject) sel.value = savedProject;
+          });
+        // On change, persist and fetch
+        const projEl = document.getElementById('filterProject');
+        projEl.addEventListener('change', e => {
+            localStorage.setItem('filterProject', e.target.value);
+            fetchMetrics();
+        });
         // Load saved server IP and custom IP toggle
         const savedIP = localStorage.getItem('serverIP');
         if (savedIP) document.getElementById('serverIP').value = savedIP;
@@ -1003,18 +1500,28 @@
             document.getElementById(savedChartType + 'ChartBtn').checked = true;
             currentChartType = savedChartType;
         }
-        // Cargar estado guardado de columnas
+        // Cargar estado guardado de columnas y aplicar visibilidad inicial
         document.querySelectorAll('.column-toggles .form-check-input').forEach(input => {
           const saved = localStorage.getItem(input.id);
-          if (saved !== null) input.checked = (saved === 'true');
+          // Default to checked (visible) if no saved state, EXCEPT for specific columns like 'ui', 'update', etc.
+          const defaultChecked = !['netio', 'blockio', 'image', 'ports', 'restarts', 'ui', 'update'].includes(input.value);
+          if (input.value === 'name') { // Ensure Name is always checked and disabled
+              input.checked = true;
+              input.disabled = true;
+          } else {
+              input.checked = saved ? (saved === 'true') : defaultChecked;
+          }
+          // Apply initial class to table based on loaded state
+          const columnClass = `hide-col-${input.value}`;
+          metricsTable.classList.toggle(columnClass, !input.checked);
         });
-        applyColumnVisibility();
+
         // Añadir listener para el botón de guardar ajustes
         document.getElementById('saveSettingsBtn').addEventListener('click', saveSettings);
         document.getElementById('toggleColsBtn').addEventListener('click', toggleAllColumns);
 
         // Add listeners to all filter/control elements
-        document.querySelectorAll('#filterName, #filterStatus, #filterRange, #sortBy, #sortDir')
+        document.querySelectorAll('#filterName, #filterStatus, #filterRange, #sortBy, #sortDir, #refreshInterval')
             .forEach(el => {
                 el.addEventListener('change', fetchMetrics);
                 el.addEventListener('change', e => localStorage.setItem(e.target.id, e.target.value));
@@ -1023,17 +1530,44 @@
         const maxEl = document.getElementById('maxItems');
         maxEl.addEventListener('change', e => { localStorage.setItem('maxItems', e.target.value); fetchMetrics(); });
 
-        // Persist maxItems on change
-        // Chart type persistence
-        
-        // Apply initial column visibility based on default checkbox state (already done in listener setup)
+        // Add listener for refresh interval changes
+        const refreshIntervalSelectEl = document.getElementById('refreshInterval');
+        refreshIntervalSelectEl.addEventListener('change', e => {
+            const newInterval = parseInt(e.target.value, 10);
+            localStorage.setItem('refreshInterval', newInterval);
+            REFRESH_INTERVAL_MS = newInterval;
+            console.log(`Refresh interval changed to ${REFRESH_INTERVAL_MS / 1000} seconds.`);
+            // Clear existing interval and set a new one
+            if (refreshIntervalId) {
+                clearInterval(refreshIntervalId);
+            }
+            fetchMetrics(); // Fetch immediately after changing interval
+            refreshIntervalId = setInterval(() => fetchMetrics(false), REFRESH_INTERVAL_MS);
+        });
 
-        // Fetch initial data
-        fetchMetrics();
+        // Add listener for the new navbar search input with debouncing
+        navbarSearchInput.addEventListener('input', () => {
+            clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = setTimeout(() => {
+                fetchMetrics(); // Fetch data after user stops typing for 300ms
+            }, 300);
+        });
+
+        fetchMetrics(); // Initial load is not triggered by check updates
 
         // Set interval for periodic refresh
         if (refreshIntervalId) { clearInterval(refreshIntervalId); } // Clear previous interval if any
-        refreshIntervalId = setInterval(fetchMetrics, REFRESH_INTERVAL_MS);
+        refreshIntervalId = setInterval(() => fetchMetrics(false), REFRESH_INTERVAL_MS); // Use the potentially loaded interval
+
+        // Set initial project toggle states
+        document.querySelectorAll('.project-toggle').forEach(btn => {
+          const proj = btn.dataset.project;
+          const savedState = localStorage.getItem('projectToggle-' + proj);
+          const isCollapsed = savedState === 'closed';
+          btn.textContent = isCollapsed ? '[+]' : '[-]';
+          const childRows = document.querySelectorAll(`.project-${proj}`);
+          childRows.forEach(r => r.style.display = isCollapsed ? 'none' : '');
+        });
 
         // Add listener for Range changes to update the chart if visible
         document.getElementById('filterRange').addEventListener('change', () => {
@@ -1058,7 +1592,21 @@
         (function addHeaderSorting() {
             const sortByEl = document.getElementById('sortBy');
             const sortDirEl = document.getElementById('sortDir');
-            const headerSortMap = { name:'name', cpu:'cpu', ram:'mem', status:'status', uptime:'uptime_sec', restarts:'restarts', combined:'combined' };
+            // Map column class suffix to the sort key used in the API
+            const headerSortMap = {
+                name: 'name',
+                cpu: 'cpu',
+                ram: 'mem',
+                pid: 'pid_count', // Added mapping for Procs column
+                status: 'status',
+                uptime: 'uptime_sec',
+                restarts: 'restarts',
+                combined: 'combined', // This isn't a header, but kept for reference
+                memlimit: 'mem_limit_mb', // Added
+                netio: 'net_io_rx',      // Added (sorts by Rx)
+                blockio: 'block_io_r',   // Added (sorts by Read)
+                update: 'update_available' // Added
+            };
             document.querySelectorAll('#metricsTable thead th').forEach(th => {
                 const colClass = [...th.classList].find(c => c.startsWith('col-'));
                 if (!colClass) return;
@@ -1080,7 +1628,57 @@
             });
         })();
 
+        // Load saved notification settings
+        document.getElementById('notifCpuThreshold').value = localStorage.getItem('notifCpuThreshold') || 80;
+        document.getElementById('notifRamThreshold').value = localStorage.getItem('notifRamThreshold') || 80;
+        document.getElementById('notifStatusChange').checked = localStorage.getItem('notifStatusChange') === 'true';
+
+        // Setup notification toggle button
+        document.getElementById('notifToggle').addEventListener('click', (event) => {
+          event.stopPropagation(); // Prevent click from closing panel immediately if bubbling
+          const notifPanelElement = document.getElementById('notifPanel'); // Get panel element
+          const isVisible = notifPanelElement.style.display === 'block';
+          notifPanelElement.style.display = isVisible ? 'none' : 'block';
+          if (!isVisible) { // If panel was just opened
+            renderNotifList(); // Render the current list
+            notifications.length = 0; // Clear notifications (mark as read)
+            updateNotifBadge(); // Update badge count
+          }
+        });
+        // Close notification panel if clicking outside
+        document.addEventListener('click', (event) => {
+            const notifPanelElement = document.getElementById('notifPanel');
+            const notifToggleElement = document.getElementById('notifToggle');
+            // Check if the click is outside the panel AND outside the toggle button
+            if (notifPanelElement && notifToggleElement && !notifPanelElement.contains(event.target) && !notifToggleElement.contains(event.target)) {
+                notifPanelElement.style.display = 'none';
+            }
+        });
+
+        // Clear notifications
+        document.getElementById('clearNotifsBtn').addEventListener('click', () => {
+          notifications.length = 0;
+          renderNotifList();
+          updateNotifBadge();
+        });
+
+        // Save notification settings
+        document.getElementById('saveNotifSettingsBtn').addEventListener('click', () => {
+          localStorage.setItem('notifCpuThreshold', document.getElementById('notifCpuThreshold').value);
+          localStorage.setItem('notifRamThreshold', document.getElementById('notifRamThreshold').value);
+          localStorage.setItem('notifStatusChange', document.getElementById('notifStatusChange').checked);
+          // Reset previous metrics so new thresholds will trigger
+          prevMetricsData = [];
+          // Show message in status area instead of alert
+          statusMessageArea.textContent = 'Notification settings saved ✅';
+          statusMessageArea.style.color = '#7a49cd';
+        });
+
         console.log(`Docker Monitor UI Initialized. Refreshing every ${REFRESH_INTERVAL_MS / 1000} seconds.`);
+      } catch (e) {
+        console.error('Init error', e);
+        statusMessageArea.textContent = 'Initialization error. Check console.'; // Show init error
+      }
     });
 
   </script>

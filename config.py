@@ -12,5 +12,14 @@ WAITRESS_THREADS = 8
 # Authentication credentials (set via environment variables)
 AUTH_USER = os.environ.get('AUTH_USER', '')
 AUTH_PASSWORD = os.environ.get('AUTH_PASSWORD', '')
+AUTH_PASSWORD_FILE = os.environ.get('AUTH_PASSWORD_FILE', '')
+
+if AUTH_PASSWORD_FILE:
+    try:
+        with open(AUTH_PASSWORD_FILE, 'r') as f:
+            AUTH_PASSWORD = f.read().strip()
+    except FileNotFoundError:
+        print(f"Warning: AUTH_PASSWORD_FILE specified but not found at {AUTH_PASSWORD_FILE}")
+        AUTH_PASSWORD = '' # Or handle error as appropriate
 
 # Puedes añadir más configuraciones aquí si es necesario

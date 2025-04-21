@@ -2,7 +2,7 @@ version: "3.9"
 services:
   monitor:
     build: .
-    container_name: docker-monitor
+    container_name: docker-stats-test
     ports:
       - "5001:5000"
     volumes:
@@ -10,3 +10,13 @@ services:
     environment:
       AUTH_USER: "admin"
       AUTH_PASSWORD: "admin"
+      # Uncomment the line below to use a Docker secret for the password
+      # AUTH_PASSWORD_FILE: /run/secrets/auth_password
+    # Uncomment the lines below to define and use the Docker secret
+    # secrets:
+    #   - auth_password
+
+# Uncomment the lines below to define the Docker secret
+# secrets:
+#   auth_password:
+#     file: ./auth_password.txt # Path to the file containing the password on the host

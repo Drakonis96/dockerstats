@@ -93,7 +93,7 @@
 
   <!-- Footer -->
   <footer class="footer container">
-    <p>Docker Monitor v0.2.0</p> <!-- Update version if needed -->
+    <p>DockerStats. Version 0.4.0</p> <!-- Update version if needed -->
   </footer>
   <!-- End Footer -->
 
@@ -112,6 +112,8 @@
     const compareType = "{{ compare_type }}";
     const topN = {{ top_n }};
     const pageTitle = "{{ title }}"; // e.g., "CPU/RAM Usage", "Size (RW)", "Uptime"
+    // --- EMBEDDED DATA --- (Replaces fetch call)
+    const embeddedComparisonData = {{ comparison_data|tojson|safe }};
 
     // --- Theme Management ---
     function applyTheme(theme) {
@@ -134,39 +136,7 @@
       applyTheme(currentTheme);
     };
 
-    // --- Chart Data Fetching and Rendering ---
-    async function fetchAndRenderComparisonChart() {
-        const url = `/api/compare/${compareType}?topN=${topN}`;
-        chartStatus.textContent = 'Loading chart data...';
-        chartStatus.style.color = 'var(--bs-secondary-color)';
-
-        try {
-            const response = await fetch(url);
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error(`Failed to fetch comparison data (${compareType}):`, response.status, errorText);
-                chartStatus.textContent = `Error loading chart data (Status: ${response.status}). Check console.`;
-                chartStatus.style.color = 'var(--bs-danger)';
-                if (comparisonChart) {
-                    comparisonChart.destroy();
-                    comparisonChart = null;
-                }
-                return;
-            }
-            const data = await response.json();
-            renderComparisonChart(data);
-
-        } catch (error) {
-            console.error("Error fetching or processing comparison chart data:", error);
-            chartStatus.textContent = 'Network or processing error loading chart data.';
-            chartStatus.style.color = 'var(--bs-danger)';
-             if (comparisonChart) {
-                comparisonChart.destroy();
-                comparisonChart = null;
-            }
-        }
-    }
-
+    // --- Chart Rendering (using embedded data) ---
     function renderComparisonChart(data) {
         if (!data || data.length === 0) {
             chartStatus.textContent = `No container data available for comparison (${pageTitle}).`;
@@ -389,8 +359,15 @@
 
     // --- Initial Load ---
     document.addEventListener('DOMContentLoaded', () => {
-        console.log(`Initializing comparison chart for type: ${compareType}, topN: ${topN}`);
-        fetchAndRenderComparisonChart();
+        console.log(`Initializing comparison chart for type: ${compareType}, topN: ${topN} using embedded data.`);
+        // Directly render using the embedded data
+        if (embeddedComparisonData) {
+            renderComparisonChart(embeddedComparisonData);
+        } else {
+            console.error("Embedded comparison data is missing!");
+            chartStatus.textContent = 'Error: Embedded data not found.';
+            chartStatus.style.color = 'var(--bs-danger)';
+        }
     });
 
   </script>

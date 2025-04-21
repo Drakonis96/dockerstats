@@ -13,17 +13,29 @@ It displays **CPU and RAM consumption** per container in a simple, visual interf
 ## 🚀 Features
 
 - 🟢 Real-time container monitoring
-- 📊 Multiple visualization modes: Table, Bar Chart, Line Chart
-- 🧠 Advanced filters: 
-  - Name CPU % RAM % Status Size (RW) Uptime (D H M S) Net I/O Block I/O Image Ports Restarts Logs Charts UI Total FS Procs Mem Limit (MB)
-- 🌗 Light / Dark mode toggle (☀️ / 🌙)
-- 🔝 Scroll-to-top button for long lists
-- 🌐 UI Button: opens container’s exposed port in a new browser tab
-- 🆔 Custom Server IP: choose between localhost or custom IP for UI links
-- 🛠️ Persisted settings: remembers filters, theme, chart type, and column visibility via localStorage
-- 🔄 Dynamic column toggles: show or hide any column on demand
-- 📥 Export selected metrics to CSV
-- ⚙️ Container control buttons: start, stop & restart from the UI
+- 📊 Multiple visualization modes:
+  - **Table View:** Detailed metrics with progress bars.
+  - **History Chart:** Inline CPU/RAM history for individual containers (Line/Bar, Zoom/Pan).
+  - **Comparison Charts:** Dedicated pages comparing Top N containers by CPU/RAM Usage or Uptime.
+- 📄 View container **logs** directly from the UI
+- ⚖️ **Comparison Charts:** Compare Top N containers by CPU/RAM Usage or Uptime on dedicated pages.
+- 🧠 **Filtering & Sorting:**
+  - **Filters:** By Name (main filter & navbar search), Status, and Docker Compose Project.
+  - **Sorting:** Clickable table headers to sort by Name, CPU, RAM, Procs, Status, Uptime, Restarts, Mem Limit, Net I/O, Block I/O, or Update Availability. Ascending/Descending control.
+- 🔍 **Navbar Search:** Quick filter containers by name from the header.
+- 🏗️ **Project Grouping:** Group containers by Docker Compose project with collapse/expand toggles.
+- 🌗 **Light / Dark mode toggle** (☀️ / 🌙)
+- 🔝 **Scroll-to-top button** for long lists
+- 🌐 **UI Button:** opens container’s exposed port in a new browser tab
+- 🆔 **Custom Server IP:** choose between localhost or custom IP for UI links
+- 🛠️ **Persisted Settings:** Remembers filters, theme, chart type, column visibility, refresh interval, IP settings, and project collapse states via localStorage.
+- 📥 **Export selected metrics to CSV**
+- ⚙️ **Container control buttons:** start, stop & restart from the UI
+- ✨ **Additional Columns:** Displays Process Count (Procs) and Memory Limit (MB).
+- ⏱️ **Refresh Interval Control:** Select the UI data refresh rate (e.g., 5s, 10s, 30s).
+- ⬆️ **Update Check:** Manually check for new image versions for containers. An update button appears if a newer image digest is found on Docker Hub.
+- 🔔 **Notifications:** Configurable desktop notifications for CPU/RAM thresholds and container status changes.
+- 💬 **Status Messages:** UI feedback for actions like saving settings, checking updates, or errors.
 
 ---
 
