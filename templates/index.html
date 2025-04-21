@@ -390,6 +390,9 @@
         margin-top: 0.5rem; /* Space above the message */
         min-height: 1.5em; /* Prevent layout shifts when empty */
         font-weight: 500; /* Slightly bolder text */
+        max-height: 7em; /* ~5 lines aprox */
+        overflow-y: auto;
+        resize: none;
      }
 
      /* Evitar que las columnas se encojan: layout fijo y ancho según contenido */
@@ -627,6 +630,7 @@
     <div class="row mb-3 action-buttons-row">
       <div class="col-12">
         <button id="saveSettingsBtn" class="btn btn-primary btn-sm">💾 Save Settings</button>
+        <button id="checkUpdatesBtn" class="btn btn-info btn-sm ms-2">🔄 Check Updates</button>
         <button id="toggleColsBtn" class="btn btn-secondary btn-sm ms-2">🔄 Select/Deselect All</button>
         <button id="exportCsvBtn" class="btn btn-secondary btn-sm ms-2">📤 Export CSV</button>
         <!-- Comparison controls moved here -->
@@ -702,7 +706,7 @@
 
   <!-- Footer -->
   <footer class="footer container-fluid">
-    <p>DockerStats. Version 0.4.0</p>
+    <p>DockerStats. Version 0.4.1</p>
   </footer>
   <!-- End Footer -->
 
@@ -819,8 +823,8 @@
     });
 
     let isFetching = false; // Prevent concurrent fetches
-    async function fetchMetrics() {
-        console.log("DEBUG: fetchMetrics called."); // <-- Added log
+    async function fetchMetrics(forceUpdateCheck = false) {
+        console.log("DEBUG: fetchMetrics called." + (forceUpdateCheck ? " (Forcing update check)" : "")); 
         if (isFetching) {
             console.log("DEBUG: Fetch already in progress, skipping.");
             return; // Don't start a new fetch if one is already running
@@ -847,6 +851,9 @@
         if (maxItems > 0) url += `&max=${maxItems}`;
         // Add range for potential future backend use or debugging
         url += `&range=${range}`;
+        
+        // Add forceUpdateCheck parameter if needed
+        if (forceUpdateCheck) url += `&forceUpdateCheck=true`;
 
         console.log(`DEBUG: Fetching URL: ${url}`); // <-- Added log
 
@@ -1039,7 +1046,7 @@
              <a href="http://${baseIP}:${hostPort}" target="_blank" class="btn btn-outline-primary btn-sm">Open UI</a>
            </td>
            <td class="col-update">
-             ${d.update_available ? `<button class="btn btn-warning btn-sm update-btn" data-container-id="${d.id}">Update</button>` : `<span title="Image is up-to-date" class="text-success">✅</span>`}
+             ${d.update_available ? `<span title="Update available" class="text-warning">⬆️</span>` : `<span title="Image is up-to-date" class="text-success">✅</span>`}
            </td>
            <td class="col-actions">
              <button class="btn btn-outline-success btn-sm start-btn">Start</button>
@@ -1323,6 +1330,9 @@
                     const reader = response.body.getReader();
                     const decoder = new TextDecoder();
                     let hadOutput = false;
+                    // Oculta el botón de update de la fila correspondiente
+                    const updateBtn = btn.closest('td.col-update')?.querySelector('.update-btn');
+                    if (updateBtn) updateBtn.style.display = 'none';
                     while (true) {
                         const { done, value } = await reader.read();
                         if (done) break;
@@ -1337,7 +1347,21 @@
                         statusMessageArea.textContent += '\nNo output received from update operation.';
                     }
                     statusMessageArea.textContent += '\nUpdate process finished.';
-                    setTimeout(fetchMetrics, 1000);
+                    
+                    // Add a short delay before fetching metrics with forced update check
+                    setTimeout(() => {
+                        // Add parameter to forcefully check updates on this refresh
+                        fetch('/api/metrics?forceUpdateCheck=true')
+                            .then(response => response.json())
+                            .then(data => {
+                                allMetricsData = data;
+                                renderTable(data);
+                                statusMessageArea.textContent += '\nUpdate status refreshed.';
+                            })
+                            .catch(error => {
+                                console.error('Error refreshing update status:', error);
+                            });
+                    }, 2000); // Wait 2 seconds to allow Docker registry checks to complete
                 } else {
                     let result = null;
                     let text = '';
@@ -1354,7 +1378,11 @@
                         let msg = result?.status || text || `Action '${action}' completed successfully.`;
                         statusMessageArea.textContent = msg;
                         statusMessageArea.style.color = '#7a49cd';
-                        fetchMetrics();
+                        
+                        // For all container actions, explicitly refresh with update check
+                        setTimeout(() => {
+                            fetchMetrics(true); // true indicates to force update check
+                        }, 1000);
                     }
                 }
             } catch (error) {
@@ -1444,6 +1472,31 @@
       prevMetricsData = JSON.parse(JSON.stringify(data));
     }
 
+    // --- Add client-side sorting for instant table sort ---
+    function sortAllMetricsData(sortBy, sortDir) {
+      if (!allMetricsData || allMetricsData.length === 0) return;
+      const numericKeys = ['cpu', 'mem', 'combined', 'uptime_sec', 'restarts', 'net_io_rx', 'net_io_tx', 'block_io_r', 'block_io_w', 'pid_count', 'mem_limit', 'update_available'];
+      const stringKeys = ['name', 'status', 'image', 'ports', 'uptime'];
+      allMetricsData.sort((a, b) => {
+        let aVal = a[sortBy];
+        let bVal = b[sortBy];
+        if (numericKeys.includes(sortBy)) {
+          aVal = (aVal === null || aVal === undefined) ? -Infinity : aVal;
+          bVal = (bVal === null || bVal === undefined) ? -Infinity : bVal;
+          if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
+          if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
+          return 0;
+        } else if (stringKeys.includes(sortBy)) {
+          aVal = (aVal || '').toString().toLowerCase();
+          bVal = (bVal || '').toString().toLowerCase();
+          if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
+          if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
+          return 0;
+        }
+        return 0;
+      });
+    }
+
     // --- Initial Load & Event Listeners ---
     document.addEventListener('DOMContentLoaded', () => {
       try {
@@ -1458,8 +1511,6 @@
         if (savedSortBy) document.getElementById('sortBy').value = savedSortBy;
         const savedSortDir = localStorage.getItem('sortDir');
         if (savedSortDir) document.getElementById('sortDir').value = savedSortDir;
-        const savedMax = localStorage.getItem('maxItems');
-        if (savedMax) document.getElementById('maxItems').value = savedMax;
 
         // Load saved refresh interval
         const savedInterval = localStorage.getItem('refreshInterval');
@@ -1472,6 +1523,8 @@
             REFRESH_INTERVAL_MS = parseInt(refreshIntervalSelect.value, 10);
         }
 
+        const savedMax = localStorage.getItem('maxItems');
+        if (savedMax) document.getElementById('maxItems').value = savedMax;
         const savedProject = localStorage.getItem('filterProject');
         // Populate project dropdown
         fetch('/api/projects', { credentials: 'include' })
@@ -1553,6 +1606,11 @@
             }, 300);
         });
 
+        document.getElementById('checkUpdatesBtn').addEventListener('click', () => {
+            statusMessageArea.textContent = 'Checking for updates...';
+            fetchMetrics(true); // true = force update check
+        });
+
         fetchMetrics(); // Initial load is not triggered by check updates
 
         // Set interval for periodic refresh
@@ -1588,44 +1646,33 @@
             });
         });
 
-        // Add click handlers on column headers to sort table
+        // --- Modify header click to sort instantly ---
         (function addHeaderSorting() {
-            const sortByEl = document.getElementById('sortBy');
-            const sortDirEl = document.getElementById('sortDir');
-            // Map column class suffix to the sort key used in the API
-            const headerSortMap = {
-                name: 'name',
-                cpu: 'cpu',
-                ram: 'mem',
-                pid: 'pid_count', // Added mapping for Procs column
-                status: 'status',
-                uptime: 'uptime_sec',
-                restarts: 'restarts',
-                combined: 'combined', // This isn't a header, but kept for reference
-                memlimit: 'mem_limit_mb', // Added
-                netio: 'net_io_rx',      // Added (sorts by Rx)
-                blockio: 'block_io_r',   // Added (sorts by Read)
-                update: 'update_available' // Added
-            };
-            document.querySelectorAll('#metricsTable thead th').forEach(th => {
-                const colClass = [...th.classList].find(c => c.startsWith('col-'));
-                if (!colClass) return;
-                const key = colClass.replace('col-', '');
-                const sortKey = headerSortMap[key];
-                if (!sortKey) return;
-                th.style.cursor = 'pointer';
-                th.addEventListener('click', () => {
-                    if (sortByEl.value === sortKey) {
-                        sortDirEl.value = sortDirEl.value === 'asc' ? 'desc' : 'asc';
-                    } else {
-                        sortByEl.value = sortKey;
-                        sortDirEl.value = 'desc';
-                    }
-                    localStorage.setItem('sortBy', sortByEl.value);
-                    localStorage.setItem('sortDir', sortDirEl.value);
-                    fetchMetrics();
-                });
+          const sortByEl = document.getElementById('sortBy');
+          const sortDirEl = document.getElementById('sortDir');
+          const headerSortMap = {
+            name: 'name', cpu: 'cpu', ram: 'mem', pid: 'pid_count', status: 'status', uptime: 'uptime_sec', restarts: 'restarts', combined: 'combined', memlimit: 'mem_limit', netio: 'net_io_rx', blockio: 'block_io_r', update: 'update_available'
+          };
+          document.querySelectorAll('#metricsTable thead th').forEach(th => {
+            const colClass = [...th.classList].find(c => c.startsWith('col-'));
+            if (!colClass) return;
+            const key = colClass.replace('col-', '');
+            const sortKey = headerSortMap[key];
+            if (!sortKey) return;
+            th.style.cursor = 'pointer';
+            th.addEventListener('click', () => {
+              if (sortByEl.value === sortKey) {
+                sortDirEl.value = sortDirEl.value === 'asc' ? 'desc' : 'asc';
+              } else {
+                sortByEl.value = sortKey;
+                sortDirEl.value = 'desc';
+              }
+              localStorage.setItem('sortBy', sortByEl.value);
+              localStorage.setItem('sortDir', sortDirEl.value);
+              sortAllMetricsData(sortByEl.value, sortDirEl.value);
+              renderTable(allMetricsData);
             });
+          });
         })();
 
         // Load saved notification settings

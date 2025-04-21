@@ -34,31 +34,30 @@ def initialize_sampler_clients():
 
 def check_image_update(container):
     """
-    Comprueba si hay una actualización disponible para la imagen del contenedor.
-    Retorna: True si hay actualización, False si no, None si no se pudo comprobar.
+    Devuelve True si hay una nueva imagen en el registry,
+    False si la que corre es la última, None si no se pudo comprobar.
     """
     try:
-        local_image = container.image
-        local_digest = local_image.id
-        image_name_tag = container.attrs['Config']['Image']
-
-        if ':' not in image_name_tag or '@' in image_name_tag:
+        image_ref = container.attrs['Config']['Image']           # p. ej. 'nginx:latest'
+        if '@' in image_ref:                                     # imagen fijada por digest → no tiene sentido comprobar
             return None
 
-        remote_image_data = client.images.get_registry_data(image_name_tag)
-        if remote_image_data and remote_image_data.id:
-            remote_digest = remote_image_data.id
-            return local_digest != remote_digest
-        else:
-            return None
+        local_img = client.images.get(image_ref)
+        # Busca el digest de la misma repo en RepoDigests
+        repo = image_ref.split(':')[0]                           # 'nginx'
+        local_manifest_digest = next(
+            d.split('@')[1] for d in local_img.attrs['RepoDigests']
+            if d.startswith(f'{repo}@')
+        )
 
-    except docker.errors.ImageNotFound:
+        remote_manifest_digest = client.images.get_registry_data(image_ref).id
+        return local_manifest_digest != remote_manifest_digest
+
+    except (docker.errors.ImageNotFound, StopIteration):
+        return None                                              # No se pudo comparar
+    except docker.errors.APIError:
         return None
-    except docker.errors.NotFound:
-        return None
-    except docker.errors.APIError as e:
-        return None
-    except Exception as e:
+    except Exception:
         return None
 
 def sample_metrics():

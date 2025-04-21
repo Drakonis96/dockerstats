@@ -2,6 +2,8 @@
 
 import datetime
 import time  # Add time import
+import threading
+from queue import Queue
 from flask import Blueprint, jsonify, request, render_template, Response, stream_with_context  # Quitado escape
 from markupsafe import escape  # Añadido para compatibilidad Flask >=2.3
 import docker
@@ -9,7 +11,7 @@ import json  # Add json import for embedding data
 errors = docker.errors
 
 # Importar estado compartido y clientes/utilidades necesarias
-from sampler import history # Necesario para /api/metrics y /api/compare
+from sampler import history, check_image_update # Necesario para /api/metrics y /api/compare
 from docker_client import get_docker_client, get_api_client # Necesario para ambas APIs
 from metrics_utils import parse_datetime, format_uptime # Necesario para /api/metrics
 
@@ -53,9 +55,57 @@ def api_metrics():
     sort_by  = request.args.get('sort','combined')
     sort_dir = request.args.get('dir','desc')
     max_items = int(request.args.get('max', 0))
+    # Add new parameter to force update checks
+    force_update_check = request.args.get('forceUpdateCheck', '').lower() in ('true', '1', 'yes')
+    
+    if force_update_check:
+        print("DEBUG API: Forzando verificación de actualizaciones")
+
+    # --- Background update check trigger ---
+    if force_update_check:
+        def background_update():
+            def update_worker(q):
+                while True:
+                    item = q.get()
+                    if item is None:
+                        break
+                    cid, container = item
+                    try:
+                        update_result = check_image_update(container)
+                        dq = history.get(cid)
+                        if dq and len(dq) > 0:
+                            latest_sample = dq[-1]
+                            if len(latest_sample) == 10:
+                                ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w, _ = latest_sample
+                                dq[-1] = (ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w, update_result)
+                            elif len(latest_sample) == 9:
+                                ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w = latest_sample
+                                dq[-1] = (ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w, update_result)
+                    except Exception as e:
+                        print(f"WARN: Error en update_worker para {cid[:6]}: {e}")
+                    q.task_done()
+            update_queue = Queue()
+            update_threads = []
+            client = get_docker_client()
+            current_history_keys = list(history.keys())
+            for _ in range(2):
+                t = threading.Thread(target=update_worker, args=(update_queue,))
+                t.start()
+                update_threads.append(t)
+            for cid in current_history_keys:
+                try:
+                    container = client.containers.get(cid)
+                    update_queue.put((cid, container))
+                except Exception:
+                    continue
+            update_queue.join()
+            for _ in update_threads:
+                update_queue.put(None)
+            for t in update_threads:
+                t.join()
+        threading.Thread(target=background_update, daemon=True).start()
 
     rows = []
-    # Copiar claves para evitar problemas si history cambia durante la iteración
     current_history_keys = list(history.keys())
     print(f"DEBUG API: Procesando {len(current_history_keys)} CIDs del historial.")
 
@@ -165,6 +215,18 @@ def api_metrics():
                  else: formatted_uptime = "Error Parse Start"; uptime_sec = None
             elif current_status == 'exited': formatted_uptime = "N/A (Exited)"; uptime_sec = None
             else: formatted_uptime = "N/A"; uptime_sec = None
+            
+            # Solo comprobar update_available si no hay valor previo
+            if update_available is None:
+                update_available = check_image_update(container)
+                if update_available is not None and len(latest_sample) == 10:
+                    ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w, _ = latest_sample
+                    if dq:
+                        dq[-1] = (ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w, update_available)
+                elif update_available is not None and len(latest_sample) == 9:
+                    ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w = latest_sample
+                    if dq:
+                        dq[-1] = (ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w, update_available)
 
         except errors.NotFound:
              # Contenedor no existe más, usar datos históricos si pasan filtro de estado histórico
@@ -668,7 +730,7 @@ def export_csv():
 # --- Container Control Endpoints ---
 @main_routes.route('/api/containers/<container_id>/<action>', methods=['POST'])
 def container_action(container_id, action):
-    """Start, stop, restart or update a Docker container"""
+    """Start, stop, or restart a Docker container"""
     try:
         client = get_docker_client()
         container = client.containers.get(container_id)
@@ -683,51 +745,6 @@ def container_action(container_id, action):
         elif action == 'restart':
             container.restart()
             return jsonify({'status': f'Container {container_name} restarted'})
-        elif action == 'update':
-            def generate_update_logs():
-                try:
-                    yield f"Starting update for {container_name} ({container_id[:12]})...\n"
-                    if container.image and container.image.tags:
-                        latest_tag = container.image.tags[0]
-                        yield f"Pulling latest image: {latest_tag}...\n"
-                        try:
-                            pull_stream = client.api.pull(latest_tag, stream=True, decode=True)
-                            for chunk in pull_stream:
-                                status = chunk.get('status', '')
-                                progress = chunk.get('progress', '')
-                                line = f"{status} {progress}\n" if progress else f"{status}\n"
-                                yield escape(line)
-                            yield f"Image {latest_tag} pulled successfully.\n"
-                        except errors.APIError as pull_err:
-                            yield f"ERROR pulling image {latest_tag}: {escape(str(pull_err))}\n"
-                            yield "Update aborted due to pull error.\n"
-                            return
-                        except Exception as pull_ex:
-                            yield f"UNEXPECTED ERROR during pull: {escape(str(pull_ex))}\n"
-                            yield "Update aborted due to unexpected pull error.\n"
-                            return
-                    else:
-                        yield "No image tag found. Cannot pull/update image from registry. Skipping pull.\n"
-
-                    yield f"Restarting container {container_name}...\n"
-                    try:
-                        container.restart()
-                        yield f"Container {container_name} restarted successfully.\n"
-                        yield "Update process completed.\n"
-                    except errors.APIError as restart_err:
-                        yield f"ERROR restarting container: {escape(str(restart_err))}\n"
-                        yield "Update failed during restart.\n"
-                    except Exception as restart_ex:
-                        yield f"UNEXPECTED ERROR during restart: {escape(str(restart_ex))}\n"
-                        yield "Update failed due to unexpected restart error.\n"
-
-                except errors.NotFound:
-                    yield f"ERROR: Container {container_id[:12]} not found during update.\n"
-                except Exception as e:
-                    yield f"FATAL ERROR during update process: {escape(str(e))}\n"
-
-            # Return a streaming response
-            return Response(stream_with_context(generate_update_logs()), mimetype='text/plain')
         else:
             return jsonify({'error': 'Invalid action'}), 400
 
