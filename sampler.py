@@ -22,6 +22,18 @@ history = {}
 # Almacena estadísticas crudas previas para cálculo delta de CPU
 previous_stats = {}
 
+# --- NUEVO: Control de cacheo de update_available ---
+# Diccionario para cachear el resultado de check_image_update por contenedor
+update_check_cache = {}
+# Timestamp del último chequeo por contenedor
+update_check_time = {}
+# Intervalo mínimo entre chequeos automáticos (segundos)
+UPDATE_CHECK_MIN_INTERVAL = 60  # 1 minuto por defecto
+# Flag global para forzar chequeo inmediato en todos los contenedores
+force_update_check_all = False
+# Set de IDs de contenedores a forzar chequeo inmediato (tras pull manual)
+force_update_check_ids = set()
+
 # Asegura que los clientes se obtienen después de la inicialización
 client = None
 api_client = None
@@ -34,35 +46,40 @@ def initialize_sampler_clients():
 
 def check_image_update(container):
     """
-    Devuelve True si hay una nueva imagen en el registry,
-    False si la que corre es la última, None si no se pudo comprobar.
+    Comprueba si hay una actualización disponible para la imagen del contenedor.
+    Retorna: True si hay actualización, False si no, None si no se pudo comprobar.
+    Usa RepoDigests para mayor robustez.
     """
     try:
-        image_ref = container.attrs['Config']['Image']           # p. ej. 'nginx:latest'
-        if '@' in image_ref:                                     # imagen fijada por digest → no tiene sentido comprobar
+        image_ref = container.attrs['Config']['Image']  # p. ej. 'nginx:latest'
+        if '@' in image_ref:
+            logging.info(f"[UpdateCheck] Imagen fijada por digest ({image_ref}), no se comprueba update.")
             return None
 
         local_img = client.images.get(image_ref)
+        repo = image_ref.split(':')[0]  # 'nginx' de 'nginx:latest'
         # Busca el digest de la misma repo en RepoDigests
-        repo = image_ref.split(':')[0]                           # 'nginx'
         local_manifest_digest = next(
-            d.split('@')[1] for d in local_img.attrs['RepoDigests']
+            d.split('@')[1] for d in local_img.attrs.get('RepoDigests', [])
             if d.startswith(f'{repo}@')
         )
-
         remote_manifest_digest = client.images.get_registry_data(image_ref).id
+        logging.info(f"[UpdateCheck] {image_ref} local_digest={local_manifest_digest} remote_digest={remote_manifest_digest}")
         return local_manifest_digest != remote_manifest_digest
 
     except (docker.errors.ImageNotFound, StopIteration):
-        return None                                              # No se pudo comparar
-    except docker.errors.APIError:
+        logging.warning(f"[UpdateCheck] No se pudo comparar update para {container.name} ({image_ref}) - imagen no encontrada o sin digest.")
         return None
-    except Exception:
+    except docker.errors.APIError as e:
+        logging.warning(f"[UpdateCheck] APIError comprobando update para {container.name}: {e}")
+        return None
+    except Exception as e:
+        logging.warning(f"[UpdateCheck] Error inesperado comprobando update para {container.name}: {e}")
         return None
 
 def sample_metrics():
     """Thread en segundo plano para muestrear periódicamente métricas y comprobar actualizaciones."""
-    global history, previous_stats
+    global history, previous_stats, update_check_cache, update_check_time, force_update_check_all, force_update_check_ids
 
     time.sleep(1)
     initialize_sampler_clients()
@@ -91,6 +108,7 @@ def sample_metrics():
             continue
 
         processed_cids = set()
+        now = time.time()
         for cid, container_name in containers_to_sample:
             processed_cids.add(cid)
             cpu = 0.0
@@ -100,7 +118,18 @@ def sample_metrics():
 
             try:
                 container = client.containers.get(cid)
-                update_available = check_image_update(container)
+                # --- NUEVO: Lógica de chequeo de actualización con cache y forzado ---
+                force_check = force_update_check_all or (cid in force_update_check_ids)
+                last_check = update_check_time.get(cid, 0)
+                # Si forzado o nunca chequeado o pasado el intervalo, hacer chequeo
+                if force_check or (now - last_check > UPDATE_CHECK_MIN_INTERVAL) or (cid not in update_check_cache):
+                    update_available = check_image_update(container)
+                    update_check_cache[cid] = update_available
+                    update_check_time[cid] = now
+                    if cid in force_update_check_ids:
+                        force_update_check_ids.discard(cid)
+                else:
+                    update_available = update_check_cache.get(cid)
 
                 current_stats_raw = api_client.stats(container=cid, stream=False, one_shot=True)
                 if not isinstance(current_stats_raw, dict):
@@ -125,6 +154,8 @@ def sample_metrics():
             except docker.errors.NotFound:
                 if cid in history: del history[cid]
                 if cid in previous_stats: del previous_stats[cid]
+                if cid in update_check_cache: del update_check_cache[cid]
+                if cid in update_check_time: del update_check_time[cid]
                 continue
 
             except Exception as e:
@@ -148,10 +179,15 @@ def sample_metrics():
                 if cid_hist_removed in history: del history[cid_hist_removed]
                 if cid_hist_removed in previous_stats:
                     del previous_stats[cid_hist_removed]
+                if cid_hist_removed in update_check_cache:
+                    del update_check_cache[cid_hist_removed]
+                if cid_hist_removed in update_check_time:
+                    del update_check_time[cid_hist_removed]
 
         except docker.errors.DockerException as e:
             logging.warning(f"Error Docker durante limpieza de historial: {e}")
         except Exception as e:
             logging.warning(f"Error genérico durante limpieza de historial: {e}")
 
+        force_update_check_all = False  # Reset global force after ciclo
         time.sleep(SAMPLE_INTERVAL)
