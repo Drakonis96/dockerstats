@@ -17,6 +17,7 @@ COPY docker_client.py .
 COPY metrics_utils.py .
 COPY sampler.py .
 COPY routes.py .
+COPY pushover_client.py .
 
 # Copia las carpetas de templates y static
 # Asegúrate de que tu logo.png está DENTRO de la carpeta 'static' en tu máquina local antes de construir

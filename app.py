@@ -21,6 +21,9 @@ from routes import main_routes # Importar el Blueprint
 # o si se usan rutas definidas directamente aquí. El Blueprint ya los define.
 app = Flask(__name__, static_url_path='/static', static_folder='static')
 
+# Set a secret key for session and CSRF protection
+app.secret_key = 'replace_this_with_a_random_secret_key_2025'
+
 # Registrar el Blueprint que contiene las rutas
 app.register_blueprint(main_routes)
 

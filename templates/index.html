@@ -141,6 +141,7 @@
      /* Right for numeric data + uptime (using fixed width helps) */
      #metricsTable th.col-cpu, #metricsTable td.col-cpu,
      #metricsTable th.col-ram, #metricsTable td.col-ram,
+     #metricsTable th.col-gpu, #metricsTable td.col-gpu,
      #metricsTable th.col-uptime, #metricsTable td.col-uptime,
      #metricsTable th.col-netio, #metricsTable td.col-netio,
      #metricsTable th.col-blockio, #metricsTable td.col-blockio,
@@ -328,6 +329,9 @@
         #tableView {
             overflow-x: auto;
         }
+        #tableView {
+            min-height: 400px;
+        }
         #metricsTable {
             table-layout: auto;
             width: auto; /* Allow table to be wider than screen */
@@ -413,6 +417,7 @@
      .hide-col-name th.col-name, .hide-col-name td.col-name { display: none; }
      .hide-col-cpu th.col-cpu, .hide-col-cpu td.col-cpu { display: none; }
      .hide-col-ram th.col-ram, .hide-col-ram td.col-ram { display: none; }
+     .hide-col-gpu th.col-gpu, .hide-col-gpu td.col-gpu { display: none; }
      .hide-col-pid th.col-pid, .hide-col-pid td.col-pid { display: none; }
      .hide-col-memlimit th.col-memlimit, .hide-col-memlimit td.col-memlimit { display: none; }
      .hide-col-status th.col-status, .hide-col-status td.col-status { display: none; }
@@ -456,6 +461,11 @@
                   <div class="mb-1"><label class="form-label">CPU Threshold (%): <input type="number" id="notifCpuThreshold" class="form-control form-control-sm" min="0" max="100"></label></div>
                   <div class="mb-1"><label class="form-label">RAM Threshold (%): <input type="number" id="notifRamThreshold" class="form-control form-control-sm" min="0" max="100"></label></div>
                   <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="notifStatusChange"><label class="form-check-label" for="notifStatusChange">Status Change</label></div>
+                  <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="notifEnableCPU"><label class="form-check-label" for="notifEnableCPU">Enable CPU Notifications</label></div>
+                  <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="notifEnableRAM"><label class="form-check-label" for="notifEnableRAM">Enable RAM Notifications</label></div>
+                  <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="notifEnableStatus"><label class="form-check-label" for="notifEnableStatus">Enable Status Notifications</label></div>
+                  <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="notifEnableUpdate"><label class="form-check-label" for="notifEnableUpdate">Enable Update Notifications</label></div>
+                  <div class="mb-1"><label class="form-label">Notification Window (seconds): <input type="number" id="notifWindowSeconds" class="form-control form-control-sm" min="1"></label></div>
                   <button type="button" id="saveNotifSettingsBtn" class="btn btn-sm btn-primary">Save</button>
                 </div>
                 <div id="notifList" class="mb-2"><p class="small text-muted">No notifications</p></div>
@@ -493,6 +503,8 @@
       </div>
       <div class="col-lg-2 col-md-4 col-sm-6">
         <select id="filterRange" class="form-select form-select-sm" aria-label="Filter by time range (History window)">
+          <option value="30">Last 30 seconds</option>
+          <option value="60">Last 1 minute</option>
           <option value="300">Last 5 minutes</option>
           <option value="900">Last 15 minutes</option>
           <option value="1800">Last 30 minutes</option>
@@ -507,6 +519,7 @@
       <!-- Add Refresh Interval Dropdown -->
       <div class="col-lg-2 col-md-4 col-sm-6">
         <select id="refreshInterval" class="form-select form-select-sm" aria-label="Select refresh interval">
+          <option value="1000">Refresh every 1s</option>
           <option value="5000" selected>Refresh every 5s</option>
           <option value="10000">Refresh every 10s</option>
           <option value="15000">Refresh every 15s</option>
@@ -516,6 +529,12 @@
         </select>
       </div>
       <!-- End Refresh Interval Dropdown -->
+      <div class="col-lg-2 col-md-4 col-sm-6">
+        <select id="metricsSource" class="form-select form-select-sm" aria-label="Select metrics source">
+          <option value="cadvisor" selected>cAdvisor + Docker (recomended)</option>
+          <option value="docker">Solo Docker</option>
+        </select>
+      </div>
       <div class="col-lg-2 col-md-4 col-sm-6">
         <select id="sortBy" class="form-select form-select-sm" aria-label="Sort by column">
           <option value="name">Sort by Name</option>
@@ -563,6 +582,10 @@
                 <div class="form-check form-check-inline">
                     <input class="form-check-input" type="checkbox" value="ram" id="toggleColRAM" checked>
                     <label class="form-check-label" for="toggleColRAM">RAM %</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" value="gpu" id="toggleColGPU" checked>
+                    <label class="form-check-label" for="toggleColGPU">GPU %</label>
                 </div>
                 <div class="form-check form-check-inline">
                     <input class="form-check-input" type="checkbox" value="pid" id="toggleColPID" checked>
@@ -654,13 +677,14 @@
     <!-- Add Containers heading -->
     <h4 class="mt-4 mb-3"><strong>Containers</strong></h4>
 
-    <div id="tableView" class="table-responsive mb-4">
+    <div id="tableView" class="table-responsive mb-4" style="min-height: 400px;">
       <table id="metricsTable" class="table table-striped table-hover table-sm">
         <thead>
           <tr>
             <th class="col-name">🏷️ Name</th>
             <th class="col-cpu">⚙️ CPU %</th>
             <th class="col-ram">🧠 RAM %</th>
+            <th class="col-gpu">🎮 GPU %</th>
             <th class="col-pid">⚙️ Procs</th>
             <th class="col-memlimit">💾 Mem Limit (MB)</th>
             <th class="col-status">🚦 Status</th>
@@ -703,7 +727,7 @@
 
   <!-- Footer -->
   <footer class="footer container-fluid">
-    <p>DockerStats. Version 0.4.0</p>
+    <p>DockerStats. Version 0.5.0</p>
   </footer>
   <!-- End Footer -->
 
@@ -740,6 +764,23 @@
     let currentChartType = 'line'; // Default chart type
     let allMetricsData = []; // Store the full unfiltered data
     let searchDebounceTimer = null; // Timer for debouncing search input
+
+    // --- CSRF Token ---
+    const CSRF_TOKEN = '{{ csrf_token }}';
+
+    // Patch fetch to always add CSRF token for POST requests
+    const originalFetch = window.fetch;
+    window.fetch = function(input, init={}) {
+      const isPost = (
+         (init.method || (input instanceof Request && input.method) || 'GET')
+         .toUpperCase() === 'POST'
+      );
+      if (isPost) {
+         const headers = init.headers ||= {};
+         headers['X-CSRFToken'] = CSRF_TOKEN;
+      }
+      return originalFetch(input, init);
+    };
 
     // --- Theme Management ---
     function applyTheme(theme) { // theme = 'light' or 'dark'
@@ -811,7 +852,11 @@
         // Default to checked (visible) if no saved state, EXCEPT for 'ui' and 'update'
         const defaultChecked = !['ui', 'update'].includes(toggle.value);
         toggle.checked = savedState ? savedState === 'true' : defaultChecked;
-
+        // Always show and disable the Name column
+        if (toggle.value === 'name') {
+            toggle.checked = true;
+            toggle.disabled = true;
+        }
         // Add listener
         toggle.addEventListener('change', () => {
             localStorage.setItem('colVisible-' + toggle.value, toggle.checked);
@@ -828,7 +873,7 @@
         }
         isFetching = true;
         // Show loading indicator in table view
-        tableStatusDiv.textContent = 'Loading...';
+        tableStatusDiv.textContent = '...';
 
         const nameFilter = navbarSearchInput.value.toLowerCase().trim() || document.getElementById('filterName').value.toLowerCase().trim();
         const statusFilter = document.getElementById('filterStatus').value;
@@ -837,9 +882,10 @@
         const sortBy = document.getElementById('sortBy').value; // Now might be 'uptime_sec'
         const sortDir = document.getElementById('sortDir').value;
         const maxItems = parseInt(document.getElementById('maxItems').value) || 0; // Default to 0 (no limit backend-side)
+        const metricsSource = document.getElementById('metricsSource').value; // Added metrics source
 
         // Build API URL (Points to the API route defined in routes.py)
-        let url = `/api/metrics?sort=${sortBy}&dir=${sortDir}`;
+        let url = `/api/metrics?sort=${sortBy}&dir=${sortDir}&source=${metricsSource}`; // Include metrics source
         // Conditionally add filters only if they have a value
         if (nameFilter) url += `&name=${encodeURIComponent(nameFilter)}`;
         if (statusFilter) url += `&status=${encodeURIComponent(statusFilter)}`;
@@ -848,6 +894,7 @@
         if (maxItems > 0) url += `&max=${maxItems}`;
         // Add range for potential future backend use or debugging
         url += `&range=${range}`;
+        url += `&gpu=1`;
 
         console.log(`DEBUG: Fetching URL: ${url}`); // <-- Added log
 
@@ -860,6 +907,7 @@
             console.log(`DEBUG: Received ${data.length} rows from API.`); // <-- Added log
             allMetricsData = data; // Store the full data
             renderTable(data); // Render the potentially filtered/sorted data
+            checkNotifications(data); // <-- Call notifications check after rendering
             statusMessageArea.textContent = '';
         } catch (error) {
             console.error('Error fetching metrics:', error);
@@ -974,7 +1022,7 @@
          if (projectName) { // Check if projectName is not null/undefined
            tr.classList.add('child-row', `project-${projectName}`);
            // Hide if the project is collapsed AND a header was actually rendered for it
-           if (projectHasHeader && projectStates[projectName] === true) {
+           if (projectHasHeader && projectStates[currentProject] === true) {
                tr.style.display = 'none';
            } else {
                tr.style.display = ''; // Ensure it's visible otherwise
@@ -1007,47 +1055,58 @@
          const memVal = memNum.toFixed(2);
          const memText = (d.mem !== null && d.mem !== undefined) ? `${memVal}%` : 'N/A';
          const memProgress = Math.max(0, Math.min(100, memNum));
-         tr.innerHTML = `
-           <td class="col-name">${d.name || 'N/A'}</td>
-           <td class="col-cpu">
-             <span>${cpuText}</span>
-             <div class="progress" role="progressbar" aria-label="CPU usage for ${d.name || 'container'}" aria-valuenow="${cpuProgress}" aria-valuemin="0" aria-valuemax="100">
-               <div class="progress-bar bg-info text-bg-info" style="width: ${cpuProgress}%;"></div>
-             </div>
-           </td>
-           <td class="col-ram">
-             <span>${memText}</span>
-             <div class="progress" role="progressbar" aria-label="Memory usage for ${d.name || 'container'}" aria-valuenow="${memProgress}" aria-valuemin="0" aria-valuemax="100">
-               <div class="progress-bar bg-success text-bg-success" style="width: ${memProgress}%;"></div>
-             </div>
-           </td>
-           <td class="col-pid">${d.pid_count !== null ? d.pid_count : 'N/A'}</td>
-           <td class="col-memlimit">${d.mem_limit !== null ? d.mem_limit.toFixed(2) : 'N/A'}</td>
-           <td class="col-status">${d.status || 'N/A'}</td>
-           <td class="col-uptime">${uptimeText}</td>
-           <td class="col-netio">${netRxText} / ${netTxText}</td>
-           <td class="col-blockio">${blockRText} / ${blockWText}</td>
-           <td class="col-image" title="${imageName}" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">${imageName}</td>
-           <td class="col-ports" title="${portInfo}" style="max-width: 250px; overflow: hidden; text-overflow: ellipsis;">${portInfo}</td>
-           <td class="col-restarts">${restartsText}</td>
-           <td class="col-logs"><a href="/logs/${d.id}" target="_blank">View Logs</a></td>
-           <td class="col-charts">
-             <button class="btn btn-outline-secondary btn-sm show-chart-btn" data-container-id="${d.id}" data-container-name="${d.name || 'Unknown'}">
-               Show Chart 📈
-             </button>
-           </td>
-           <td class="col-ui">
-             <a href="http://${baseIP}:${hostPort}" target="_blank" class="btn btn-outline-primary btn-sm">Open UI</a>
-           </td>
-           <td class="col-update">
-             ${d.update_available ? `⬆️` : ''}
-           </td>
-           <td class="col-actions">
-             <button class="btn btn-outline-success btn-sm start-btn">Start</button>
-             <button class="btn btn-outline-warning btn-sm stop-btn">Stop</button>
-             <button class="btn btn-outline-danger btn-sm restart-btn">Restart</button>
-           </td>
-         `;
+
+         // Dynamic color classes for CPU and RAM progress bars
+         let cpuClass = 'bg-success';
+         if (cpuNum >= 80) cpuClass = 'bg-danger';
+         else if (cpuNum >= 50) cpuClass = 'bg-warning';
+         let ramClass = 'bg-success';
+         if (memNum >= 80) ramClass = 'bg-danger';
+         else if (memNum >= 50) ramClass = 'bg-warning';
+
+         const gpuCell = (() => {
+             if (d.gpu_max !== undefined && d.gpu_max !== null) {
+                 const v = Number(d.gpu_max).toFixed(2);
+                 return `<td class="col-gpu"><div class="progress"><div class="progress-bar bg-info" style="width:${v}%">${v}%</div></div></td>`;
+             }
+             return '<td class="col-gpu">N/A</td>';
+         })();
+
+         tr.innerHTML =
+           `<td class="col-name">${d.name || 'N/A'}</td>` +
+           `<td class="col-cpu">` +
+             `<span>${cpuText}</span>` +
+             `<div class="progress" role="progressbar" aria-label="CPU usage for ${d.name || 'container'}" aria-valuenow="${cpuProgress}" aria-valuemin="0" aria-valuemax="100">` +
+               `<div class="progress-bar ${cpuClass}" style="width: ${cpuProgress}%;"></div>` +
+             `</div>` +
+           `</td>` +
+           `<td class="col-ram">` +
+             `<span>${memText}</span>` +
+             `<div class="progress" role="progressbar" aria-label="Memory usage for ${d.name || 'container'}" aria-valuenow="${memProgress}" aria-valuemin="0" aria-valuemax="100">` +
+               `<div class="progress-bar ${ramClass}" style="width: ${memProgress}%;"></div>` +
+             `</div>` +
+           `</td>` +
+           gpuCell +
+           `<td class="col-pid">${d.pid_count !== null ? d.pid_count : 'N/A'}</td>` +
+           `<td class="col-memlimit">${d.mem_limit !== null ? d.mem_limit.toFixed(2) : 'N/A'}</td>` +
+           `<td class="col-status">${d.status || 'N/A'}</td>` +
+           `<td class="col-uptime">${uptimeText}</td>` +
+           `<td class="col-netio">${netRxText} / ${netTxText}</td>` +
+           `<td class="col-blockio">${blockRText} / ${blockWText}</td>` +
+           `<td class="col-image" title="${imageName}" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">${imageName}</td>` +
+           `<td class="col-ports" title="${portInfo}" style="max-width: 250px; overflow: hidden; text-overflow: ellipsis;">${portInfo}</td>` +
+           `<td class="col-restarts">${restartsText}</td>` +
+           `<td class="col-logs"><a href="/logs/${d.id}" target="_blank">View Logs</a></td>` +
+           `<td class="col-charts">` +
+             `<button class="btn btn-outline-secondary btn-sm show-chart-btn" data-container-id="${d.id}" data-container-name="${d.name || 'Unknown'}">Show Chart 📈</button>` +
+           `</td>` +
+           `<td class="col-ui"><a href="http://${baseIP}:${hostPort}" target="_blank" class="btn btn-outline-primary btn-sm">Open UI</a></td>` +
+           `<td class="col-update">${d.update_available ? `⬆️` : ''}</td>` +
+           `<td class="col-actions">` +
+             `<button class="btn btn-outline-success btn-sm start-btn">Start</button>` +
+             `<button class="btn btn-outline-warning btn-sm stop-btn">Stop</button>` +
+             `<button class="btn btn-outline-danger btn-sm restart-btn">Restart</button>` +
+           `</td>`;
          metricsTableBody.appendChild(tr);
          // --- End Service/Container Row Rendering ---
        });
@@ -1244,7 +1303,7 @@
         const open = btn.textContent === '[-]';
         localStorage.setItem('projectToggle-' + proj, open ? 'open' : 'closed');
       });
-      const ids = ['filterName','filterStatus','filterRange','sortBy','sortDir','maxItems', 'refreshInterval']; // Added refreshInterval
+      const ids = ['filterName','filterStatus','filterRange','sortBy','sortDir','maxItems', 'refreshInterval', 'metricsSource']; // Added metricsSource
       ids.forEach(id => localStorage.setItem(id, document.getElementById(id).value));
       localStorage.setItem('chartType', currentChartType);
       localStorage.setItem('theme', currentTheme);
@@ -1255,6 +1314,12 @@
       document.querySelectorAll('.column-toggles .form-check-input').forEach(input => {
         localStorage.setItem(input.id, input.checked);
       });
+      // Save notification settings
+      localStorage.setItem('notifEnableCPU', document.getElementById('notifEnableCPU').checked);
+      localStorage.setItem('notifEnableRAM', document.getElementById('notifEnableRAM').checked);
+      localStorage.setItem('notifEnableStatus', document.getElementById('notifEnableStatus').checked);
+      localStorage.setItem('notifEnableUpdate', document.getElementById('notifEnableUpdate').checked);
+      localStorage.setItem('notifWindowSeconds', document.getElementById('notifWindowSeconds').value);
       // Show message in status area instead of alert
       statusMessageArea.textContent = 'Settings saved ✅';
       statusMessageArea.style.color = '#7a49cd';
@@ -1420,30 +1485,76 @@
     }
 
     function checkNotifications(data) {
+      const cpuEnabled = document.getElementById('notifEnableCPU').checked;
+      const ramEnabled = document.getElementById('notifEnableRAM').checked;
+      const statusEnabled = document.getElementById('notifEnableStatus').checked;
+      const statusChangeEnabled = document.getElementById('notifStatusChange').checked;
+      // const updateEnabled = document.getElementById('notifEnableUpdate').checked; // For future use
       data.forEach(d => {
         const prev = prevMetricsData.find(p => p.id === d.id);
         // CPU notification: prevCpu defaults to 0 if first run
         const cpu = Number(d.cpu) || 0;
         const prevCpu = prev ? (Number(prev.cpu) || 0) : 0;
         const cpuThresh = Number(document.getElementById('notifCpuThreshold').value) || 0;
-        if (cpu >= cpuThresh && prevCpu < cpuThresh) {
+        if (cpuEnabled && cpu >= cpuThresh && prevCpu < cpuThresh) {
           addNotification('CPU', d.name, d.id);
         }
         // RAM notification
         const mem = Number(d.mem) || 0;
         const prevMem = prev ? (Number(prev.mem) || 0) : 0;
         const memThresh = Number(document.getElementById('notifRamThreshold').value) || 0;
-        if (mem >= memThresh && prevMem < memThresh) {
+        if (ramEnabled && mem >= memThresh && prevMem < memThresh) {
           addNotification('RAM', d.name, d.id);
         }
-        // Status change notification only when previous status exists
-        const statusChangeEnabled = document.getElementById('notifStatusChange').checked;
-        if (prev && statusChangeEnabled && d.status !== prev.status) {
+        // Status change notification only when previous status exists and both checkboxes are checked
+        if (prev && statusEnabled && statusChangeEnabled && d.status !== prev.status) {
           addNotification('Status', `${d.name} (${prev.status}→${d.status})`, d.id);
         }
       });
       prevMetricsData = JSON.parse(JSON.stringify(data));
     }
+
+    // --- Notification Polling ---
+    let lastNotifTimestamp = 0;
+    function pollNotifications() {
+      fetch(`/api/notifications?since=${lastNotifTimestamp}`)
+        .then(res => res.json())
+        .then(newNotifs => {
+          if (Array.isArray(newNotifs) && newNotifs.length > 0) {
+            // Update last timestamp
+            lastNotifTimestamp = Math.max(...newNotifs.map(n => n.timestamp), lastNotifTimestamp);
+            // Add to local notifications array
+            newNotifs.forEach(n => notifications.push(n));
+            updateNotifBadge();
+            renderNotifList();
+          }
+        })
+        .catch(() => {});
+    }
+    setInterval(pollNotifications, 2000); // Poll every 2s
+
+    // --- Notification Settings Controls ---
+    document.getElementById('notifEnableCPU').addEventListener('change', e => {
+      localStorage.setItem('notifEnableCPU', e.target.checked);
+    });
+    document.getElementById('notifEnableRAM').addEventListener('change', e => {
+      localStorage.setItem('notifEnableRAM', e.target.checked);
+    });
+    document.getElementById('notifEnableStatus').addEventListener('change', e => {
+      localStorage.setItem('notifEnableStatus', e.target.checked);
+    });
+    document.getElementById('notifEnableUpdate').addEventListener('change', e => {
+      localStorage.setItem('notifEnableUpdate', e.target.checked);
+    });
+    document.getElementById('notifWindowSeconds').addEventListener('change', e => {
+      localStorage.setItem('notifWindowSeconds', e.target.value);
+    });
+    // On load, set checkboxes/inputs from localStorage
+    document.getElementById('notifEnableCPU').checked = localStorage.getItem('notifEnableCPU') !== 'false';
+    document.getElementById('notifEnableRAM').checked = localStorage.getItem('notifEnableRAM') !== 'false';
+    document.getElementById('notifEnableStatus').checked = localStorage.getItem('notifEnableStatus') !== 'false';
+    document.getElementById('notifEnableUpdate').checked = localStorage.getItem('notifEnableUpdate') !== 'false';
+    document.getElementById('notifWindowSeconds').value = localStorage.getItem('notifWindowSeconds') || 10;
 
     // --- Initial Load & Event Listeners ---
     document.addEventListener('DOMContentLoaded', () => {
@@ -1451,11 +1562,9 @@
         // Load persisted controls
         const savedName = localStorage.getItem('filterName');
         if (savedName) document.getElementById('filterName').value = savedName;
+        const savedSortBy = localStorage.getItem('sortBy');
         const savedStatus = localStorage.getItem('filterStatus');
         if (savedStatus) document.getElementById('filterStatus').value = savedStatus;
-        const savedRange = localStorage.getItem('filterRange');
-        if (savedRange) document.getElementById('filterRange').value = savedRange;
-        const savedSortBy = localStorage.getItem('sortBy');
         if (savedSortBy) document.getElementById('sortBy').value = savedSortBy;
         const savedSortDir = localStorage.getItem('sortDir');
         if (savedSortDir) document.getElementById('sortDir').value = savedSortDir;
@@ -1501,6 +1610,15 @@
             document.getElementById(savedChartType + 'ChartBtn').checked = true;
             currentChartType = savedChartType;
         }
+        // Load saved metrics source
+        const savedMetricsSource = localStorage.getItem('metricsSource') || 'cadvisor';
+        document.getElementById('metricsSource').value = savedMetricsSource;
+        // Listener for metrics source change
+        document.getElementById('metricsSource').addEventListener('change', e => {
+          localStorage.setItem('metricsSource', e.target.value);
+          // Refresh metrics without reloading the page
+          fetchMetrics();
+        });
         // Cargar estado guardado de columnas y aplicar visibilidad inicial
         document.querySelectorAll('.column-toggles .form-check-input').forEach(input => {
           const saved = localStorage.getItem(input.id);
@@ -1598,6 +1716,7 @@
                 name: 'name',
                 cpu: 'cpu',
                 ram: 'mem',
+                gpu: 'gpu_max',
                 pid: 'pid_count', // Added mapping for Procs column
                 status: 'status',
                 uptime: 'uptime_sec',
@@ -1629,7 +1748,7 @@
             });
         })();
 
-        // Load saved notification settings
+        // Load saved notification settings ONLY on initial load
         document.getElementById('notifCpuThreshold').value = localStorage.getItem('notifCpuThreshold') || 80;
         document.getElementById('notifRamThreshold').value = localStorage.getItem('notifRamThreshold') || 80;
         document.getElementById('notifStatusChange').checked = localStorage.getItem('notifStatusChange') === 'true';
@@ -1673,17 +1792,32 @@
           // Show message in status area instead of alert
           statusMessageArea.textContent = 'Notification settings saved ✅';
           statusMessageArea.style.color = '#7a49cd';
+
+          // --- NEW: Sync settings with backend ---
+          fetch('/api/notification-settings', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({
+              cpu_enabled:   document.getElementById('notifEnableCPU').checked,
+              ram_enabled:   document.getElementById('notifEnableRAM').checked,
+              status_enabled:document.getElementById('notifEnableStatus').checked,
+              update_enabled:document.getElementById('notifEnableUpdate').checked,
+              cpu_threshold: +document.getElementById('notifCpuThreshold').value,
+              ram_threshold: +document.getElementById('notifRamThreshold').value,
+              window_seconds:+document.getElementById('notifWindowSeconds').value
+            })
+          });
         });
 
         document.getElementById('checkUpdatesBtn').addEventListener('click', async () => {
-          statusMessageArea.textContent = 'Checking update...';
+          statusMessageArea.textContent = 'Comprobando actualizaciones...';
           statusMessageArea.style.color = '#7a49cd';
           try {
-            await fetchMetrics();
-            statusMessageArea.textContent = 'Update check complete.';
+            await fetch('/api/metrics?force=true'); // fuerza comprobación inmediata
+            statusMessageArea.textContent = 'Comprobación completada.';
             statusMessageArea.style.color = '#7a49cd';
           } catch (e) {
-            statusMessageArea.textContent = 'Error during update check.';
+            statusMessageArea.textContent = 'Error al comprobar actualizaciones.';
             statusMessageArea.style.color = 'red';
           }
         });

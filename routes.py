@@ -2,14 +2,19 @@
 
 import datetime
 import time  # Add time import
-from flask import Blueprint, jsonify, request, render_template, Response, stream_with_context  # Quitado escape
+import requests  # Añadido para peticiones HTTP a cAdvisor
+from flask import Blueprint, jsonify, request, render_template, Response, stream_with_context, session  # Quitado escape
 from markupsafe import escape  # Añadido para compatibilidad Flask >=2.3
 import docker
 import json  # Add json import for embedding data
+import os  # Add os import for environment variables
+import secrets
+from functools import wraps
 errors = docker.errors
 
 # Importar estado compartido y clientes/utilidades necesarias
-from sampler import history # Necesario para /api/metrics y /api/compare
+import sampler
+from sampler import history  # Solo importar history para uso local
 from docker_client import get_docker_client, get_api_client # Necesario para ambas APIs
 from metrics_utils import parse_datetime, format_uptime # Necesario para /api/metrics
 
@@ -27,12 +32,72 @@ def require_auth():
     if not auth or auth.username != AUTH_USER or auth.password != AUTH_PASSWORD:
         return Response('Authentication required', 401, {'WWW-Authenticate': 'Basic realm="Login Required"'})
 
+# --- CSRF Token Utilities ---
+def generate_csrf_token():
+    if 'csrf_token' not in session:
+        session['csrf_token'] = secrets.token_urlsafe(32)
+    return session['csrf_token']
+
+def validate_csrf():
+    token = request.headers.get('X-CSRFToken')
+    if not token or token != session.get('csrf_token'):
+        return jsonify({'error': 'Invalid CSRF token'}), 403
+
+# Decorator for CSRF protection
+def csrf_protect(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        result = validate_csrf()
+        if result is not None:
+            return result
+        return f(*args, **kwargs)
+    return decorated_function
+
 # --- Ruta Index ---
 @main_routes.route('/')
 def index():
     """Sirve la página HTML principal."""
     print("DEBUG: Sirviendo página index.html") # Añadido para depuración
-    return render_template('index.html')
+    csrf_token = generate_csrf_token()
+    return render_template('index.html', csrf_token=csrf_token)
+
+def get_cadvisor_metrics():
+    """Obtiene métricas de cAdvisor para todos los contenedores."""
+    try:
+        CADVISOR_URL = os.environ.get('CADVISOR_URL', 'http://cadvisor:8080')
+        resp = requests.get(f'{CADVISOR_URL}/api/v1.3/subcontainers', timeout=2)
+        if resp.status_code != 200:
+            print(f"WARN: cAdvisor respondió {resp.status_code}")
+            return {}
+        data = resp.json()
+        metrics = {}
+        for entry in data:
+            # cAdvisor usa el nombre completo del contenedor, buscar el ID al final
+            if 'docker' in entry.get('aliases', []):
+                # cAdvisor para el propio contenedor de Docker
+                continue
+            if 'docker' in entry.get('spec', {}).get('labels', {}):
+                # cAdvisor para el propio contenedor de Docker
+                continue
+            # Buscar ID Docker
+            docker_id = None
+            for alias in entry.get('aliases', []):
+                if len(alias) == 64:
+                    docker_id = alias
+                    break
+            if not docker_id:
+                # Buscar en labels
+                docker_id = entry.get('spec', {}).get('labels', {}).get('io.kubernetes.docker.id')
+            if not docker_id:
+                continue
+            metrics[docker_id] = entry
+        return metrics
+    except Exception as e:
+        print(f"WARN: No se pudo obtener métricas de cAdvisor: {e}")
+        return {}
+
+# --- Global: Store last cAdvisor stats for delta CPU calculation ---
+cadvisor_last_stats = {}
 
 # --- Ruta API Metrics ---
 @main_routes.route('/api/metrics')
@@ -53,14 +118,16 @@ def api_metrics():
     sort_by  = request.args.get('sort','combined')
     sort_dir = request.args.get('dir','desc')
     max_items = int(request.args.get('max', 0))
+    gpu_requested = request.args.get('gpu', '0') == '1'
     # --- NUEVO: Forzar chequeo de updates si force=true ---
     force_update = request.args.get('force', 'false').lower() == 'true'
     if force_update:
-        try:
-            from sampler import force_update_check_all
-            force_update_check_all = True
-        except Exception as e:
-            print(f"ERROR: No se pudo forzar chequeo de updates: {e}")
+        sampler.force_update_check_all = True
+
+    source = request.args.get('source', 'cadvisor').lower()
+    cadvisor_metrics = get_cadvisor_metrics() if source == 'cadvisor' else {}
+
+    global cadvisor_last_stats
 
     rows = []
     # Copiar claves para evitar problemas si history cambia durante la iteración
@@ -80,12 +147,29 @@ def api_metrics():
             try:
                 # Tomar la última muestra; si falla, el contenedor puede estar en error
                 latest_sample = dq[-1]
-                 # Orden: time, cpu%, mem%, status, name, net_rx, net_tx, blk_r, blk_w, update_available
-                if len(latest_sample) == 10:
+                # Orden: time, cpu%, mem%, status, name, net_rx, net_tx, blk_r, blk_w, update_available, pid_count, mem_limit_mb, gpu_stats, gpu_max
+                if len(latest_sample) == 14:
+                    ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w, update_available, pid_count, mem_limit_mb, gpu_stats, gpu_max = latest_sample
+                elif len(latest_sample) == 13:
+                    ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w, update_available, pid_count, mem_limit_mb, gpu_stats = latest_sample
+                    gpu_max = None
+                elif len(latest_sample) == 12:
+                    ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w, update_available, pid_count, mem_limit_mb = latest_sample
+                    gpu_stats = None
+                    gpu_max = None
+                elif len(latest_sample) == 10:
                     ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w, update_available = latest_sample
+                    pid_count = None
+                    mem_limit_mb = None
+                    gpu_stats = None
+                    gpu_max = None
                 else:
                     ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w = latest_sample
                     update_available = None
+                    pid_count = None
+                    mem_limit_mb = None
+                    gpu_stats = None
+                    gpu_max = None
 
                 # Asegurar que cpu y mem son números o None para la API
                 cpu = float(cpu) if cpu is not None else None
@@ -115,6 +199,11 @@ def api_metrics():
         compose_project = None
         compose_service = None
 
+        # ---------- Extras que faltaban ----------
+        pid_count = None
+        mem_limit_mb = None
+
+        # Contador de Reinicios
         try:
             # Intentar obtener el objeto contenedor completo
             container = client.containers.get(cid)
@@ -135,6 +224,15 @@ def api_metrics():
 
             # --- Extraer Detalles ---
             state = attrs.get('State', {})
+
+            # PIDs y Memory limit
+            try:
+                pid_count = attrs.get('State', {}).get('Pid')
+                mem_bytes  = attrs.get('HostConfig', {}).get('Memory', 0)
+                mem_limit_mb = round(mem_bytes/1048576, 2) if mem_bytes else None
+            except Exception:
+                pid_count = None
+                mem_limit_mb = None
 
             # Imagen
             try:
@@ -195,39 +293,98 @@ def api_metrics():
              formatted_uptime = "Error"
              uptime_sec = None
 
-        # Get process count
-        pid_count = None
-        try:
-            if 'container' in locals() and container:
-                top_info = container.top()
-                processes = top_info.get('Processes', []) if isinstance(top_info, dict) else []
-                pid_count = len(processes)
-        except Exception:
-            pid_count = None
-
-        # Get memory limit in MB: si no hay límite, usar memoria total del host
-        mem_limit_bytes = 0
-        try:
-            if 'container' in locals() and container:
-                mem_limit_bytes = container.attrs.get('HostConfig', {}).get('Memory', 0)
-            if not mem_limit_bytes:
-                host_info = client.info()
-                mem_limit_bytes = host_info.get('MemTotal', 0)
-        except Exception:
-            mem_limit_bytes = 0
-        mem_limit_mb = round(mem_limit_bytes / (1024*1024), 2) if mem_limit_bytes > 0 else None
-
-        # --- Añadir Fila ---
-        rows.append({
+        # --- Si source=cadvisor, intentar sobrescribir métricas con cAdvisor ---
+        if source == 'cadvisor' and cid in cadvisor_metrics:
+            cad = cadvisor_metrics[cid]
+            try:
+                stats = cad.get('stats', [])
+                if len(stats) >= 2:
+                    prev, last = stats[-2], stats[-1]
+                    # CPU: fórmula recomendada cAdvisor v1.3+
+                    try:
+                        last_ts = datetime.datetime.fromisoformat(last['timestamp'].rstrip('Z'))
+                        prev_ts = datetime.datetime.fromisoformat(prev['timestamp'].rstrip('Z'))
+                        interval_ns = (last_ts - prev_ts).total_seconds() * 1e9
+                        delta_total = last['cpu']['usage']['total'] - prev['cpu']['usage']['total']
+                        if interval_ns > 0 and delta_total >= 0:
+                            cpu = (delta_total / interval_ns) * 100
+                        else:
+                            cpu = 0.0
+                        cpu = round(cpu, 2)
+                    except Exception:
+                        pass
+                    # Memoria
+                    try:
+                        mem = (last['memory']['usage'] / last['memory']['limit']) * 100 if last['memory']['limit'] else None
+                        if mem is not None:
+                            mem = round(mem, 2)
+                    except Exception:
+                        pass
+                    # Net I/O
+                    try:
+                        net_rx = sum(i.get('rx_bytes',0) for i in last.get('network',{}).get('interfaces',[])) / (1024*1024)
+                        net_tx = sum(i.get('tx_bytes',0) for i in last.get('network',{}).get('interfaces',[])) / (1024*1024)
+                        net_rx = round(net_rx, 2)
+                        net_tx = round(net_tx, 2)
+                    except Exception:
+                        net_rx = net_tx = None
+                    # Block I/O
+                    try:
+                        blk_r = blk_w = None
+                        blkio = last.get('diskio', {}).get('io_service_bytes', [])
+                        for entry in blkio:
+                            if entry.get('op') == 'Read':
+                                blk_r = entry.get('value', 0) / (1024*1024)
+                            elif entry.get('op') == 'Write':
+                                blk_w = entry.get('value', 0) / (1024*1024)
+                        if blk_r is not None:
+                            blk_r = round(blk_r, 2)
+                        if blk_w is not None:
+                            blk_w = round(blk_w, 2)
+                    except Exception:
+                        blk_r = blk_w = None
+                    # --- Escribir DIRECTAMENTE en el dict de la fila ---
+                    # (Se sobreescriben los valores de Docker si cAdvisor los tiene)
+                    row_data = {
+                        'id': cid,
+                        'name': container_name,
+                        'pid_count': pid_count,
+                        'mem_limit': mem_limit_mb,
+                        'cpu': cpu,
+                        'mem': mem,
+                        'combined': (cpu or 0) + (mem or 0),
+                        'status': current_status,
+                        'uptime_sec': uptime_sec,
+                        'uptime': formatted_uptime,
+                        'net_io_rx': net_rx,
+                        'net_io_tx': net_tx,
+                        'block_io_r': blk_r,
+                        'block_io_w': blk_w,
+                        'image': image_name,
+                        'ports': ports_str,
+                        'restarts': restart_count,
+                        'update_available': update_available,
+                        'compose_project': compose_project,
+                        'compose_service': compose_service
+                    }
+                    if gpu_requested:
+                        row_data['gpu'] = gpu_stats
+                        row_data['gpu_max'] = gpu_max
+                    rows.append(row_data)
+                    continue  # Ya añadimos la fila, saltar el append normal
+            except Exception as e:
+                print(f"WARN: Error procesando métricas cAdvisor para {cid[:12]}: {e}")
+        # --- Añadir Fila (si no fue sobrescrita por cAdvisor) ---
+        row_data = {
             'id': cid,
             'name': container_name,
-            'pid_count': pid_count,  # Number of processes in the container
-            'cpu': cpu, # Valor numérico o None
-            'mem': mem, # Valor numérico o None
-            'mem_limit': mem_limit_mb,  # Memory limit in MB
-            'combined': (cpu or 0) + (mem or 0), # Asegurar números para suma
+            'pid_count': pid_count,
+            'mem_limit': mem_limit_mb,
+            'cpu': cpu,
+            'mem': mem,
+            'combined': (cpu or 0) + (mem or 0),
             'status': current_status,
-            'uptime_sec': uptime_sec, # Puede ser None
+            'uptime_sec': uptime_sec,
             'uptime': formatted_uptime,
             'net_io_rx': net_rx,
             'net_io_tx': net_tx,
@@ -236,14 +393,18 @@ def api_metrics():
             'image': image_name,
             'ports': ports_str,
             'restarts': restart_count,
-            'update_available': update_available,  # Indica si hay nueva versión de imagen
-            'compose_project': compose_project,    # Proyecto de Compose
-            'compose_service': compose_service     # Servicio de Compose
-        })
+            'update_available': update_available,
+            'compose_project': compose_project,
+            'compose_service': compose_service
+        }
+        if gpu_requested:
+            row_data['gpu'] = gpu_stats
+            row_data['gpu_max'] = gpu_max
+        rows.append(row_data)
 
     # --- Ordenación ---
     reverse_sort = (sort_dir == 'desc')
-    numeric_keys = ['cpu', 'mem', 'combined', 'uptime_sec', 'restarts', 'net_io_rx', 'net_io_tx', 'block_io_r', 'block_io_w', 'pid_count', 'mem_limit', 'update_available']
+    numeric_keys = ['cpu', 'mem', 'combined', 'uptime_sec', 'restarts', 'net_io_rx', 'net_io_tx', 'block_io_r', 'block_io_w', 'pid_count', 'mem_limit', 'update_available', 'gpu_max']
     string_keys = ['name', 'status', 'image', 'ports', 'uptime']
 
     def sort_key(item):
@@ -323,11 +484,7 @@ def api_container_history(container_id):
         print(f"DEBUG HISTORY: Procesando {len(dq_copy)} muestras para {container_id[:12]}")
         for sample in dq_copy:
             try:
-                if len(sample) == 10:
-                    ts, cpu, mem, _, _, _, _, _, _, _ = sample
-                else:
-                    ts, cpu, mem, _, _, _, _, _, _ = sample
-
+                ts, cpu, mem = sample[0], sample[1], sample[2]
                 if ts >= cutoff_time:
                     timestamps.append(ts)
                     cpu_usage.append(float(cpu) if cpu is not None else 0)
@@ -580,13 +737,11 @@ def api_compare_data(compare_type):
         if dq:
             try:
                 latest_sample = dq[-1]
-                if len(latest_sample) == 10:
-                    ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w, update_available = latest_sample
-                else:
-                    ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w = latest_sample
-                    update_available = None
-                cpu = float(cpu) if cpu is not None else None
-                mem = float(mem) if mem is not None else None
+                ts = latest_sample[0] if len(latest_sample) > 0 else None
+                cpu = float(latest_sample[1]) if len(latest_sample) > 1 and latest_sample[1] is not None else None
+                mem = float(latest_sample[2]) if len(latest_sample) > 2 and latest_sample[2] is not None else None
+                status_hist = latest_sample[3] if len(latest_sample) > 3 else "unknown"
+                name_hist = latest_sample[4] if len(latest_sample) > 4 else f"container_{cid[:6]}"
             except (ValueError, IndexError, TypeError): continue
         else: continue
 
@@ -657,6 +812,7 @@ def api_compare_data(compare_type):
 
 # --- CSV Export Endpoint ---
 @main_routes.route('/api/export/csv', methods=['POST'])
+@csrf_protect
 def export_csv():
     data = request.get_json() or {}
     metrics = data.get('metrics', [])
@@ -675,6 +831,7 @@ def export_csv():
 
 # --- Container Control Endpoints ---
 @main_routes.route('/api/containers/<container_id>/<action>', methods=['POST'])
+@csrf_protect
 def container_action(container_id, action):
     """Start, stop, restart or update a Docker container"""
     try:
@@ -751,3 +908,32 @@ def container_action(container_id, action):
     except Exception as e:
         print(f"ERROR in container_action ({action} for {container_id[:12]}): {e}")
         return jsonify({'error': f'An unexpected error occurred: {escape(str(e))}'}), 500
+
+# --- Ruta API para notificaciones ---
+@main_routes.route('/api/notifications')
+def api_notifications():
+    """Devuelve notificaciones recientes. Permite filtrar por timestamp (?since=TIMESTAMP) y limitar cantidad."""
+    from sampler import get_notifications
+    try:
+        since = request.args.get('since', None)
+        max_items = int(request.args.get('max', 50))
+        since_ts = float(since) if since else None
+    except Exception:
+        since_ts = None
+        max_items = 50
+    notifs = get_notifications(since_ts=since_ts, max_items=max_items)
+    return jsonify(notifs)
+
+# --- Ruta API para configuración de notificaciones ---
+@main_routes.route('/api/notification-settings', methods=['POST'])
+@csrf_protect
+def api_set_notification_settings():
+    """Permite guardar la configuración de notificaciones desde el frontend."""
+    from sampler import notification_settings
+    data = request.get_json(force=True)
+    # Solo actualiza claves válidas
+    allowed = {'cpu_enabled', 'ram_enabled', 'status_enabled', 'update_enabled', 'cpu_threshold', 'ram_threshold', 'window_seconds'}
+    for k, v in data.items():
+        if k in allowed:
+            notification_settings[k] = v
+    return jsonify({'ok': True, 'settings': notification_settings})

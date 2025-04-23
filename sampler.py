@@ -5,6 +5,14 @@ import time
 import collections
 import docker.errors
 import logging
+import subprocess, json, os
+try:
+    import pynvml
+    pynvml.nvmlInit()
+    _NVML_OK = True
+except Exception:
+    _NVML_OK = False
+
 from docker_client import get_docker_client, get_api_client
 from config import SAMPLE_INTERVAL, MAX_SECONDS
 from metrics_utils import (
@@ -13,6 +21,7 @@ from metrics_utils import (
     calc_net_io,
     calc_block_io
 )
+from pushover_client import send as push_notify
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -28,11 +37,26 @@ update_check_cache = {}
 # Timestamp del último chequeo por contenedor
 update_check_time = {}
 # Intervalo mínimo entre chequeos automáticos (segundos)
-UPDATE_CHECK_MIN_INTERVAL = 60  # 1 minuto por defecto
+UPDATE_CHECK_MIN_INTERVAL = 24 * 3600  # 24 horas
 # Flag global para forzar chequeo inmediato en todos los contenedores
 force_update_check_all = False
 # Set de IDs de contenedores a forzar chequeo inmediato (tras pull manual)
 force_update_check_ids = set()
+
+# --- Notification System ---
+notifications = collections.deque(maxlen=500)  # Store recent notification events
+notification_settings = {
+    'cpu_enabled': True,
+    'ram_enabled': True,
+    'status_enabled': True,
+    'update_enabled': True,
+    'cpu_threshold': 80.0,
+    'ram_threshold': 80.0,
+    'window_seconds': 10,  # How long the threshold must be exceeded
+}
+# Track when each container last exceeded threshold
+cpu_exceed_start = {}
+ram_exceed_start = {}
 
 # Asegura que los clientes se obtienen después de la inicialización
 client = None
@@ -48,21 +72,31 @@ def check_image_update(container):
     """
     Comprueba si hay una actualización disponible para la imagen del contenedor.
     Retorna: True si hay actualización, False si no, None si no se pudo comprobar.
-    Usa RepoDigests para mayor robustez.
+    Busca el digest real de la imagen local tal como está referenciada en el registro (por ejemplo, "nginx@sha256:...").
+    Así, evita problemas si hay varias imágenes locales con el mismo id pero diferentes referencias.
     """
     try:
-        image_ref = container.attrs['Config']['Image']  # p. ej. 'nginx:latest'
-        if '@' in image_ref:
+        image_ref = container.attrs['Config']['Image']  # p. ej. 'nginx:latest' o 'nginx@sha256:...'
+        # Si la imagen ya está fijada por digest, no tiene sentido buscar updates
+        if '@sha256:' in image_ref:
             logging.info(f"[UpdateCheck] Imagen fijada por digest ({image_ref}), no se comprueba update.")
             return None
 
         local_img = client.images.get(image_ref)
-        repo = image_ref.split(':')[0]  # 'nginx' de 'nginx:latest'
-        # Busca el digest de la misma repo en RepoDigests
-        local_manifest_digest = next(
-            d.split('@')[1] for d in local_img.attrs.get('RepoDigests', [])
-            if d.startswith(f'{repo}@')
-        )
+        repo_digests = local_img.attrs.get('RepoDigests', [])
+        # Busca el digest real de la imagen local tal como está referenciada en el registro
+        # Ejemplo: si image_ref es 'nginx:latest', busca 'nginx@sha256:...'
+        repo = image_ref.split(':')[0] if ':' in image_ref else image_ref
+        local_digest_ref = None
+        for d in repo_digests:
+            if d.startswith(f'{repo}@'):
+                local_digest_ref = d
+                break
+        if not local_digest_ref:
+            logging.warning(f"[UpdateCheck] No se encontró RepoDigest para {image_ref} en {repo_digests}")
+            return None
+        local_manifest_digest = local_digest_ref.split('@')[1]
+        # Obtiene el digest remoto del registro
         remote_manifest_digest = client.images.get_registry_data(image_ref).id
         logging.info(f"[UpdateCheck] {image_ref} local_digest={local_manifest_digest} remote_digest={remote_manifest_digest}")
         return local_manifest_digest != remote_manifest_digest
@@ -76,6 +110,36 @@ def check_image_update(container):
     except Exception as e:
         logging.warning(f"[UpdateCheck] Error inesperado comprobando update para {container.name}: {e}")
         return None
+
+def get_gpu_usage():
+    """
+    Devuelve una lista de dicts [{'index':0,'gpu_util':34,'mem_used':1024,'mem_total':8192}, …]
+    Requiere que el contenedor se ejecute con `--gpus all` y tenga drivers.
+    """
+    if _NVML_OK:
+        gpus = []
+        for i in range(pynvml.nvmlDeviceGetCount()):
+            h = pynvml.nvmlDeviceGetHandleByIndex(i)
+            util = pynvml.nvmlDeviceGetUtilizationRates(h)
+            mem  = pynvml.nvmlDeviceGetMemoryInfo(h)
+            gpus.append({
+                'index'    : i,
+                'gpu_util' : util.gpu,
+                'mem_used' : mem.used//1048576,
+                'mem_total': mem.total//1048576
+            })
+        return gpus
+    # fallback: shell out
+    out = subprocess.check_output([
+        'nvidia-smi',
+        '--query-gpu=index,utilization.gpu,memory.used,memory.total',
+        '--format=csv,noheader,nounits'
+    ], text=True)
+    gpus=[]
+    for line in out.strip().splitlines():
+        idx, util, used, total = map(int, line.split(','))
+        gpus.append({'index':idx,'gpu_util':util,'mem_used':used,'mem_total':total})
+    return gpus
 
 def sample_metrics():
     """Thread en segundo plano para muestrear periódicamente métricas y comprobar actualizaciones."""
@@ -115,6 +179,8 @@ def sample_metrics():
             mem_percent = 0.0
             status = "running"
             update_available = None
+            gpu_stats = None
+            gpu_max = None
 
             try:
                 container = client.containers.get(cid)
@@ -148,8 +214,66 @@ def sample_metrics():
 
                 status = "running"
 
+                # --- Añadir pid_count y mem_limit_mb ---
+                pid_count = current_stats_raw.get('pids_stats', {}).get('current')
+                mem_limit_mb = round(current_stats_raw.get('memory_stats', {}).get('limit', 0) / 1048576, 2) or None
+
+                # GPU metrics
+                if os.getenv('GPU_METRICS_ENABLED','false').lower() == 'true':
+                    try:
+                        gpu_stats = get_gpu_usage()
+                        gpu_max = max((g['gpu_util'] for g in gpu_stats), default=None)
+                    except Exception as e:
+                        logging.warning(f"GPU metrics failed: {e}")
+                        gpu_stats = None
+                        gpu_max = None
+
                 dq = history.setdefault(cid, collections.deque(maxlen=MAX_SECONDS // SAMPLE_INTERVAL))
-                dq.append((time.time(), cpu, mem_percent, status, container_name, net_rx, net_tx, blk_r, blk_w, update_available))
+                dq.append((time.time(), cpu, mem_percent, status, container_name, net_rx, net_tx, blk_r, blk_w, update_available, pid_count, mem_limit_mb, gpu_stats, gpu_max))
+
+                # --- Notification logic ---
+                now = time.time()
+                # CPU notification
+                if notification_settings.get('cpu_enabled', True):
+                    if cpu >= notification_settings['cpu_threshold']:
+                        if cid not in cpu_exceed_start:
+                            cpu_exceed_start[cid] = now
+                        elif now - cpu_exceed_start[cid] >= notification_settings['window_seconds']:
+                            # Only notify once per window
+                            if not any(n for n in notifications if n['type']=='cpu' and n['cid']==cid and now-n['timestamp']<notification_settings['window_seconds']*2):
+                                n = {
+                                    'type': 'cpu',
+                                    'cid': cid,
+                                    'container': container_name,
+                                    'value': cpu,
+                                    'timestamp': now,
+                                    'msg': f"CPU usage {cpu:.1f}% exceeded {notification_settings['cpu_threshold']}% for {notification_settings['window_seconds']}s"
+                                }
+                                notifications.append(n)
+                                push_notify(n['msg'])
+                    else:
+                        cpu_exceed_start.pop(cid, None)
+                # RAM notification
+                if notification_settings.get('ram_enabled', True):
+                    if mem_percent >= notification_settings['ram_threshold']:
+                        if cid not in ram_exceed_start:
+                            ram_exceed_start[cid] = now
+                        elif now - ram_exceed_start[cid] >= notification_settings['window_seconds']:
+                            if not any(n for n in notifications if n['type']=='ram' and n['cid']==cid and now-n['timestamp']<notification_settings['window_seconds']*2):
+                                n = {
+                                    'type': 'ram',
+                                    'cid': cid,
+                                    'container': container_name,
+                                    'value': mem_percent,
+                                    'timestamp': now,
+                                    'msg': f"RAM usage {mem_percent:.1f}% exceeded {notification_settings['ram_threshold']}% for {notification_settings['window_seconds']}s"
+                                }
+                                notifications.append(n)
+                                push_notify(n['msg'])
+                    else:
+                        ram_exceed_start.pop(cid, None)
+
+                time.sleep(0.2)  # Stagger requests para evitar throttling
 
             except docker.errors.NotFound:
                 if cid in history: del history[cid]
@@ -161,7 +285,7 @@ def sample_metrics():
             except Exception as e:
                 logging.error(f"ERROR muestreando métricas para contenedor {cid[:12]} (Nombre: {container_name}): {e}")
                 dq = history.setdefault(cid, collections.deque(maxlen=MAX_SECONDS // SAMPLE_INTERVAL))
-                dq.append((time.time(), 0.0, 0.0, "error-sample", container_name, 0, 0, 0, 0, None))
+                dq.append((time.time(), 0.0, 0.0, "error-sample", container_name, 0, 0, 0, 0, None, None, None, None, None))
 
         removed_ids_prev = set(previous_stats.keys()) - current_running_ids
         for cid_removed in removed_ids_prev:
@@ -189,5 +313,12 @@ def sample_metrics():
         except Exception as e:
             logging.warning(f"Error genérico durante limpieza de historial: {e}")
 
-        force_update_check_all = False  # Reset global force after ciclo
         time.sleep(SAMPLE_INTERVAL)
+        force_update_check_all = False  # Reset global force after ciclo
+
+# API helper for notifications (to be imported in routes.py)
+def get_notifications(since_ts=None, max_items=50):
+    now = time.time()
+    if since_ts is not None:
+        return [n for n in list(notifications)[-max_items:] if n['timestamp'] > since_ts]
+    return list(notifications)[-max_items:]

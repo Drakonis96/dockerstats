@@ -1,22 +1,52 @@
 version: "3.9"
+
+networks:
+  monitor-net:
+
 services:
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    privileged: true
+    restart: unless-stopped
+    networks:
+      - monitor-net
+    ports:
+      - "8080:8080"   # Expose cAdvisor on the host
+    volumes:
+      - /:/rootfs:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+
   monitor:
     build: .
     container_name: docker-stats-test
+    restart: unless-stopped
+    depends_on:
+      - cadvisor
+    networks:
+      - monitor-net
     ports:
-      - "5001:5000"
+      - "5001:5000"   # Expose the monitor app on the host
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
       AUTH_USER: "admin"
       AUTH_PASSWORD: "admin"
-      # Uncomment the line below to use a Docker secret for the password
-      # AUTH_PASSWORD_FILE: /run/secrets/auth_password
-    # Uncomment the lines below to define and use the Docker secret
-    # secrets:
-    #   - auth_password
+      CADVISOR_URL: "http://cadvisor:8080"
+      PUSHOVER_TOKEN: ${PUSHOVER_TOKEN}
+      PUSHOVER_USER: ${PUSHOVER_USER}
+      NVIDIA_VISIBLE_DEVICES: all
+      GPU_METRICS_ENABLED: "true"
+    # For hosts with an NVIDIA GPU and the NVIDIA Container Toolkit, you can uncomment the deploy/resources/devices section.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - capabilities: [gpu]
 
-# Uncomment the lines below to define the Docker secret
+# Secrets (optional)
 # secrets:
 #   auth_password:
-#     file: ./auth_password.txt # Path to the file containing the password on the host
+#     file: ./auth_password.txt

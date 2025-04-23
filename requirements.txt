@@ -4,4 +4,5 @@ requests_unixsocket>=0.2.0
 python-dateutil>=2.8
 waitress>=2.0  # Opcional, si usas Waitress para producción
 gunicorn       # Alternativa a Waitress para producción en Linux/macOS
+pynvml>=11.5.0
 

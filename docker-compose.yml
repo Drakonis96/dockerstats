@@ -7,8 +7,19 @@ services:
     environment:
       AUTH_USER: ${AUTH_USER:-}
       AUTH_PASSWORD: ${AUTH_PASSWORD:-}
+      CADVISOR_URL: http://cadvisor:8080  # <--- single source of truth
       # Uncomment the line below to use a Docker secret for the password
       # AUTH_PASSWORD_FILE: /run/secrets/auth_password
+      PUSHOVER_TOKEN: ${PUSHOVER_TOKEN}
+      PUSHOVER_USER: ${PUSHOVER_USER}
+      NVIDIA_VISIBLE_DEVICES: all
+      GPU_METRICS_ENABLED: true
+    # For hosts with an NVIDIA GPU and the NVIDIA Container Toolkit, you can uncomment the deploy/resources/devices section.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - capabilities: [gpu]
     ports:
       - "5001:5000"
     volumes:
@@ -17,6 +28,19 @@ services:
     # secrets:
     #   - auth_password
     restart: unless-stopped
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    ports:
+      - "8080:8080" # You can change the external port if you wish
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    restart: unless-stopped
+    privileged: true
 
 # Uncomment the lines below to define the Docker secret
 # secrets:
