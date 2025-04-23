@@ -6,7 +6,7 @@
 
 # Docker Monitor
 
-[![Support via PayPal](https://cdn.rawgit.com/twolfson/paypal-github-button/1.0.0/dist/button.svg)](https://www.paypal.me/jorgepb96/)
+[![Support via PayPal](https://cdn.rawgit.com/twolfson/paypal-github-button/1.0.0/dist/button.svg)](paypal.me/Jorgepb96)
 
 **Docker Monitor** is a lightweight and responsive web application for real-time monitoring of Docker container resource usage.
 
