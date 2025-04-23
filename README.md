@@ -4,13 +4,9 @@
 
 ---
 
-## ⚠️ Disclaimer
-
-This application requires access to your Docker environment in order to read container statistics, start, stop, and restart containers, and check for image updates. Use with caution and only on systems where you trust the source and understand the implications. The authors are not responsible for any unintended consequences, data loss, or security issues that may arise from its use.
-
----
-
 # Docker Monitor
+
+[![Support via PayPal](https://cdn.rawgit.com/twolfson/paypal-github-button/1.0.0/dist/button.svg)](https://www.paypal.me/jorgpb96/)
 
 **Docker Monitor** is a lightweight and responsive web application for real-time monitoring of Docker container resource usage.
 
@@ -125,6 +121,12 @@ Use the **Server IP** field (and "Use Custom IP" checkbox) in the UI to point th
   <img src="screenshots/Screenshot 2.png" alt="Screenshot 2" width="600">
   <img src="screenshots/Screenshot 3.png" alt="Screenshot 3" width="600">
 </div>
+
+---
+
+## ⚠️ Disclaimer
+
+This application requires access to your Docker environment in order to read container statistics, start, stop, and restart containers, and check for image updates. Use with caution and only on systems where you trust the source and understand the implications. The authors are not responsible for any unintended consequences, data loss, or security issues that may arise from its use.
 
 ---
 
