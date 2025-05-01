@@ -151,6 +151,7 @@ def sample_metrics():
     while True:
         containers_to_sample = []
         current_running_ids = set()
+        all_container_ids = set()
         try:
             if not client or not api_client:
                 logging.error("Clientes Docker no inicializados en sample_metrics. Esperando...")
@@ -158,12 +159,52 @@ def sample_metrics():
                 initialize_sampler_clients()
                 continue
 
+            # Get running containers for active metrics sampling
             running_containers = client.containers.list(all=False, filters={'status': 'running'})
             containers_to_sample = [(c.id, c.name) for c in running_containers]
             current_running_ids = {c.id for c in running_containers}
+            
+            # Get ALL containers (including stopped, exited, etc.) for display
+            all_containers = client.containers.list(all=True)
+            all_container_ids = {c.id for c in all_containers}
+            
+            # Add non-running containers to history with appropriate status
+            for container in all_containers:
+                if container.id not in current_running_ids:
+                    # This is a non-running container, add it to history with its status
+                    dq = history.setdefault(container.id, collections.deque(maxlen=MAX_SECONDS // SAMPLE_INTERVAL))
+                    
+                    # Only add if empty or if status changed
+                    current_status = container.status
+                    last_status = None
+                    if dq and len(dq) > 0:
+                        try:
+                            last_status = dq[-1][3]  # Status is at index 3
+                        except (IndexError, TypeError):
+                            pass
+                    
+                    if not dq or not last_status or last_status != current_status:
+                        # Add a minimal stats entry for non-running containers
+                        # time, cpu, mem, status, name, net_rx, net_tx, blk_r, blk_w, update_available, pid_count, mem_limit_mb, gpu_stats, gpu_max
+                        dq.append((
+                            time.time(),  # timestamp
+                            0.0,          # cpu
+                            0.0,          # memory percentage
+                            current_status,  # status (exited, created, paused, etc.)
+                            container.name,  # container name
+                            0,            # net rx
+                            0,            # net tx
+                            0,            # block read
+                            0,            # block write
+                            None,         # update available
+                            0,            # pid count
+                            None,         # memory limit
+                            None,         # gpu stats
+                            None          # gpu max
+                        ))
 
         except docker.errors.DockerException as e:
-            logging.error(f"ERROR listando contenedores corriendo en sampler: {e}")
+            logging.error(f"ERROR listando contenedores en sampler: {e}")
             time.sleep(SAMPLE_INTERVAL * 2)
             continue
         except Exception as e:
@@ -292,8 +333,8 @@ def sample_metrics():
             if cid_removed in previous_stats: del previous_stats[cid_removed]
 
         try:
-            all_containers_ids = {c.id for c in client.containers.list(all=True)}
-            history_ids_to_remove = set(history.keys()) - all_containers_ids
+            # Remove containers from history that don't exist anymore (not even in stopped state)
+            history_ids_to_remove = set(history.keys()) - all_container_ids
             for cid_hist_removed in history_ids_to_remove:
                 last_known_name = "Desconocido"
                 try:

@@ -41,6 +41,9 @@ services:
       - /var/lib/docker/:/var/lib/docker:ro
     restart: unless-stopped
     privileged: true
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=10s    
 
 # Uncomment the lines below to define the Docker secret
 # secrets:

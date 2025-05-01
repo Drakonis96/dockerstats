@@ -9,6 +9,7 @@ import docker
 import json  # Add json import for embedding data
 import os  # Add os import for environment variables
 import secrets
+import multiprocessing  # Add for CPU core detection
 from functools import wraps
 errors = docker.errors
 
@@ -59,7 +60,12 @@ def index():
     """Sirve la página HTML principal."""
     print("DEBUG: Sirviendo página index.html") # Añadido para depuración
     csrf_token = generate_csrf_token()
-    return render_template('index.html', csrf_token=csrf_token)
+    
+    # Detectar número de cores de CPU
+    cpu_cores = multiprocessing.cpu_count()
+    max_cpu_percent = cpu_cores * 100
+    
+    return render_template('index.html', csrf_token=csrf_token, cpu_cores=cpu_cores, max_cpu_percent=max_cpu_percent)
 
 def get_cadvisor_metrics():
     """Obtiene métricas de cAdvisor para todos los contenedores."""

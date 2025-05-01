@@ -93,7 +93,7 @@
 
   <!-- Footer -->
   <footer class="footer container">
-    <p>DockerStats. Version 0.5.0</p> <!-- Update version if needed -->
+    <p>DockerStats. Version 0.5.1</p> <!-- Update version if needed -->
   </footer>
   <!-- End Footer -->
 
@@ -226,6 +226,11 @@
     }
 
     function getUsageChartConfig(data, labels) {
+        // Format RAM values with thousands separator
+        function formatNumber(num) {
+            if (typeof num !== 'number') num = Number(num);
+            return num.toLocaleString('en-US').replace(/,/g, ' ');
+        }
         const cpuData = data.map(d => d.cpu || 0);
         const ramData = data.map(d => d.mem || 0);
         const colors = getChartColors(currentTheme);
@@ -247,11 +252,29 @@
                         data: ramData,
                         backgroundColor: colors.ramColor,
                         borderColor: colors.ramColor.replace('0.8', '1'),
-                        borderWidth: 1
+                        borderWidth: 1,
+                        // Custom tooltip formatting for RAM
+                        parsing: false
                     }
                 ]
             },
-            options: getBaseChartOptions(currentTheme, 'Usage (%)')
+            options: Object.assign({}, getBaseChartOptions(currentTheme, 'Usage (%)'), {
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) label += ': ';
+                                let value = context.parsed.x !== undefined ? context.parsed.x : context.parsed.y;
+                                if (context.dataset.label === 'RAM Usage (%)') {
+                                    return label + formatNumber(value) + '%';
+                                }
+                                return label + value + '%';
+                            }
+                        }
+                    }
+                }
+            })
         };
     }
 
