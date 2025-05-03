@@ -15,6 +15,7 @@ services:
       PUSHOVER_USER: ${PUSHOVER_USER}
       NVIDIA_VISIBLE_DEVICES: all
       GPU_METRICS_ENABLED: true
+      DOCKER_SOCKET_URL: ${DOCKER_SOCKET_URL:-unix:///var/run/docker.sock}
     # For hosts with an NVIDIA GPU and the NVIDIA Container Toolkit, you can uncomment the deploy/resources/devices section.
     # deploy:
     #   resources:

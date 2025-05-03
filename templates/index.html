@@ -17,7 +17,79 @@
         /* Add a subtle shadow */
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         height: 60px; /* Set a fixed height for the new navbar */
+        z-index: 1030; /* Ensure navbar stays above other content */
     }
+    
+    /* Mobile Sidebar Menu */
+    .mobile-menu-toggle {
+        display: none; /* Hidden by default on desktop */
+        font-size: 1.5rem;
+        cursor: pointer;
+        background: none;
+        border: none;
+        color: var(--bs-body-color);
+    }
+    
+    .sidebar-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0,0,0,0.5);
+        z-index: 1040;
+        display: none;
+    }
+    
+    .sidebar-menu {
+        position: fixed;
+        top: 0;
+        left: -280px;
+        width: 280px;
+        height: 100%;
+        background-color: var(--bs-body-bg);
+        box-shadow: 2px 0 5px rgba(0,0,0,0.2);
+        z-index: 1050;
+        transition: left 0.3s ease;
+        overflow-y: auto;
+        padding: 1rem;
+    }
+    
+    .sidebar-menu.active {
+        left: 0;
+    }
+    
+    .sidebar-menu .sidebar-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding-bottom: 1rem;
+        margin-bottom: 1rem;
+        border-bottom: 1px solid var(--bs-border-color);
+    }
+    
+    .sidebar-menu .sidebar-header h5 {
+        margin: 0;
+    }
+    
+    .sidebar-menu .sidebar-close {
+        font-size: 1.5rem;
+        cursor: pointer;
+        background: none;
+        border: none;
+        color: var(--bs-body-color);
+    }
+    
+    .sidebar-menu .sidebar-items {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+    
+    .sidebar-menu .sidebar-items .btn {
+        text-align: left;
+    }
+    
     /* Container within navbar */
     nav.navbar .container-fluid { /* Use container-fluid for full width */
       display: flex;
@@ -103,7 +175,7 @@
         padding: 0.5rem; /* Adjust padding */
         vertical-align: middle; /* Vertical centering for all */
         white-space: nowrap; /* Prevent text wrapping */
-    }
+     }
      /* Progress bar styling */
      .progress {
         height: 12px; /* Slightly thicker progress bar */
@@ -284,6 +356,16 @@
 
      /* --- Mobile Adjustments --- */
      @media (max-width: 767.98px) {
+        /* Show hamburger menu button and hide navbar buttons on mobile */
+        .mobile-menu-toggle {
+            display: block;
+            margin-right: 1rem;
+        }
+        
+        .navbar-buttons {
+            display: none !important; /* Hide buttons in navbar on mobile */
+        }
+        
         /* Header adjustments */
         nav.navbar .container-fluid {
             flex-wrap: wrap; /* Allow items to wrap */
@@ -291,68 +373,124 @@
         }
         .navbar-title {
             margin-right: 0; /* Remove auto margin */
-            margin-bottom: 0.5rem; /* Add space below title when wrapped */
-            flex-basis: 100%; /* Make title take full width initially */
+            margin-bottom: 0; /* Remove bottom space since we're not wrapping anymore */
             text-align: center; /* Center title on mobile */
-        }
-        .navbar-buttons {
-            width: 100%; /* Make search/buttons take full width */
-            justify-content: space-between; /* Space out search and buttons */
-            margin-top: 0.5rem; /* Space above search/buttons */
-        }
-        #navbarSearchInput {
-            width: auto; /* Allow search to shrink/grow */
-            flex-grow: 1; /* Allow search to take available space */
-            margin-right: 0.5rem; /* Smaller margin */
-        }
-        .navbar-buttons .btn {
-            font-size: 1rem; /* Slightly smaller icons */
-            padding: 0.2rem 0.4rem;
         }
         nav.navbar {
             height: auto; /* Allow header height to adjust */
             padding-bottom: 0.5rem; /* Add padding at bottom when wrapped */
         }
         body {
-             padding-top: 130px; /* Adjust this value as needed */
+             padding-top: 70px; /* Reduced padding since navbar is simpler */
         }
-
-        /* Action buttons row adjustments */
-        .action-buttons-row .col-12 > * { /* Target direct children of the column */
-            margin-bottom: 0.5rem; /* Add space below each button/group */
-            margin-right: 0.5rem; /* Add space between buttons */
-        }
+        
+        /* Improved action buttons layout for mobile */
         .action-buttons-row .col-12 {
             display: flex;
-            flex-wrap: wrap; /* Allow buttons to wrap */
+            flex-wrap: wrap;
+            gap: 8px; /* Even spacing between all buttons */
+            justify-content: flex-start;
             align-items: center;
+            margin-bottom: 0.5rem;
         }
-        /* Ensure comparison group stays together */
+        
+        .action-buttons-row .btn {
+            margin: 0 !important; /* Remove default margins that cause inconsistency */
+            flex: 0 0 auto; /* Don't stretch buttons */
+        }
+        
+        /* Fix comparison controls on mobile */
         .comparison-controls {
-            display: inline-flex; /* Keep dropdown and input together */
-            align-items: center;
-            margin-left: 0.5rem; /* Space before comparison controls */
+            width: 100%;
+            margin-left: 0 !important;
+            margin-top: 8px;
+            justify-content: flex-start;
         }
+        
+        .comparison-controls .dropdown {
+            flex: 1; /* Make dropdown take available space */
+        }
+        
+        .comparison-controls .dropdown-toggle {
+            width: 100%; /* Make dropdown button full width */
+            text-align: left;
+        }
+        
         #compareTopN {
-            width: 4.5rem; /* Keep width */
-            margin-left: 0.5rem; /* Space between dropdown and input */
+            width: 60px !important; /* Fixed width for number input */
+            flex: 0 0 auto;
         }
+     }
 
-        /* Table view scroll */
-        #tableView {
-            overflow-x: auto;
-        }
-        #tableView {
-            min-height: 400px;
-        }
-        #metricsTable {
-            table-layout: auto;
-            width: auto; /* Allow table to be wider than screen */
-        }
-        #metricsTable th,
-        #metricsTable td {
-            white-space: nowrap !important;
-        }
+     /* Action buttons row adjustments */
+     .action-buttons-row .col-12 > * { /* Target direct children of the column */
+         margin-bottom: 0.5rem; /* Add space below each button/group */
+         margin-right: 0.5rem; /* Add space between buttons */
+     }
+     .action-buttons-row .col-12 {
+         display: flex;
+         flex-wrap: wrap; /* Allow buttons to wrap */
+         align-items: center;
+     }
+     /* Ensure comparison group stays together */
+     .comparison-controls {
+         display: inline-flex; /* Keep dropdown and input together */
+         align-items: center;
+         margin-left: 0.5rem; /* Space before comparison controls */
+     }
+     #compareTopN {
+         width: 4.5rem; /* Keep width */
+         margin-left: 0.5rem; /* Space between dropdown and input */
+     }
+     
+     /* Mobile specific style improvements for action buttons */
+     @media (max-width: 767.98px) {
+         .action-buttons-row .col-12 > * {
+             margin-bottom: 0.7rem; /* Slightly more space below buttons on mobile */
+             margin-right: 0.6rem; /* More space between buttons */
+         }
+         
+         /* Better spacing for all action buttons on mobile */
+         #saveSettingsBtn, #checkUpdatesBtn, #toggleColsBtn, #exportCsvBtn {
+             margin: 0.3rem !important;
+             padding: 0.4rem 0.6rem !important;
+             font-size: 0.9rem !important;
+         }
+         
+         /* Fix the size of dropdown on mobile */
+         .comparison-controls {
+             width: auto !important;
+             margin: 0.3rem !important;
+         }
+         
+         .comparison-controls .dropdown-toggle {
+             width: auto !important; 
+             padding: 0.4rem 0.6rem !important;
+             font-size: 0.9rem !important;
+         }
+         
+         #compareTopN {
+             width: 55px !important;
+             margin-left: 0.3rem !important;
+             padding: 0.25rem 0.4rem !important;
+             font-size: 0.9rem !important;
+         }
+     }
+
+     /* Table view scroll */
+     #tableView {
+         overflow-x: auto;
+     }
+     #tableView {
+         min-height: 400px;
+     }
+     #metricsTable {
+         table-layout: auto;
+         width: auto; /* Allow table to be wider than screen */
+     }
+     #metricsTable th,
+     #metricsTable td {
+         white-space: nowrap !important;
      }
 
      /* --- Chart Container Styling --- */
@@ -404,9 +542,17 @@
 
      /* Status Message Area Styling */
      #statusMessageArea {
-        margin-top: 0.5rem; /* Space above the message */
-        min-height: 1.5em; /* Prevent layout shifts when empty */
+        margin-top: 0.5rem; /* Espacio entre botones y status area */
+        margin-bottom: 0.5rem; /* Espacio debajo del status area */
+        min-height: 38px; /* Altura igual a los botones */
+        height: 38px; /* Altura fija igual a los botones */
+        line-height: 24px; /* Alineación vertical del texto */
         font-weight: 500; /* Slightly bolder text */
+        width: 100%; /* Ancho completo */
+        padding: 6px 12px; /* Mismo padding que los botones */
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        overflow-y: auto; /* Permitir scroll si hay mucho contenido */
      }
 
      /* Evitar que las columnas se encojan: layout fijo y ancho según contenido */
@@ -520,15 +666,20 @@
   </script>
   <nav class="navbar fixed-top">
     <div class="container-fluid">
+      <!-- Mobile Menu Button -->
+      <button type="button" class="mobile-menu-toggle" id="mobileMenuToggle" aria-label="Menu">
+        ☰
+      </button>
+      
       <!-- Left side: Logo and Title -->
       <div class="d-flex align-items-center">
         <img src="{{ url_for('static', filename='logo.png') }}" alt="Docker Monitor Logo">
         <span class="navbar-title">Docker Stats</span>
       </div>
 
-      <!-- Right side: Search and Buttons -->
+      <!-- Right side: Buttons -->
       <div class="d-flex align-items-center navbar-buttons">
-        <input type="search" id="navbarSearchInput" class="form-control form-control-sm" placeholder="Search containers...">
+        <!-- Eliminated search bar from here -->
         <!-- Wrap notification button in a relative div for panel positioning -->
         <div class="position-relative">
             <button type="button" id="notifToggle" class="btn btn-outline-secondary" aria-label="Notifications">
@@ -560,6 +711,29 @@
       </div>
     </div>
   </nav>
+
+  <!-- Sidebar overlay -->
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  
+  <!-- Mobile Sidebar Menu -->
+  <div class="sidebar-menu" id="sidebarMenu">
+    <div class="sidebar-header">
+      <h5>Menu</h5>
+      <button type="button" class="sidebar-close" id="sidebarClose">✕</button>
+    </div>
+    <div class="sidebar-items">
+      <div class="position-relative mb-3">
+        <button type="button" id="sidebarNotifToggle" class="btn btn-outline-secondary w-100 text-start" aria-label="Notifications">
+          🔔 Notifications
+          <span id="sidebarNotifBadge" class="badge bg-danger position-absolute top-50 end-0 translate-middle-y me-2" style="display:none; font-size:0.6rem; padding: 0.2em 0.4em;"></span>
+        </button>
+      </div>
+      <button type="button" id="sidebarThemeToggle" class="btn btn-outline-secondary mb-2 text-start" aria-label="Toggle theme">🌙 Toggle Theme</button>
+      <button type="button" id="sidebarUserInfoBtn" class="btn mb-2 text-start" style="background-color: #7a49cd; color: white;" aria-label="User info">👤 User Info</button>
+      <button type="button" id="sidebarSettingsBtn" class="btn btn-outline-secondary mb-2 text-start" aria-label="Settings">⚙️ Settings</button>
+      <button type="button" id="sidebarLogoutBtn" class="btn btn-outline-danger text-start" style="color: #B30333; border-color: #6c757d;" aria-label="Logout">⏻ Logout</button>
+    </div>
+  </div>
 
   <!-- ScrollTop button remains outside the nav -->
   <button type="button" id="scrollTop" aria-label="Scroll to top">⬆️</button>
@@ -658,8 +832,9 @@
 
   <div class="container-fluid px-3">
     <div class="row g-3 mb-3 align-items-center">
-      <div class="col-lg-2 col-md-4 col-sm-6"><input id="filterName" class="form-control form-control-sm" placeholder="Filter by name"></div>
-      <div class="col-lg-2 col-md-4 col-sm-6">
+      <!-- Reduciendo el ancho de los filtros superiores en escritorio -->
+      <div class="col-lg-1 col-md-4 col-sm-6"><input id="filterName" class="form-control form-control-sm" placeholder="Filter by name"></div>
+      <div class="col-lg-1 col-md-4 col-sm-6">
         <select id="filterStatus" class="form-select form-select-sm" aria-label="Filter by status">
           <option value="">All statuses</option>
           <option value="running">Running</option>
@@ -671,43 +846,43 @@
           <option value="unknown">Unknown</option>
         </select>
       </div>
-      <div class="col-lg-2 col-md-4 col-sm-6">
+      <div class="col-lg-1 col-md-4 col-sm-6">
         <select id="filterProject" class="form-select form-select-sm" aria-label="Filter by project">
           <option value="">All Projects</option>
         </select>
       </div>
-      <div class="col-lg-2 col-md-4 col-sm-6">
+      <div class="col-lg-1 col-md-4 col-sm-6">
         <select id="filterRange" class="form-select form-select-sm" aria-label="Filter by time range (History window)">
-          <option value="30">Last 30 seconds</option>
-          <option value="60">Last 1 minute</option>
-          <option value="300">Last 5 minutes</option>
-          <option value="900">Last 15 minutes</option>
-          <option value="1800">Last 30 minutes</option>
-          <option value="3600">Last 1 hour</option>
-          <option value="7200">Last 2 hours</option>
-          <option value="14400">Last 4 hours</option>
-          <option value="21600">Last 6 hours</option>
-          <option value="43200">Last 12 hours</option>
-          <option value="86400" selected>Last 24 hours</option>
+          <option value="30">Last 30 sec.</option>
+          <option value="60">Last 1 min.</option>
+          <option value="300">Last 5 min.</option>
+          <option value="900">Last 15 min.</option>
+          <option value="1800">Last 30 min.</option>
+          <option value="3600">Last 1 h.</option>
+          <option value="7200">Last 2 h.</option>
+          <option value="14400">Last 4 h.</option>
+          <option value="21600">Last 6 h.</option>
+          <option value="43200">Last 12 h.</option>
+          <option value="86400" selected>Last 24 h.</option>
         </select>
       </div>
       <!-- Add Refresh Interval Dropdown -->
-      <div class="col-lg-2 col-md-4 col-sm-6">
+      <div class="col-lg-1 col-md-4 col-sm-6">
         <select id="refreshInterval" class="form-select form-select-sm" aria-label="Select refresh interval">
-          <option value="1000">Refresh every 1s</option>
-          <option value="5000" selected>Refresh every 5s</option>
-          <option value="10000">Refresh every 10s</option>
-          <option value="15000">Refresh every 15s</option>
-          <option value="30000">Refresh every 30s</option>
-          <option value="60000">Refresh every 60s</option>
-          <option value="75000">Refresh every 75s</option>
+          <option value="1000">1s refresh</option>
+          <option value="5000" selected>5s refresh</option>
+          <option value="10000">10s refresh</option>
+          <option value="15000">15s refresh</option>
+          <option value="30000">30s refresh</option>
+          <option value="60000">60s refresh</option>
+          <option value="75000">75s refresh</option>
         </select>
       </div>
       <!-- End Refresh Interval Dropdown -->
-      <div class="col-lg-2 col-md-4 col-sm-6">
+      <div class="col-lg-1 col-md-4 col-sm-6">
         <select id="metricsSource" class="form-select form-select-sm" aria-label="Select metrics source">
-          <option value="cadvisor" selected>cAdvisor + Docker (recomended)</option>
-          <option value="docker">Solo Docker</option>
+          <option value="cadvisor" selected>cAdvisor + Docker</option>
+          <option value="docker">Docker</option>
         </select>
       </div>
       <div class="col-lg-2 col-md-4 col-sm-6">
@@ -732,10 +907,10 @@
           <option value="desc" selected>Desc</option>
         </select>
       </div>
-      <div class="col-lg-2 col-md-4 col-sm-6">
+      <div class="col-lg-1 col-md-4 col-sm-6">
         <input id="maxItems" type="number" min="1" value="25" class="form-control form-control-sm" placeholder="Max items" aria-label="Max items">
       </div>
-      <div class="col-lg-2 col-md-4 col-sm-6">
+      <div class="col-lg-1 col-md-4 col-sm-6">
         <input id="serverIP" class="form-control form-control-sm" placeholder="Server IP (e.g., 127.0.0.1)" aria-label="Server IP">
       </div>
       <div class="col-lg-1 col-md-2 col-sm-3 d-flex align-items-center">
@@ -824,27 +999,28 @@
     <!-- Action Buttons Row -->
     <div class="row mb-3 action-buttons-row">
       <div class="col-12">
-        <button id="saveSettingsBtn" class="btn btn-primary btn-sm">💾 Save Settings</button>
-        <button id="checkUpdatesBtn" class="btn btn-warning btn-sm ms-2">🔄 Check Updates</button>
-        <button id="toggleColsBtn" class="btn btn-secondary btn-sm ms-2">🔄 Select/Deselect All</button>
-        <button id="exportCsvBtn" class="btn btn-secondary btn-sm ms-2">📤 Export CSV</button>
-        <!-- Comparison controls moved here -->
-        <div class="comparison-controls d-inline-flex align-items-center ms-2">
-          <div class="dropdown">
-            <button class="btn btn-secondary btn-sm dropdown-toggle" type="button" id="compareDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-              📊 Comparison graphs
-            </button>
-            <ul class="dropdown-menu" aria-labelledby="compareDropdown">
-              <li><a class="dropdown-item compare-action" href="#" data-compare-type="usage">CPU/RAM Usage</a></li>
-              <li><a class="dropdown-item compare-action" href="#" data-compare-type="uptime">Uptime</a></li>
-            </ul>
+        <div class="d-flex flex-wrap align-items-center" id="actionButtonsContainer">
+          <button id="saveSettingsBtn" class="btn btn-primary btn-sm">💾 Save Settings</button>
+          <button id="checkUpdatesBtn" class="btn btn-warning btn-sm ms-2">🔄 Check Updates</button>
+          <button id="toggleColsBtn" class="btn btn-secondary btn-sm ms-2">🔄 Select/Deselect All</button>
+          <button id="exportCsvBtn" class="btn btn-secondary btn-sm ms-2">📤 Export CSV</button>
+          <!-- Comparison controls moved here -->
+          <div class="comparison-controls d-inline-flex align-items-center ms-2">
+            <div class="dropdown">
+              <button class="btn btn-secondary btn-sm dropdown-toggle" type="button" id="compareDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                📊 Comparison graphs
+              </button>
+              <ul class="dropdown-menu" aria-labelledby="compareDropdown">
+                <li><a class="dropdown-item compare-action" href="#" data-compare-type="usage">CPU/RAM Usage</a></li>
+                <li><a class="dropdown-item compare-action" href="#" data-compare-type="uptime">Uptime</a></li>
+              </ul>
+            </div>
+            <input id="compareTopN" type="number" min="1" value="10" class="form-control form-control-sm ms-1" placeholder="Top N" aria-label="Top N" style="width: 4.5rem;">
           </div>
-          <input id="compareTopN" type="number" min="1" value="10" class="form-control form-control-sm ms-1" placeholder="Top N" aria-label="Top N" style="width: 4.5rem;">
         </div>
-        <!-- End comparison controls -->
-        <!-- Status Message Area - Changed to pre for better formatting -->
-        <pre id="statusMessageArea" class="mt-2 p-2 border rounded bg-light text-dark" style="min-height: 3em; white-space: pre-wrap; word-wrap: break-word;"></pre>
-        <!-- Info text below buttons -->
+        <!-- Status Message Area - Alineado con el contenedor de botones -->
+        <pre id="statusMessageArea" class="mt-2 p-2 border rounded bg-light text-dark"></pre>
+        <!-- Info text below status -->
         <div id="updateInfoText" class="small text-muted mt-1"></div>
       </div>
     </div>
@@ -930,7 +1106,6 @@
     const notifBadge = document.getElementById('notifBadge'); // Selector remains valid
     const notifPanel = document.getElementById('notifPanel'); // Selector remains valid
     const notifList = document.getElementById('notifList');
-    const navbarSearchInput = document.getElementById('navbarSearchInput'); // New search input
     const statusMessageArea = document.getElementById('statusMessageArea'); // <-- Add reference to status area
     const logoutBtn = document.getElementById('logoutBtn'); // Logout button reference
     let prevMetricsData = [];
@@ -1118,7 +1293,7 @@
         // Show loading indicator in table view
         tableStatusDiv.textContent = "...";
 
-        const nameFilter = navbarSearchInput.value.toLowerCase().trim() || document.getElementById("filterName").value.toLowerCase().trim();
+        const nameFilter = document.getElementById("filterName").value.toLowerCase().trim();
         const statusFilter = document.getElementById("filterStatus").value;
         const projectFilter = document.getElementById("filterProject").value;
         const range = document.getElementById("filterRange").value; // Still sent, backend history buffer uses it implicitly
@@ -2253,14 +2428,6 @@
             refreshIntervalId = setInterval(() => fetchMetrics(false), REFRESH_INTERVAL_MS);
         });
 
-        // Add listener for the new navbar search input with debouncing
-        navbarSearchInput.addEventListener('input', () => {
-            clearTimeout(searchDebounceTimer);
-            searchDebounceTimer = setTimeout(() => {
-                fetchMetrics(); // Fetch data after user stops typing for 300ms
-            }, 300);
-        });
-
         fetchMetrics(); // Initial load is not triggered by check updates
 
         // Set interval for periodic refresh
@@ -2486,6 +2653,255 @@
       tableStatusDiv.style.color = '';
       tableStatusDiv.textContent = `${data.length} container(s) - Updated at ${time}`;
     }
+
+    // --- Mobile Sidebar Menu Logic ---
+    document.addEventListener('DOMContentLoaded', function() {
+      // Mobile menu elements
+      const mobileMenuToggle = document.getElementById('mobileMenuToggle');
+      const sidebarMenu = document.getElementById('sidebarMenu');
+      const sidebarClose = document.getElementById('sidebarClose');
+      const sidebarOverlay = document.getElementById('sidebarOverlay');
+      const sidebarNotifToggle = document.getElementById('sidebarNotifToggle');
+      const sidebarThemeToggle = document.getElementById('sidebarThemeToggle');
+      const sidebarUserInfoBtn = document.getElementById('sidebarUserInfoBtn');
+      const sidebarSettingsBtn = document.getElementById('sidebarSettingsBtn');
+      const sidebarLogoutBtn = document.getElementById('sidebarLogoutBtn');
+      
+      // Show sidebar menu
+      mobileMenuToggle.addEventListener('click', function() {
+        sidebarMenu.classList.add('active');
+        sidebarOverlay.style.display = 'block';
+        document.body.style.overflow = 'hidden'; // Prevent scrolling while menu is open
+      });
+      
+      // Hide sidebar menu
+      function closeSidebarMenu() {
+        sidebarMenu.classList.remove('active');
+        sidebarOverlay.style.display = 'none';
+        document.body.style.overflow = '';
+      }
+      
+      sidebarClose.addEventListener('click', closeSidebarMenu);
+      sidebarOverlay.addEventListener('click', closeSidebarMenu);
+      
+      // Copy notification badge from top navigation to sidebar
+      function syncNotificationsBadge() {
+        const mainBadge = document.getElementById('notifBadge');
+        const sidebarBadge = document.getElementById('sidebarNotifBadge');
+        if (mainBadge && sidebarBadge) {
+          sidebarBadge.textContent = mainBadge.textContent;
+          sidebarBadge.style.display = mainBadge.style.display;
+        }
+      }
+      
+      // Call it initially and whenever notifications change
+      syncNotificationsBadge();
+      const originalUpdateNotifBadge = updateNotifBadge;
+      updateNotifBadge = function() {
+        originalUpdateNotifBadge.apply(this, arguments);
+        syncNotificationsBadge();
+      };
+      
+      // Create a notification panel for mobile view
+      function createMobileNotifPanel() {
+        // Check if mobile notification panel already exists
+        if (document.getElementById('mobileNotifPanel')) {
+          return document.getElementById('mobileNotifPanel');
+        }
+        
+        // Clone the existing notification panel
+        const originalPanel = document.getElementById('notifPanel');
+        const mobilePanel = originalPanel.cloneNode(true);
+        mobilePanel.id = 'mobileNotifPanel';
+        mobilePanel.style.display = 'none';
+        
+        // Position it fixed instead of absolute for mobile
+        mobilePanel.style.position = 'fixed';
+        mobilePanel.style.top = '50%';
+        mobilePanel.style.left = '50%';
+        mobilePanel.style.transform = 'translate(-50%, -50%)';
+        mobilePanel.style.width = '90%';
+        mobilePanel.style.maxWidth = '400px';
+        mobilePanel.style.maxHeight = '90vh';
+        mobilePanel.style.overflowY = 'auto';
+        mobilePanel.style.zIndex = '2000';
+        mobilePanel.style.backgroundColor = 'var(--bs-body-bg)';
+        mobilePanel.style.border = '1px solid var(--bs-border-color)';
+        mobilePanel.style.borderRadius = '8px';
+        mobilePanel.style.boxShadow = '0 5px 15px rgba(0, 0, 0, 0.3)';
+        mobilePanel.style.padding = '16px';
+        
+        // Add title to the mobile notification panel
+        const titleEl = document.createElement('h5');
+        titleEl.textContent = 'Notifications';
+        titleEl.style.marginBottom = '16px';
+        titleEl.style.textAlign = 'center';
+        mobilePanel.insertBefore(titleEl, mobilePanel.firstChild);
+        
+        // Clone event listeners as well for form elements inside the panel
+        const originalSaveBtn = originalPanel.querySelector('#saveNotifSettingsBtn');
+        const mobileSaveBtn = mobilePanel.querySelector('#saveNotifSettingsBtn');
+        
+        if (mobileSaveBtn && originalSaveBtn) {
+          mobileSaveBtn.addEventListener('click', () => {
+            // Update values in the original panel
+            const fields = ['notifCpuThreshold', 'notifRamThreshold', 'notifEnableCPU', 
+                           'notifEnableRAM', 'notifEnableStatus', 'notifEnableUpdate', 'notifWindowSeconds'];
+            
+            fields.forEach(field => {
+              const mobileElement = mobilePanel.querySelector(`#${field}`);
+              const originalElement = document.getElementById(field);
+              
+              if (mobileElement && originalElement) {
+                if (mobileElement.type === 'checkbox') {
+                  originalElement.checked = mobileElement.checked;
+                } else {
+                  originalElement.value = mobileElement.value;
+                }
+              }
+            });
+            
+            // Save settings to localStorage
+            localStorage.setItem('notifCpuThreshold', document.getElementById('notifCpuThreshold').value);
+            localStorage.setItem('notifRamThreshold', document.getElementById('notifRamThreshold').value);
+            localStorage.setItem('notifEnableCPU', document.getElementById('notifEnableCPU').checked);
+            localStorage.setItem('notifEnableRAM', document.getElementById('notifEnableRAM').checked);
+            localStorage.setItem('notifEnableStatus', document.getElementById('notifEnableStatus').checked);
+            localStorage.setItem('notifEnableUpdate', document.getElementById('notifEnableUpdate').checked);
+            localStorage.setItem('notifWindowSeconds', document.getElementById('notifWindowSeconds').value);
+            
+            // Hide mobile panel
+            mobilePanel.style.display = 'none';
+            document.getElementById('mobileNotifOverlay').style.display = 'none';
+            
+            // Show confirmation message
+            statusMessageArea.textContent = 'Notification settings saved ✅';
+            statusMessageArea.style.color = '#7a49cd';
+          });
+        }
+        
+        const originalClearBtn = originalPanel.querySelector('#clearNotifsBtn');
+        const mobileClearBtn = mobilePanel.querySelector('#clearNotifsBtn');
+        
+        if (mobileClearBtn && originalClearBtn) {
+          mobileClearBtn.addEventListener('click', () => {
+            // Clear notifications
+            notifications.length = 0;
+            renderNotifList();
+            updateNotifBadge();
+            
+            // Update the mobile panel's notification list
+            if (mobilePanel.querySelector('#notifList')) {
+              mobilePanel.querySelector('#notifList').innerHTML = '<p class="small text-muted">No notifications</p>';
+            }
+          });
+        }
+        
+        // Create an overlay behind the mobile notification panel
+        const mobileOverlay = document.createElement('div');
+        mobileOverlay.id = 'mobileNotifOverlay';
+        mobileOverlay.style.position = 'fixed';
+        mobileOverlay.style.top = '0';
+        mobileOverlay.style.left = '0';
+        mobileOverlay.style.width = '100%';
+        mobileOverlay.style.height = '100%';
+        mobileOverlay.style.backgroundColor = 'rgba(0,0,0,0.5)';
+        mobileOverlay.style.zIndex = '1990';
+        mobileOverlay.style.display = 'none';
+        
+        // Close panel when clicking overlay
+        mobileOverlay.addEventListener('click', () => {
+          mobilePanel.style.display = 'none';
+          mobileOverlay.style.display = 'none';
+        });
+        
+        // Add a close button to the mobile panel
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'btn-close position-absolute';
+        closeBtn.style.top = '10px';
+        closeBtn.style.right = '10px';
+        closeBtn.setAttribute('aria-label', 'Close');
+        
+        closeBtn.addEventListener('click', () => {
+          mobilePanel.style.display = 'none';
+          mobileOverlay.style.display = 'none';
+        });
+        
+        mobilePanel.appendChild(closeBtn);
+        document.body.appendChild(mobileOverlay);
+        document.body.appendChild(mobilePanel);
+        
+        return mobilePanel;
+      }
+      
+      // Sidebar buttons functionality
+      sidebarNotifToggle.addEventListener('click', function() {
+        closeSidebarMenu();
+        
+        // Create/get the mobile notification panel
+        const mobilePanel = createMobileNotifPanel();
+        const mobileOverlay = document.getElementById('mobileNotifOverlay');
+        
+        // Update notification list in mobile panel
+        mobilePanel.querySelector('#notifList').innerHTML = document.getElementById('notifList').innerHTML;
+        
+        // Sync settings from original panel to mobile panel
+        mobilePanel.querySelector('#notifCpuThreshold').value = document.getElementById('notifCpuThreshold').value;
+        mobilePanel.querySelector('#notifRamThreshold').value = document.getElementById('notifRamThreshold').value;
+        mobilePanel.querySelector('#notifEnableCPU').checked = document.getElementById('notifEnableCPU').checked;
+        mobilePanel.querySelector('#notifEnableRAM').checked = document.getElementById('notifEnableRAM').checked;
+        mobilePanel.querySelector('#notifEnableStatus').checked = document.getElementById('notifEnableStatus').checked;
+        mobilePanel.querySelector('#notifEnableUpdate').checked = document.getElementById('notifEnableUpdate').checked;
+        mobilePanel.querySelector('#notifWindowSeconds').value = document.getElementById('notifWindowSeconds').value;
+        
+        // Show mobile panel
+        mobilePanel.style.display = 'block';
+        mobileOverlay.style.display = 'block';
+        
+        // Mark notifications as read
+        notifications.length = 0;
+        updateNotifBadge();
+        renderNotifList();
+      });
+      
+      sidebarThemeToggle.addEventListener('click', function() {
+        currentTheme = (currentTheme === 'light' ? 'dark' : 'light');
+        localStorage.setItem('theme', currentTheme);
+        applyTheme(currentTheme);
+        document.getElementById('sidebarThemeToggle').innerHTML = currentTheme === 'dark' ? '☀️ Toggle Theme' : '🌙 Toggle Theme';
+      });
+      
+      sidebarUserInfoBtn.addEventListener('click', function() {
+        closeSidebarMenu();
+        // Already displays user info in the button
+      });
+      
+      sidebarSettingsBtn.addEventListener('click', function() {
+        closeSidebarMenu();
+        settingsModal.show();
+      });
+      
+      sidebarLogoutBtn.addEventListener('click', function() {
+        closeSidebarMenu();
+        logoutBtn.click();
+      });
+      
+      // Update user info in sidebar
+      function updateSidebarUserInfo() {
+        fetch('/whoami')
+          .then(r => r.json())
+          .then(me => {
+            if (me && me.username) {
+              sidebarUserInfoBtn.textContent = `👤 ${me.username} (${me.role})`;
+            }
+          });
+      }
+      updateSidebarUserInfo();
+      
+      // Update theme toggle button in sidebar initially
+      sidebarThemeToggle.innerHTML = currentTheme === 'dark' ? '☀️ Toggle Theme' : '🌙 Toggle Theme';
+    });
   </script>
 </body>
 </html>

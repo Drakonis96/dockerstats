@@ -2,7 +2,7 @@
 import os
 
 # --- Configuración ---
-DOCKER_SOCKET_URL = 'unix:///var/run/docker.sock' # Ruta estándar en Linux/macOS
+DOCKER_SOCKET_URL = os.environ.get('DOCKER_SOCKET_URL', 'unix:///var/run/docker.sock') # Permite override por variable de entorno, usa el socket estándar si no se define
 SAMPLE_INTERVAL = 5      # segundos
 MAX_SECONDS     = 86400  # Mantener hasta 24h de historial (86400 segundos)
 APP_HOST = '0.0.0.0'
