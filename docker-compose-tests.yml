@@ -22,7 +22,7 @@ services:
       - --docker_only=true
       - --housekeeping_interval=10s
 
-  monitor:
+  dockerstats:
     build: .
     container_name: docker-stats-test
     restart: unless-stopped
@@ -34,9 +34,11 @@ services:
       - "5001:5000"   # Expose the monitor app on the host
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./users.db:/app/users.db
     environment:
-      AUTH_USER: "admin"
-      AUTH_PASSWORD: "admin"
+      #AUTH_USER: "admin"
+      #AUTH_PASSWORD: "admin"
+      LOGIN_MODE: "page"  # New: Login mode - 'popup' (default) or 'page'
       CADVISOR_URL: "http://cadvisor:8080"
       PUSHOVER_TOKEN: ${PUSHOVER_TOKEN}
       PUSHOVER_USER: ${PUSHOVER_USER}

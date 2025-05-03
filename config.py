@@ -10,9 +10,12 @@ APP_PORT = 5000
 WAITRESS_THREADS = 8
 
 # Authentication credentials (set via environment variables)
-AUTH_USER = os.environ.get('AUTH_USER', '')
-AUTH_PASSWORD = os.environ.get('AUTH_PASSWORD', '')
+AUTH_USER = os.environ.get('AUTH_USER', 'admin')
+AUTH_PASSWORD = os.environ.get('AUTH_PASSWORD', 'admin')
 AUTH_PASSWORD_FILE = os.environ.get('AUTH_PASSWORD_FILE', '')
+
+# Login mode: 'popup' (default) or 'page'
+LOGIN_MODE = os.environ.get('LOGIN_MODE', 'popup')
 
 if AUTH_PASSWORD_FILE:
     try:

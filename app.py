@@ -11,10 +11,11 @@ from flask import Flask
 from waitress import serve
 
 # Importar configuración, clientes y rutas
-from config import APP_HOST, APP_PORT, WAITRESS_THREADS, DOCKER_SOCKET_URL, SAMPLE_INTERVAL, MAX_SECONDS
+from config import APP_HOST, APP_PORT, WAITRESS_THREADS, DOCKER_SOCKET_URL, SAMPLE_INTERVAL, MAX_SECONDS, AUTH_USER, AUTH_PASSWORD
 from docker_client import client as docker_client, api_client as docker_api_client # Importar las instancias directamente para comprobar
 from sampler import sample_metrics, history # Importar función sampler y el historial
 from routes import main_routes # Importar el Blueprint
+from users_db import init_db
 
 # Crear la instancia de la aplicación Flask
 # Definir static_folder y template_folder explícitamente si no están en el Blueprint
@@ -40,6 +41,10 @@ if __name__ == '__main__':
     print(" Docker Monitor ")
     print("-------------------------------------")
     print("Iniciando servidor Flask...")
+
+    # Inicializar la base de datos con el usuario y contraseña de entorno
+    if AUTH_USER and AUTH_PASSWORD:
+        init_db(AUTH_USER, AUTH_PASSWORD)
 
     # Verificar que los clientes Docker se inicializaron correctamente en docker_client.py
     if docker_client and docker_api_client:

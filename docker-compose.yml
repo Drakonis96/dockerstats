@@ -5,8 +5,9 @@ services:
     image: drakonis96/dockerstats:latest
     container_name: docker-stats
     environment:
-      AUTH_USER: ${AUTH_USER:-}
-      AUTH_PASSWORD: ${AUTH_PASSWORD:-}
+      #AUTH_USER: ${AUTH_USER:-}
+      #AUTH_PASSWORD: ${AUTH_PASSWORD:-}
+      LOGIN_MODE: ${LOGIN_MODE:-popup}  # New: Login mode - 'popup' (default) or 'page'
       CADVISOR_URL: http://cadvisor:8080  # <--- single source of truth
       # Uncomment the line below to use a Docker secret for the password
       # AUTH_PASSWORD_FILE: /run/secrets/auth_password
@@ -24,6 +25,7 @@ services:
       - "5001:5000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./users.db:/app/users.db
     # Uncomment the lines below to define and use the Docker secret
     # secrets:
     #   - auth_password

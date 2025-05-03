@@ -554,13 +554,107 @@
             </div>
         </div>
         <button type="button" id="themeToggle" class="btn btn-outline-secondary" aria-label="Toggle theme">🌙</button>
+        <button type="button" id="userInfoBtn" class="btn ms-2" style="background-color: #7a49cd; color: white;" aria-label="User info">👤</button>
+        <button type="button" id="settingsBtn" class="btn btn-outline-secondary ms-2" aria-label="Settings">⚙️</button>
+        <button type="button" id="logoutBtn" class="btn btn-outline-danger ms-2" style="color: #B30333; border-color: #6c757d;" aria-label="Logout">⏻</button>
       </div>
     </div>
   </nav>
 
   <!-- ScrollTop button remains outside the nav -->
   <button type="button" id="scrollTop" aria-label="Scroll to top">⬆️</button>
-  <!-- Notification Panel HTML is now inside the navbar's relative div -->
+
+  <script>
+    // Add user info update function
+    function updateUserInfo() {
+      fetch('/whoami')
+        .then(r => r.json())
+        .then(me => {
+          const userInfoBtn = document.getElementById('userInfoBtn');
+          if (me && me.username) {
+            userInfoBtn.textContent = `👤 ${me.username} (${me.role})`;
+          }
+        });
+    }
+    // Call on page load
+    updateUserInfo();
+  </script>
+
+  <!-- Settings Modal -->
+      <div class="modal fade" id="settingsModal" tabindex="-1" aria-labelledby="settingsModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title" id="settingsModalLabel">Settings</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <!-- Nav tabs -->
+              <ul class="nav nav-tabs" id="settingsTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                  <button class="nav-link active" id="tab-settings" data-bs-toggle="tab" data-bs-target="#settingsTabPane" type="button" role="tab" aria-controls="settingsTabPane" aria-selected="true">Passwords</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                  <button class="nav-link" id="tab-manageuser" data-bs-toggle="tab" data-bs-target="#manageUserTabPane" type="button" role="tab" aria-controls="manageUserTabPane" aria-selected="false">Users</button>
+                </li>
+              </ul>
+              <div class="tab-content mt-3">
+                <!-- Ajustes Tab -->
+                <div class="tab-pane fade show active" id="settingsTabPane" role="tabpanel" aria-labelledby="tab-settings">
+                  <h6>Password settings</h6>
+                  <form id="passwordForm">
+                    <div class="mb-3">
+                      <label for="currentPassword" class="form-label">Current password</label>
+                      <input type="password" class="form-control" id="currentPassword" required autocomplete="current-password">
+                    </div>
+                    <div class="mb-3">
+                      <label for="newPassword" class="form-label">New password</label>
+                      <input type="password" class="form-control" id="newPassword" required autocomplete="new-password">
+                    </div>
+                    <div class="mb-3">
+                      <label for="confirmPassword" class="form-label">Repeat new password</label>
+                      <input type="password" class="form-control" id="confirmPassword" required autocomplete="new-password">
+                    </div>
+                    <div id="passwordError" class="text-danger mb-2" style="display:none;"></div>
+                    <button type="submit" id="savePasswordBtn" class="btn" style="background-color: #7a49cd; color: white;">Save</button>
+                  </form>
+                </div>
+                <!-- Manage User Tab -->
+                <div class="tab-pane fade" id="manageUserTabPane" role="tabpanel" aria-labelledby="tab-manageuser">
+                  <h6>Create user</h6>
+                  <form id="createUserForm">
+                    <div class="mb-3">
+                      <label for="newUsername" class="form-label">Username</label>
+                      <input type="text" class="form-control" id="newUsername" required autocomplete="username">
+                    </div>
+                    <div class="mb-3">
+                      <label for="newUserPassword" class="form-label">Password</label>
+                      <input type="password" class="form-control" id="newUserPassword" required autocomplete="new-password">
+                    </div>
+                    <div class="mb-3">
+                      <label for="confirmUserPassword" class="form-label">Repeat password</label>
+                      <input type="password" class="form-control" id="confirmUserPassword" required autocomplete="new-password">
+                    </div>
+                    <div class="mb-2">
+                      <strong>Accessible columns:</strong>
+                      <div id="userColumnsCheckboxes" class="column-toggles">
+                        <!-- Checkboxes will be inserted here by JS -->
+                      </div>
+                    </div>
+                    <div id="userFormError" class="text-danger mb-2" style="display:none;"></div>
+                    <button type="submit" class="btn btn-primary">Create user</button>
+                  </form>
+                  <hr>
+                  <h6>Existing users</h6>
+                  <div id="usersList">
+                    <!-- User list will be rendered here by JS -->
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
   <div class="container-fluid px-3">
     <div class="row g-3 mb-3 align-items-center">
@@ -809,7 +903,7 @@
 
   <!-- Footer -->
   <footer class="footer container-fluid">
-    <p>DockerStats. Version 0.5.1</p>
+    <p>DockerStats. Version 0.6.0</p>
   </footer>
   <!-- End Footer -->
 
@@ -838,6 +932,7 @@
     const notifList = document.getElementById('notifList');
     const navbarSearchInput = document.getElementById('navbarSearchInput'); // New search input
     const statusMessageArea = document.getElementById('statusMessageArea'); // <-- Add reference to status area
+    const logoutBtn = document.getElementById('logoutBtn'); // Logout button reference
     let prevMetricsData = [];
     let refreshIntervalId = null; // To store the interval ID
     let REFRESH_INTERVAL_MS = 5000; // Default 5 seconds, now mutable
@@ -850,16 +945,13 @@
     // --- CSRF Token ---
     const CSRF_TOKEN = '{{ csrf_token }}';
 
-    // Patch fetch to always add CSRF token for POST requests
+    // Patch fetch to always add CSRF token for POST, PUT, DELETE requests
     const originalFetch = window.fetch;
     window.fetch = function(input, init={}) {
-      const isPost = (
-         (init.method || (input instanceof Request && input.method) || 'GET')
-         .toUpperCase() === 'POST'
-      );
-      if (isPost) {
-         const headers = init.headers ||= {};
-         headers['X-CSRFToken'] = CSRF_TOKEN;
+      const method = (init.method || (input instanceof Request && input.method) || 'GET').toUpperCase();
+      if (["POST", "PUT", "DELETE"].includes(method)) {
+        const headers = init.headers ||= {};
+        headers['X-CSRFToken'] = CSRF_TOKEN;
       }
       return originalFetch(input, init);
     };
@@ -887,6 +979,75 @@
     scrollTopButton.onclick = () => {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     };
+
+    // --- Logout Button ---
+    logoutBtn.onclick = () => {
+      const confirmation = confirm('Are you sure you want to log out?');
+      if (confirmation) {
+        // Immediately redirect with a forced reload to prevent caching issues
+        fetch('/logout', {
+          method: 'GET',
+          credentials: 'same-origin',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate'
+          }
+        }).then(() => {
+          // Force a hard reload to clear any cached content
+          window.location.href = '/login';
+          // As an added precaution, set a small timeout to force reload if redirect fails
+          setTimeout(() => {
+            window.location.reload(true);
+          }, 100);
+        }).catch(() => {
+          // Even if the fetch fails, try to redirect
+          window.location.href = '/login';
+        });
+      }
+    };
+
+    // --- Settings Modal Logic ---
+    const settingsBtn = document.getElementById('settingsBtn');
+    const settingsModal = new bootstrap.Modal(document.getElementById('settingsModal'));
+    settingsBtn.addEventListener('click', () => settingsModal.show());
+
+    document.getElementById('passwordForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      const current = document.getElementById('currentPassword').value;
+      const newPass = document.getElementById('newPassword').value;
+      const confirm = document.getElementById('confirmPassword').value;
+      const errorDiv = document.getElementById('passwordError');
+      errorDiv.style.display = 'none';
+      errorDiv.textContent = '';
+      if (!current || !newPass || !confirm) {
+        errorDiv.textContent = 'All fields are required.';
+        errorDiv.style.display = 'block';
+        return;
+      }
+      if (newPass !== confirm) {
+        errorDiv.textContent = 'New passwords do not match.';
+        errorDiv.style.display = 'block';
+        return;
+      }
+      // Llamar a la API para cambiar la contraseña
+      const resp = await fetch('/api/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ current_password: current, new_password: newPass })
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) {
+        errorDiv.textContent = data.error || 'Error changing password.';
+        errorDiv.style.display = 'block';
+        return;
+      }
+      // Éxito
+      errorDiv.style.display = 'none';
+      errorDiv.textContent = '';
+      settingsModal.hide();
+      statusMessageArea.textContent = 'Password changed successfully ✅';
+      statusMessageArea.style.color = '#7a49cd';
+      document.getElementById('passwordForm').reset();
+    });
 
     // --- Column Visibility ---
     function applyColumnVisibility() {
@@ -948,23 +1109,23 @@
 
     let isFetching = false; // Prevent concurrent fetches
     async function fetchMetrics() {
-        console.log("DEBUG: fetchMetrics called."); // <-- Added log
+        console.log("DEBUG: fetchMetrics called.");
         if (isFetching) {
             console.log("DEBUG: Fetch already in progress, skipping.");
             return; // Don't start a new fetch if one is already running
         }
         isFetching = true;
         // Show loading indicator in table view
-        tableStatusDiv.textContent = '...';
+        tableStatusDiv.textContent = "...";
 
-        const nameFilter = navbarSearchInput.value.toLowerCase().trim() || document.getElementById('filterName').value.toLowerCase().trim();
-        const statusFilter = document.getElementById('filterStatus').value;
-        const projectFilter = document.getElementById('filterProject').value;
-        const range = document.getElementById('filterRange').value; // Still sent, backend history buffer uses it implicitly
-        const sortBy = document.getElementById('sortBy').value; // Now might be 'uptime_sec'
-        const sortDir = document.getElementById('sortDir').value;
-        const maxItems = parseInt(document.getElementById('maxItems').value) || 0; // Default to 0 (no limit backend-side)
-        const metricsSource = document.getElementById('metricsSource').value; // Added metrics source
+        const nameFilter = navbarSearchInput.value.toLowerCase().trim() || document.getElementById("filterName").value.toLowerCase().trim();
+        const statusFilter = document.getElementById("filterStatus").value;
+        const projectFilter = document.getElementById("filterProject").value;
+        const range = document.getElementById("filterRange").value; // Still sent, backend history buffer uses it implicitly
+        const sortBy = document.getElementById("sortBy").value; // Now might be "uptime_sec"
+        const sortDir = document.getElementById("sortDir").value;
+        const maxItems = parseInt(document.getElementById("maxItems").value) || 0; // Default to 0 (no limit backend-side)
+        const metricsSource = document.getElementById("metricsSource").value; // Added metrics source
 
         // Build API URL (Points to the API route defined in routes.py)
         let url = `/api/metrics?sort=${sortBy}&dir=${sortDir}&source=${metricsSource}`; // Include metrics source
@@ -972,33 +1133,82 @@
         if (nameFilter) url += `&name=${encodeURIComponent(nameFilter)}`;
         if (statusFilter) url += `&status=${encodeURIComponent(statusFilter)}`;
         if (projectFilter) url += `&project=${encodeURIComponent(projectFilter)}`;
-        // Add max items parameter (the backend should handle this)
+        if (range) url += `&range=${encodeURIComponent(range)}`;
         if (maxItems > 0) url += `&max=${maxItems}`;
-        // Add range for potential future backend use or debugging
-        url += `&range=${range}`;
-        url += `&gpu=1`;
-
-        console.log(`DEBUG: Fetching URL: ${url}`); // <-- Added log
-
+        
         try {
-            const response = await fetch(url);
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+            console.log(`DEBUG: Fetching metrics from ${url}`);
+            const response = await fetch(url, { 
+                credentials: "include",  // Ensure cookies are sent
+                headers: {
+                    "Cache-Control": "no-cache",  // Prevent caching
+                    "X-Requested-With": "XMLHttpRequest",  // Help server identify XHR requests
+                    "X-CSRFToken": getCsrfToken() // Add CSRF token
+                }
+            });
+            
+            // Check for authentication issues
+            if (response.status === 401) {
+                console.log("Authentication error, redirecting to login...");
+                window.location.href = "/login";
+                return;
             }
+            
+            if (!response.ok) {
+                throw new Error(`Network response was not ok: ${response.status} ${response.statusText}`);
+            }
+            
             const data = await response.json();
-            console.log(`DEBUG: Received ${data.length} rows from API.`); // <-- Added log
-            allMetricsData = data; // Store the full data
-            renderTable(data); // Render the potentially filtered/sorted data
-            checkNotifications(data); // <-- Call notifications check after rendering
-            statusMessageArea.textContent = '';
+            
+            // Check if data is an error object with auth error
+            if (data && data.error === "auth") {
+                console.log("Session expired, redirecting to login...");
+                window.location.href = "/login";
+                return;
+            }
+            
+            allMetricsData = data; // Store the full data unfiltered
+
+            // Verificar si hay información sobre columnas permitidas (para usuarios no-admin)
+            const userAllowedColumns = data.length > 0 && data[0]._allowed_columns ? data[0]._allowed_columns : null;
+            
+            // Actualizar los checkboxes de columnas si es un usuario normal
+            if (userAllowedColumns) {
+                console.log("User has restricted column access:", userAllowedColumns);
+                updateColumnCheckboxesForUser(userAllowedColumns);
+            }
+            
+            if (Array.isArray(data)) {
+                populateTable(data);
+            } else {
+                console.error("Received non-array response:", data);
+                tableStatusDiv.textContent = "Error: Received invalid data format from server";
+            }
+            
         } catch (error) {
-            console.error('Error fetching metrics:', error);
-            tableStatusDiv.textContent = 'Error loading data.';
-            statusMessageArea.textContent = 'Error during fetch or processing.'; // Update status on error
-        } finally {
-            isFetching = false; // Allow next fetch
-            console.log("DEBUG: fetchMetrics finished."); // <-- Added log
+            console.error("Error during fetch or processing:", error);
+            
+            // If we get a TypeError about network failure, it might be because the user's
+            // session expired and was redirected to the login page
+            if (error instanceof TypeError && error.message.includes("NetworkError")) {
+                console.log("Possible session expiry, checking...");
+                // Try to make a simple request to check if we're logged in
+                try {
+                    const checkResp = await fetch("/whoami", { credentials: "include" });
+                    if (!checkResp.ok) {
+                        window.location.href = "/login";
+                        return;
+                    }
+                } catch (e) {
+                    window.location.href = "/login";
+                    return;
+                }
+            }
+            
+            tableStatusDiv.textContent = "Error loading data. Error during fetch or processing.";
+            tableStatusDiv.style.color = "red";
         }
+        isFetching = false;
     }
 
     // Helper function for project toggle click
@@ -1151,29 +1361,29 @@
        const baseIP = baseHost;
        const uptimeText = d.uptime || 'N/A';
        const restartsText = (d.restarts !== null && d.restarts !== undefined) ? d.restarts : 'N/A';
-       const netRxText = (d.net_io_rx !== null && d.net_io_rx !== undefined) ? d.net_io_rx.toFixed(2) : '-';
-       const netTxText = (d.net_io_tx !== null && d.net_io_tx !== undefined) ? d.net_io_tx.toFixed(2) : '-';
-       const blockRText = (d.block_io_r !== null && d.block_io_r !== undefined) ? d.block_io_r.toFixed(2) : '-';
-       const blockWText = (d.block_io_w !== null && d.block_io_w !== undefined) ? d.block_io_w.toFixed(2) : '-';
-       const cpuNum = Number(d.cpu) || 0;
-       const cpuVal = cpuNum.toFixed(2);
+       const netRxText = (d.net_io_rx !== null && d.net_io_rx !== undefined) ? Number(d.net_io_rx).toFixed(2) : '-';
+       const netTxText = (d.net_io_tx !== null && d.net_io_tx !== undefined) ? Number(d.net_io_tx).toFixed(2) : '-';
+       const blockRText = (d.block_io_r !== null && d.block_io_r !== undefined) ? Number(d.block_io_r).toFixed(2) : '-';
+       const blockWText = (d.block_io_w !== null && d.block_io_w !== undefined) ? Number(d.block_io_w).toFixed(2) : '-';
+       const cpuNum = (d.cpu !== null && d.cpu !== undefined) ? Number(d.cpu) : NaN;
+       const cpuVal = !isNaN(cpuNum) ? cpuNum.toFixed(2) : 'N/A';
        const cpuText = (d.cpu !== null && d.cpu !== undefined) ? `${cpuVal}%` : 'N/A';
        const maxCpuPercent = window.maxCpuPercent !== undefined ? window.maxCpuPercent : 100;
-       const cpuProgress = Math.min(100, (cpuNum / maxCpuPercent) * 100);
-       const memNum = Number(d.mem) || 0;
-       const memVal = memNum.toFixed(2);
+       const cpuProgress = !isNaN(cpuNum) ? Math.min(100, (cpuNum / maxCpuPercent) * 100) : 0;
+       const memNum = (d.mem !== null && d.mem !== undefined) ? Number(d.mem) : NaN;
+       const memVal = !isNaN(memNum) ? memNum.toFixed(2) : 'N/A';
        const memText = (d.mem !== null && d.mem !== undefined) ? `${memVal}%` : 'N/A';
-       const memProgress = Math.max(0, Math.min(100, memNum));
+       const memProgress = !isNaN(memNum) ? Math.max(0, Math.min(100, memNum)) : 0;
        let cpuClass = 'bg-success';
-       if (cpuNum >= 80) cpuClass = 'bg-danger';
-       else if (cpuNum >= 50) cpuClass = 'bg-warning';
+       if (!isNaN(cpuNum) && cpuNum >= 80) cpuClass = 'bg-danger';
+       else if (!isNaN(cpuNum) && cpuNum >= 50) cpuClass = 'bg-warning';
        let ramClass = 'bg-success';
-       if (memNum >= 80) ramClass = 'bg-danger';
-       else if (memNum >= 50) ramClass = 'bg-warning';
+       if (!isNaN(memNum) && memNum >= 80) ramClass = 'bg-danger';
+       else if (!isNaN(memNum) && memNum >= 50) ramClass = 'bg-warning';
        const gpuCell = (() => {
            if (d.gpu_max !== undefined && d.gpu_max !== null) {
-               const v = Number(d.gpu_max).toFixed(2);
-               return `<td class="col-gpu"><div class="progress"><div class="progress-bar bg-info" style="width:${v}%">${v}%</div></div></td>`;
+               const v = Number(d.gpu_max);
+               return !isNaN(v) ? `<td class="col-gpu"><div class="progress"><div class="progress-bar bg-info" style="width:${v.toFixed(2)}%">${v.toFixed(2)}%</div></div></td>` : '<td class="col-gpu">N/A</td>';
            }
            return '<td class="col-gpu">N/A</td>';
        })();
@@ -1193,8 +1403,8 @@
            `</div>` +
          `</td>` +
          gpuCell +
-         `<td class="col-pid">${d.pid_count !== null ? d.pid_count : 'N/A'}</td>` +
-         `<td class="col-memlimit">${d.mem_limit !== null ? d.mem_limit.toFixed(2) : 'N/A'}</td>` +
+         `<td class="col-pid">${(d.pid_count !== null && d.pid_count !== undefined) ? d.pid_count : 'N/A'}</td>` +
+         `<td class="col-memlimit">${(d.mem_limit !== null && d.mem_limit !== undefined) ? Number(d.mem_limit).toFixed(2) : 'N/A'}</td>` +
          `<td class="col-status">${d.status || 'N/A'}</td>` +
          `<td class="col-uptime">${uptimeText}</td>` +
          `<td class="col-netio">${netRxText} / ${netTxText}</td>` +
@@ -1417,10 +1627,15 @@
     // Toggle all column visibility
     function toggleAllColumns() {
       const inputs = document.querySelectorAll('.column-toggles .form-check-input');
-      const anyChecked = Array.from(inputs).some(i => i.checked);
+      const anyChecked = Array.from(inputs).some(i => !i.disabled && i.checked);
+      
+      // Solo afectar a los checkboxes no deshabilitados (columnas permitidas para el usuario)
       inputs.forEach(i => {
-        i.checked = anyChecked ? false : true;
-        localStorage.setItem(i.id, i.checked);
+        // No cambiar columnas deshabilitadas (a las que el usuario no tiene acceso)
+        if (!i.disabled) {
+          i.checked = anyChecked ? false : true;
+          localStorage.setItem(i.id, i.checked);
+        }
       });
       applyColumnVisibility();
     }
@@ -1615,14 +1830,28 @@
     // --- Notification Polling ---
     let lastNotifTimestamp = 0;
     function pollNotifications() {
+      // Leer el estado de los checkmarks
+      const cpuEnabled = document.getElementById('notifEnableCPU').checked;
+      const ramEnabled = document.getElementById('notifEnableRAM').checked;
+      const statusEnabled = document.getElementById('notifEnableStatus').checked;
+      const updateEnabled = document.getElementById('notifEnableUpdate').checked;
       fetch(`/api/notifications?since=${lastNotifTimestamp}`)
         .then(res => res.json())
         .then(newNotifs => {
           if (Array.isArray(newNotifs) && newNotifs.length > 0) {
             // Update last timestamp
             lastNotifTimestamp = Math.max(...newNotifs.map(n => n.timestamp), lastNotifTimestamp);
-            // Add to local notifications array
-            newNotifs.forEach(n => notifications.push(n));
+            // Filtrar según checkmarks
+            newNotifs.forEach(n => {
+              if (
+                (n.type === 'CPU' && cpuEnabled) ||
+                (n.type === 'RAM' && ramEnabled) ||
+                (n.type === 'Status' && statusEnabled) ||
+                (n.type === 'Update' && updateEnabled)
+              ) {
+                notifications.push(n);
+              }
+            });
             updateNotifBadge();
             renderNotifList();
           }
@@ -1677,6 +1906,238 @@
     document.getElementById('notifEnableStatus').checked = localStorage.getItem('notifEnableStatus') === 'true';
     document.getElementById('notifEnableUpdate').checked = localStorage.getItem('notifEnableUpdate') === 'true';
     document.getElementById('notifWindowSeconds').value = localStorage.getItem('notifWindowSeconds') || 10;
+
+    // --- Manage User Tab Logic (real backend) ---
+    function getAllTableColumns() {
+      const columns = [];
+      document.querySelectorAll('#metricsTable thead th').forEach(th => {
+        const colClass = [...th.classList].find(c => c.startsWith('col-'));
+        if (!colClass) return;
+        const key = colClass.replace('col-', '');
+        if (key === 'name') return;
+        columns.push({ key, label: th.textContent.trim() });
+      });
+      return columns;
+    }
+
+    function renderUserColumnsCheckboxes(selectedCols = []) {
+      const container = document.getElementById('userColumnsCheckboxes');
+      container.innerHTML = '';
+      const columns = getAllTableColumns();
+      columns.forEach(col => {
+        const div = document.createElement('div');
+        div.className = 'form-check form-check-inline';
+        div.innerHTML = `
+          <input class="form-check-input" type="checkbox" value="${col.key}" id="userCol_${col.key}" ${selectedCols.length === 0 || selectedCols.includes(col.key) ? 'checked' : ''}>
+          <label class="form-check-label" for="userCol_${col.key}">${col.label}</label>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    async function loadUsersList() {
+      const usersListDiv = document.getElementById('usersList');
+      usersListDiv.innerHTML = '<div class="text-muted">Loading users...</div>';
+      try {
+        const resp = await fetch('/api/users');
+        if (!resp.ok) throw new Error('Failed to fetch users');
+        const users = await resp.json();
+        if (!Array.isArray(users)) throw new Error('Invalid users data');
+        if (users.length === 0) {
+          usersListDiv.innerHTML = '<div class="text-muted">No users found.</div>';
+          return;
+        }
+        usersListDiv.innerHTML = '';
+        users.forEach(user => {
+          if (user.role === 'admin') return; // No mostrar admin ni permitir editarlo
+          const userDiv = document.createElement('div');
+          userDiv.className = 'mb-2 border rounded p-2';
+          userDiv.innerHTML = `
+            <div class="d-flex align-items-center justify-content-between">
+              <div><strong>${user.username}</strong> <span class="badge bg-secondary">user</span></div>
+              <div>
+                <button class="btn btn-link btn-sm toggle-user-details" data-username="${user.username}">
+                  <span class="toggle-icon">[+]</span>
+                </button>
+                <button class="btn btn-danger btn-sm delete-user-btn" data-username="${user.username}">Delete</button>
+              </div>
+            </div>
+            <div class="user-details mt-2" data-username="${user.username}" style="display: none;">
+              <strong>Columns:</strong>
+              <div class="user-cols-checkboxes" data-username="${user.username}"></div>
+              <button class="btn btn-primary btn-sm mt-1 save-cols-btn" data-username="${user.username}">Save columns</button>
+              <span class="save-cols-status ms-2"></span>
+            </div>
+          `;
+          usersListDiv.appendChild(userDiv);
+          
+          // Render checkboxes para columnas
+          const colDiv = userDiv.querySelector('.user-cols-checkboxes');
+          const columns = getAllTableColumns();
+          columns.forEach(col => {
+            const div = document.createElement('div');
+            div.className = 'form-check form-check-inline';
+            div.innerHTML = `
+              <input class="form-check-input" type="checkbox" value="${col.key}" id="userCol_${user.username}_${col.key}" ${user.columns.includes(col.key) ? 'checked' : ''}>
+              <label class="form-check-label" for="userCol_${user.username}_${col.key}">${col.label}</label>
+            `;
+            colDiv.appendChild(div);
+          });
+        });
+        
+        // Añadir listeners para eliminar usuario
+        usersListDiv.querySelectorAll('.delete-user-btn').forEach(btn => {
+          btn.addEventListener('click', async e => {
+            const username = btn.dataset.username;
+            if (!confirm(`Delete user '${username}'?`)) return;
+            const resp = await fetch(`/api/users/${encodeURIComponent(username)}`, { method: 'DELETE' });
+            if (resp.ok) {
+              loadUsersList();
+            } else {
+              alert('Error deleting user');
+            }
+          });
+        });
+        
+        // Añadir listeners para expandir/colapsar detalles de usuario
+        usersListDiv.querySelectorAll('.toggle-user-details').forEach(btn => {
+          btn.addEventListener('click', e => {
+            const username = btn.dataset.username;
+            const detailsDiv = usersListDiv.querySelector(`.user-details[data-username="${username}"]`);
+            const toggleIcon = btn.querySelector('.toggle-icon');
+            
+            if (detailsDiv.style.display === 'none') {
+              detailsDiv.style.display = 'block';
+              toggleIcon.textContent = '[-]';
+            } else {
+              detailsDiv.style.display = 'none';
+              toggleIcon.textContent = '[+]';
+            }
+          });
+        });
+        
+        // Añadir listeners para guardar columnas
+        usersListDiv.querySelectorAll('.save-cols-btn').forEach(btn => {
+          btn.addEventListener('click', async e => {
+            const username = btn.dataset.username;
+            const colDiv = usersListDiv.querySelector(`.user-cols-checkboxes[data-username="${username}"]`);
+            const selectedCols = Array.from(colDiv.querySelectorAll('.form-check-input:checked')).map(cb => cb.value);
+            const statusSpan = btn.parentElement.querySelector('.save-cols-status');
+            statusSpan.textContent = 'Saving...';
+            const resp = await fetch(`/api/users/${encodeURIComponent(username)}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ columns: selectedCols })
+            });
+            if (resp.ok) {
+              statusSpan.textContent = 'Saved!';
+              statusSpan.style.color = 'green';
+              setTimeout(() => { statusSpan.textContent = ''; }, 1500);
+            } else {
+              statusSpan.textContent = 'Error';
+              statusSpan.style.color = 'red';
+            }
+          });
+        });
+      } catch (e) {
+        usersListDiv.innerHTML = '<div class="text-danger">Error loading users.</div>';
+      }
+    }
+
+    const createUserForm = document.getElementById('createUserForm');
+    if (createUserForm) {
+      createUserForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const username = document.getElementById('newUsername').value.trim();
+        const password = document.getElementById('newUserPassword').value;
+        const confirm = document.getElementById('confirmUserPassword').value;
+        const errorDiv = document.getElementById('userFormError');
+        errorDiv.style.display = 'none';
+        errorDiv.textContent = '';
+        if (!username || !password || !confirm) {
+          errorDiv.textContent = 'All fields are required.';
+          errorDiv.style.display = 'block';
+          return;
+        }
+        if (password !== confirm) {
+          errorDiv.textContent = 'Passwords do not match.';
+          errorDiv.style.display = 'block';
+          return;
+        }
+        const selectedCols = Array.from(document.querySelectorAll('#userColumnsCheckboxes .form-check-input:checked')).map(cb => cb.value);
+        try {
+          const resp = await fetch('/api/users', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password, columns: selectedCols })
+          });
+          if (!resp.ok) {
+            const data = await resp.json().catch(() => ({}));
+            errorDiv.textContent = data.error || 'Error creating user.';
+            errorDiv.style.display = 'block';
+            return;
+          }
+          createUserForm.reset();
+          renderUserColumnsCheckboxes();
+          errorDiv.style.display = 'block';
+          errorDiv.style.color = 'green';
+          errorDiv.textContent = 'User created.';
+          setTimeout(() => { errorDiv.style.display = 'none'; errorDiv.style.color = ''; }, 2000);
+          loadUsersList();
+        } catch (e) {
+          errorDiv.textContent = 'Network error.';
+          errorDiv.style.display = 'block';
+        }
+      });
+    }
+
+    document.getElementById('tab-manageuser').addEventListener('shown.bs.tab', () => {
+      renderUserColumnsCheckboxes();
+      loadUsersList();
+    });
+    if (document.getElementById('tab-manageuser').classList.contains('active')) {
+      renderUserColumnsCheckboxes();
+      loadUsersList();
+    }
+
+    // --- Control de acceso a notificaciones y gestión de usuarios según rol ---
+    function blockAdminFeaturesIfUser() {
+      fetch('/api/users')
+        .then(res => res.json())
+        .then(users => {
+          fetch('/whoami').then(r => r.json()).then(me => {
+            if (!me || me.role !== 'admin') {
+              // Bloquear botón de notificaciones
+              const notifBtn = document.getElementById('notifToggle');
+              notifBtn.classList.add('disabled');
+              notifBtn.style.pointerEvents = 'auto';
+              notifBtn.style.opacity = '0.5';
+              notifBtn.title = 'Only admin has access to this feature';
+              notifBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                alert('Only admin has access to this feature');
+                // Ocultar panel si se muestra
+                const notifPanel = document.getElementById('notifPanel');
+                if (notifPanel) notifPanel.style.display = 'none';
+                return false;
+              });
+              // Bloquear pestaña de usuarios
+              const tabManageUser = document.getElementById('tab-manageuser');
+              tabManageUser.classList.add('disabled');
+              tabManageUser.style.pointerEvents = 'auto';
+              tabManageUser.style.opacity = '0.5';
+              tabManageUser.title = 'Only admin has access to this feature';
+              tabManageUser.addEventListener('click', function(e) {
+                e.preventDefault();
+                alert('Only admin has access to this feature');
+                return false;
+              });
+            }
+          });
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', blockAdminFeaturesIfUser);
 
     // --- Initial Load & Event Listeners ---
     document.addEventListener('DOMContentLoaded', () => {
@@ -1955,6 +2416,76 @@
       }
     });
 
+    function updateColumnCheckboxesForUser(allowedColumns) {
+        // Esta función actualiza los checkboxes de columnas basándose en los permisos del usuario
+        if (!allowedColumns || !Array.isArray(allowedColumns)) {
+            console.error("No se proporcionaron columnas permitidas válidas");
+            return;
+        }
+
+        console.log("Actualizando checkboxes con permisos:", allowedColumns);
+        
+        // Recorrer todos los checkboxes de columnas
+        document.querySelectorAll('.column-toggles .form-check-input').forEach(checkbox => {
+            const columnName = checkbox.value;
+            
+            // Siempre permitir la columna 'name'
+            if (columnName === 'name') {
+                checkbox.checked = true;
+                checkbox.disabled = true;
+                return;
+            }
+            
+            // Verificar si la columna está en la lista de permitidas
+            const isAllowed = allowedColumns.includes(columnName);
+            
+            // Si no está permitida, desactivar y desmarcar el checkbox
+            if (!isAllowed) {
+                checkbox.checked = false;
+                checkbox.disabled = true;
+                checkbox.parentElement.classList.add('text-muted'); // Atenuar visualmente
+                
+                // Esconder la columna en la tabla
+                metricsTable.classList.add(`hide-col-${columnName}`);
+                
+                // Opcional: agregar un tooltip o indicador visual
+                checkbox.title = "No tienes permiso para ver esta columna";
+            }
+        });
+        
+        // Actualizar el colspan para filas de proyecto después de aplicar los cambios
+        updateProjectRowColspans();
+    }
+    
+    // Función auxiliar para obtener el token CSRF
+    function getCsrfToken() {
+        return '{{ csrf_token }}';
+    }
+
+    function populateTable(data) {
+      // Check if we have data
+      if (!data || !Array.isArray(data)) {
+        console.error("Invalid data format received:", data);
+        tableStatusDiv.textContent = "Error: No se recibieron datos válidos";
+        return;
+      }
+      
+      console.log(`Rendering table with ${data.length} containers`);
+      
+      // Keep a copy for notifications processing
+      checkNotifications(data);
+      
+      // Process and display data
+      renderTable(data);
+      
+      // Update the status area with info about the data refresh
+      const now = new Date();
+      const time = now.toLocaleTimeString();
+      
+      // Clear previous error styling if present
+      tableStatusDiv.style.color = '';
+      tableStatusDiv.textContent = `${data.length} container(s) - Updated at ${time}`;
+    }
   </script>
 </body>
 </html>

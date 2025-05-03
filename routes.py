@@ -3,7 +3,7 @@
 import datetime
 import time  # Add time import
 import requests  # Añadido para peticiones HTTP a cAdvisor
-from flask import Blueprint, jsonify, request, render_template, Response, stream_with_context, session  # Quitado escape
+from flask import Blueprint, jsonify, request, render_template, Response, stream_with_context, session, redirect, url_for, flash  # Añadido redirect, url_for y flash
 from markupsafe import escape  # Añadido para compatibilidad Flask >=2.3
 import docker
 import json  # Add json import for embedding data
@@ -11,6 +11,10 @@ import os  # Add os import for environment variables
 import secrets
 import multiprocessing  # Add for CPU core detection
 from functools import wraps
+from users_db import (
+    validate_user, change_password, create_user_with_columns, list_users_with_columns,
+    update_user_columns, delete_user, get_user_columns, get_user_role, user_exists
+)
 errors = docker.errors
 
 # Importar estado compartido y clientes/utilidades necesarias
@@ -22,16 +26,12 @@ from metrics_utils import parse_datetime, format_uptime # Necesario para /api/me
 # Crear un Blueprint para las rutas
 main_routes = Blueprint('main_routes', __name__, template_folder='templates', static_folder='static')
 
-# --- Simple HTTP Basic Authentication ---
-from config import AUTH_USER, AUTH_PASSWORD
-@main_routes.before_request
-def require_auth():
-    # If credentials not set, skip authentication
-    if not AUTH_USER or not AUTH_PASSWORD:
-        return
-    auth = request.authorization
-    if not auth or auth.username != AUTH_USER or auth.password != AUTH_PASSWORD:
-        return Response('Authentication required', 401, {'WWW-Authenticate': 'Basic realm="Login Required"'})
+# --- Authentication Configuration ---
+from config import AUTH_USER, LOGIN_MODE
+
+# --- Check if the user is authenticated for page-based login ---
+def is_authenticated():
+    return session.get('authenticated', False)
 
 # --- CSRF Token Utilities ---
 def generate_csrf_token():
@@ -53,6 +53,87 @@ def csrf_protect(f):
             return result
         return f(*args, **kwargs)
     return decorated_function
+
+# --- Login Route for Page-Based Authentication ---
+@main_routes.route('/login', methods=['GET', 'POST'])
+def login():
+    """Handle login for page-based authentication"""
+    # If no credentials are set or login mode is not 'page', redirect to index
+    if not AUTH_USER or LOGIN_MODE != 'page':
+        return redirect(url_for('main_routes.index'))
+    
+    # If already authenticated, redirect to index
+    if is_authenticated():
+        return redirect(url_for('main_routes.index'))
+    
+    # Generate CSRF token for the form
+    csrf_token = generate_csrf_token()
+    
+    # Handle login form submission
+    error = None
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        if validate_user(username, password):
+            session['authenticated'] = True
+            session['username'] = username
+            return redirect(url_for('main_routes.index'))
+        else:
+            error = "Invalid username or password"
+    
+    return render_template('login.html', csrf_token=csrf_token, error=error)
+
+# --- Logout Route ---
+@main_routes.route('/logout')
+def logout():
+    """Handle logout for page-based authentication"""
+    # Clear the entire session instead of just removing 'authenticated'
+    session.clear()
+    
+    # Create a response with redirect
+    response = redirect(url_for('main_routes.login'))
+    
+    # Add cache control headers to prevent caching
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    
+    # Add a cookie expiration header to force removal of the session cookie
+    response.delete_cookie('session')
+    
+    return response
+
+# --- Authentication Middleware ---
+@main_routes.before_request
+def require_auth():
+    # Skip authentication for static files and login page
+    if request.path.startswith('/static/') or request.path == '/login' or request.path == '/favicon.ico':
+        return
+        
+    # If credentials are not set, skip authentication
+    if not AUTH_USER:
+        return
+        
+    # Determine authentication method based on LOGIN_MODE
+    if LOGIN_MODE == 'page':
+        # For page-based auth, check if user is authenticated in the session
+        if not is_authenticated():
+            # If not authenticated and requesting API endpoint, return JSON 401 error
+            if request.path.startswith('/api/'):
+                return jsonify({"error": "auth", "message": "Authentication required"}), 401
+            # Otherwise redirect to login page
+            if request.path != '/login':
+                return redirect(url_for('main_routes.login'))
+    else:
+        # For popup-based auth (HTTP Basic), check Authorization header
+        auth = request.authorization
+        if not auth or not validate_user(auth.username, auth.password):
+            # If requesting API endpoint, return JSON 401 error
+            if request.path.startswith('/api/'):
+                return jsonify({"error": "auth", "message": "Authentication required"}), 401
+            # Otherwise return standard HTTP 401 with Basic auth prompt
+            return Response('Authentication required', 401, {'WWW-Authenticate': 'Basic realm="Login Required"'})
 
 # --- Ruta Index ---
 @main_routes.route('/')
@@ -407,6 +488,28 @@ def api_metrics():
             row_data['gpu'] = gpu_stats
             row_data['gpu_max'] = gpu_max
         rows.append(row_data)
+
+    # --- Filtrado de columnas según permisos del usuario ---
+    username = session.get('username') or (request.authorization.username if request.authorization else None)
+    allowed_columns = None
+    user_role = None
+    
+    if username:
+        user_role = get_user_role(username)
+        if user_role != 'admin':
+            allowed_columns = set(get_user_columns(username))
+            # Siempre incluir columnas esenciales
+            allowed_columns.add('id')
+            allowed_columns.add('name')
+    
+    # Si allowed_columns es None (admin) o no está vacío (usuario con permisos)
+    if allowed_columns is not None:
+        for i, row in enumerate(rows):
+            # Añadir campo que indique las columnas permitidas para este usuario
+            row['_allowed_columns'] = list(allowed_columns)
+            
+            # NO eliminar las columnas, simplemente añadir un indicador de columnas permitidas
+            # Esto permite que el cliente reciba todos los datos pero solo muestre los permitidos
 
     # --- Ordenación ---
     reverse_sort = (sort_dir == 'desc')
@@ -943,3 +1046,83 @@ def api_set_notification_settings():
         if k in allowed:
             notification_settings[k] = v
     return jsonify({'ok': True, 'settings': notification_settings})
+
+# --- Cambiar contraseña desde ajustes ---
+@main_routes.route('/api/change-password', methods=['POST'])
+@csrf_protect
+def api_change_password():
+    """Permite cambiar la contraseña del usuario autenticado."""
+    data = request.get_json(force=True)
+    current = data.get('current_password', '')
+    new = data.get('new_password', '')
+    username = session.get('username') or request.authorization.username if request.authorization else None
+    if not username:
+        return jsonify({'ok': False, 'error': 'Not authenticated.'}), 401
+    if not current or not new:
+        return jsonify({'ok': False, 'error': 'All fields are required.'}), 400
+    if not validate_user(username, current):
+        return jsonify({'ok': False, 'error': 'Current password is incorrect.'}), 403
+    try:
+        change_password(username, new)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Error saving password: {str(e)}'}), 500
+
+# --- API: User Management ---
+@main_routes.route('/api/users', methods=['GET'])
+def api_list_users():
+    """Devuelve la lista de usuarios y sus permisos de columnas."""
+    users = list_users_with_columns()
+    return jsonify(users)
+
+@main_routes.route('/api/users', methods=['POST'])
+@csrf_protect
+def api_create_user():
+    data = request.get_json(force=True)
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+    columns = data.get('columns', [])
+    if not username or not password or not isinstance(columns, list):
+        return jsonify({'error': 'Missing fields'}), 400
+    if username == 'admin':
+        return jsonify({'error': 'Cannot create another admin'}), 403
+    if user_exists(username):
+        return jsonify({'error': 'User already exists'}), 409
+    ok = create_user_with_columns(username, password, columns, role='user')
+    if not ok:
+        return jsonify({'error': 'Could not create user'}), 500
+    return jsonify({'ok': True})
+
+@main_routes.route('/api/users/<username>', methods=['PUT'])
+@csrf_protect
+def api_update_user_columns(username):
+    if username == 'admin':
+        return jsonify({'error': 'Cannot edit admin'}), 403
+    data = request.get_json(force=True)
+    columns = data.get('columns', [])
+    if not isinstance(columns, list):
+        return jsonify({'error': 'Invalid columns'}), 400
+    if not user_exists(username):
+        return jsonify({'error': 'User not found'}), 404
+    update_user_columns(username, columns)
+    return jsonify({'ok': True})
+
+@main_routes.route('/api/users/<username>', methods=['DELETE'])
+@csrf_protect
+def api_delete_user(username):
+    if username == 'admin':
+        return jsonify({'error': 'Cannot delete admin'}), 403
+    if not user_exists(username):
+        return jsonify({'error': 'User not found'}), 404
+    delete_user(username)
+    return jsonify({'ok': True})
+
+@main_routes.route('/whoami')
+def whoami():
+    """Devuelve el usuario autenticado y su rol."""
+    username = session.get('username') or (request.authorization.username if request.authorization else None)
+    if not username:
+        return jsonify({'username': None, 'role': None})
+    from users_db import get_user_role
+    role = get_user_role(username)
+    return jsonify({'username': username, 'role': role})
