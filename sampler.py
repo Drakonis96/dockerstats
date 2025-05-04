@@ -30,6 +30,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 history = {}
 # Almacena estadísticas crudas previas para cálculo delta de CPU
 previous_stats = {}
+# Registro de estados anterior para todos los contenedores
+previous_states = {}
 
 # --- NUEVO: Control de cacheo de update_available ---
 # Diccionario para cachear el resultado de check_image_update por contenedor
@@ -172,18 +174,25 @@ def sample_metrics():
             for container in all_containers:
                 if container.id not in current_running_ids:
                     # This is a non-running container, add it to history with its status
-                    dq = history.setdefault(container.id, collections.deque(maxlen=MAX_SECONDS // SAMPLE_INTERVAL))
-                    
-                    # Only add if empty or if status changed
+                    cid = container.id
+                    container_name = container.name
                     current_status = container.status
-                    last_status = None
+                    dq = history.setdefault(cid, collections.deque(maxlen=MAX_SECONDS // SAMPLE_INTERVAL))
+                    
+                    # Comprobar si ha cambiado el estado
+                    previous_status = None
+                    status_changed = False
+                    
                     if dq and len(dq) > 0:
                         try:
-                            last_status = dq[-1][3]  # Status is at index 3
+                            previous_status = dq[-1][3]  # Status is at index 3
+                            if previous_status != current_status:
+                                status_changed = True
                         except (IndexError, TypeError):
                             pass
                     
-                    if not dq or not last_status or last_status != current_status:
+                    # Si hay cambio de estado o no hay entrada en el historial, añadir nueva muestra
+                    if not dq or status_changed:
                         # Add a minimal stats entry for non-running containers
                         # time, cpu, mem, status, name, net_rx, net_tx, blk_r, blk_w, update_available, pid_count, mem_limit_mb, gpu_stats, gpu_max
                         dq.append((
@@ -191,7 +200,7 @@ def sample_metrics():
                             0.0,          # cpu
                             0.0,          # memory percentage
                             current_status,  # status (exited, created, paused, etc.)
-                            container.name,  # container name
+                            container_name,  # container name
                             0,            # net rx
                             0,            # net tx
                             0,            # block read
@@ -202,6 +211,23 @@ def sample_metrics():
                             None,         # gpu stats
                             None          # gpu max
                         ))
+                        
+                        # Enviar notificación de cambio de estado si estaba en ejecución antes
+                        if status_changed and previous_status and notification_settings.get('status_enabled', True):
+                            # Solo notificar cambios significativos, especialmente de running a otro estado
+                            if previous_status == "running" or current_status == "running":
+                                now = time.time()
+                                n = {
+                                    'type': 'status',
+                                    'cid': cid,
+                                    'container': container_name,
+                                    'value': current_status,
+                                    'prev_value': previous_status,
+                                    'timestamp': now,
+                                    'msg': f"{container_name}: Status changed from {previous_status} to {current_status}"
+                                }
+                                notifications.append(n)
+                                push_notify(n['msg'])
 
         except docker.errors.DockerException as e:
             logging.error(f"ERROR listando contenedores en sampler: {e}")
@@ -269,7 +295,20 @@ def sample_metrics():
                         gpu_stats = None
                         gpu_max = None
 
+                # Check for status change BEFORE adding new data to history
+                previous_status = None
+                status_changed = False
                 dq = history.setdefault(cid, collections.deque(maxlen=MAX_SECONDS // SAMPLE_INTERVAL))
+                
+                if dq and len(dq) > 0:
+                    try:
+                        previous_status = dq[-1][3]  # Status is at index 3 in the history tuple
+                        if previous_status != status:
+                            status_changed = True
+                    except (IndexError, TypeError):
+                        pass
+                
+                # Now add the new status to history
                 dq.append((time.time(), cpu, mem_percent, status, container_name, net_rx, net_tx, blk_r, blk_w, update_available, pid_count, mem_limit_mb, gpu_stats, gpu_max))
 
                 # --- Notification logic ---
@@ -288,7 +327,7 @@ def sample_metrics():
                                     'container': container_name,
                                     'value': cpu,
                                     'timestamp': now,
-                                    'msg': f"CPU usage {cpu:.1f}% exceeded {notification_settings['cpu_threshold']}% for {notification_settings['window_seconds']}s"
+                                    'msg': f"{container_name}: CPU usage {cpu:.1f}% exceeded {notification_settings['cpu_threshold']}% for {notification_settings['window_seconds']}s"
                                 }
                                 notifications.append(n)
                                 push_notify(n['msg'])
@@ -307,12 +346,50 @@ def sample_metrics():
                                     'container': container_name,
                                     'value': mem_percent,
                                     'timestamp': now,
-                                    'msg': f"RAM usage {mem_percent:.1f}% exceeded {notification_settings['ram_threshold']}% for {notification_settings['window_seconds']}s"
+                                    'msg': f"{container_name}: RAM usage {mem_percent:.1f}% exceeded {notification_settings['ram_threshold']}% for {notification_settings['window_seconds']}s"
                                 }
                                 notifications.append(n)
                                 push_notify(n['msg'])
                     else:
                         ram_exceed_start.pop(cid, None)
+
+                # Send status change notification if enabled
+                if status_changed and previous_status and notification_settings.get('status_enabled', True):
+                    n = {
+                        'type': 'status',
+                        'cid': cid,
+                        'container': container_name,
+                        'value': status,
+                        'prev_value': previous_status,
+                        'timestamp': now,
+                        'msg': f"{container_name}: Status changed from {previous_status} to {status}"
+                    }
+                    notifications.append(n)
+                    push_notify(n['msg'])
+                
+                # Update notification
+                if notification_settings.get('update_enabled', True) and update_available is True:
+                    # Check if this is a new discovery of an update
+                    is_new_update = True
+                    if dq and len(dq) > 1:
+                        try:
+                            previous_update_available = dq[-2][9]  # update_available is at index 9
+                            if previous_update_available is True:
+                                is_new_update = False  # Was already available
+                        except (IndexError, TypeError):
+                            pass
+                    
+                    if is_new_update:
+                        n = {
+                            'type': 'update',
+                            'cid': cid,
+                            'container': container_name,
+                            'value': True,
+                            'timestamp': now,
+                            'msg': f"{container_name}: Update available for this container"
+                        }
+                        notifications.append(n)
+                        push_notify(n['msg'])
 
                 time.sleep(0.2)  # Stagger requests para evitar throttling
 
