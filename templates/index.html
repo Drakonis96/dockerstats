@@ -123,6 +123,15 @@
         padding: 0.25rem 0.5rem; /* Adjust padding */
         line-height: 1; /* Ensure vertical alignment */
     }
+    /* Ajuste de iconos SVG en header para igualar altura y alineación */
+    .navbar-buttons img[alt="User"],
+    .navbar-buttons img[alt="Logout"] {
+      width: 16px !important;
+      height: 16px !important;
+      vertical-align: middle !important;
+      margin: 0 !important;
+      display: inline-block;
+    }
     /* Adjust page content down by header height + margin */
     body {
       padding-top: calc(60px + 1rem); /* Match new header height */
@@ -536,8 +545,8 @@
 
      /* Style Save Settings button */
      #saveSettingsBtn {
-       background-color: #7a49cd !important;
-       border-color: #7a49cd !important;
+       background-color: #7e3feb !important;
+       border-color: #7e3feb !important;
      }
 
      /* Status Message Area Styling */
@@ -658,6 +667,12 @@
   font-weight: normal !important;
 }
 
+/* Add this at the end of the <style> block */
+[data-bs-theme="dark"] #metricsTable img,
+[data-bs-theme="dark"] .table img {
+  filter: invert(1) brightness(1.8) grayscale(0.1);
+}
+
   </style>
 </head>
 <body data-bs-theme="light">
@@ -705,7 +720,7 @@
             </div>
         </div>
         <button type="button" id="themeToggle" class="btn btn-outline-secondary" aria-label="Toggle theme">🌙</button>
-        <button type="button" id="userInfoBtn" class="btn ms-2" style="background-color: #7a49cd; color: white;" aria-label="User info">👤</button>
+        <button type="button" id="userInfoBtn" class="btn btn-outline-secondary ms-2" aria-label="User info"><img src="{{ url_for('static', filename='icons/header_user.svg') }}" alt="User" width="16" height="16" style="vertical-align: middle;"></button>
         <button type="button" id="settingsBtn" class="btn btn-outline-secondary ms-2" aria-label="Settings">⚙️</button>
         <button type="button" id="logoutBtn" class="btn btn-outline-danger ms-2" style="color: #B30333; border-color: #6c757d;" aria-label="Logout">⏻</button>
       </div>
@@ -729,7 +744,7 @@
         </button>
       </div>
       <button type="button" id="sidebarThemeToggle" class="btn btn-outline-secondary mb-2 text-start" aria-label="Toggle theme">🌙 Toggle Theme</button>
-      <button type="button" id="sidebarUserInfoBtn" class="btn mb-2 text-start" style="background-color: #7a49cd; color: white;" aria-label="User info">👤 User Info</button>
+      <button type="button" id="sidebarUserInfoBtn" class="btn btn-outline-secondary mb-2 text-start d-flex align-items-center gap-2" aria-label="User info"><img src="{{ url_for('static', filename='icons/header_user.svg') }}" alt="User" width="16" height="16" style="vertical-align: middle;"> <span id="sidebarUserLabel">User Info</span></button>
       <button type="button" id="sidebarSettingsBtn" class="btn btn-outline-secondary mb-2 text-start" aria-label="Settings">⚙️ Settings</button>
       <button type="button" id="sidebarLogoutBtn" class="btn btn-outline-danger text-start" style="color: #B30333; border-color: #6c757d;" aria-label="Logout">⏻ Logout</button>
     </div>
@@ -746,7 +761,7 @@
         .then(me => {
           const userInfoBtn = document.getElementById('userInfoBtn');
           if (me && me.username) {
-            userInfoBtn.textContent = `👤 ${me.username} (${me.role})`;
+            userInfoBtn.innerHTML = `<img src="{{ url_for('static', filename='icons/header_user.svg') }}" alt="User" width="18" height="18"> ${me.username} (${me.role})`;
           }
         });
     }
@@ -1000,15 +1015,15 @@
     <div class="row mb-3 action-buttons-row">
       <div class="col-12">
         <div class="d-flex flex-wrap align-items-center" id="actionButtonsContainer">
-          <button id="saveSettingsBtn" class="btn btn-primary btn-sm">💾 Save Settings</button>
-          <button id="checkUpdatesBtn" class="btn btn-warning btn-sm ms-2">🔄 Check Updates</button>
-          <button id="toggleColsBtn" class="btn btn-secondary btn-sm ms-2">🔄 Select/Deselect All</button>
-          <button id="exportCsvBtn" class="btn btn-secondary btn-sm ms-2">📤 Export CSV</button>
+          <button id="saveSettingsBtn" class="btn btn-primary btn-sm"><img src="{{ url_for('static', filename='icons/button_save.svg') }}" alt="Save" width="16" height="16"> Save Settings</button>
+          <button id="checkUpdatesBtn" class="btn btn-warning btn-sm ms-2"><img src="{{ url_for('static', filename='icons/button_check_updates.svg') }}" alt="Check Updates" width="16" height="16"> Check Updates</button>
+          <button id="toggleColsBtn" class="btn btn-secondary btn-sm ms-2"><img src="{{ url_for('static', filename='icons/button_select_deselect_all.svg') }}" alt="Select/Deselect All" width="16" height="16"> Select/Deselect All</button>
+          <button id="exportCsvBtn" class="btn btn-secondary btn-sm ms-2"><img src="{{ url_for('static', filename='icons/button_export.svg') }}" alt="Export CSV" width="16" height="16"> Export CSV</button>
           <!-- Comparison controls moved here -->
           <div class="comparison-controls d-inline-flex align-items-center ms-2">
             <div class="dropdown">
               <button class="btn btn-secondary btn-sm dropdown-toggle" type="button" id="compareDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                📊 Comparison graphs
+                <img src="{{ url_for('static', filename='icons/button_comparison_graphs.svg') }}" alt="Comparison Graphs" width="16" height="16"> Comparison graphs
               </button>
               <ul class="dropdown-menu" aria-labelledby="compareDropdown">
                 <li><a class="dropdown-item compare-action" href="#" data-compare-type="usage">CPU/RAM Usage</a></li>
@@ -1033,24 +1048,24 @@
       <table id="metricsTable" class="table table-striped table-hover table-sm">
         <thead>
           <tr>
-            <th class="col-name text-start">🏷️ Name</th>
-            <th class="col-cpu text-center">🖳 CPU %</th>
-            <th class="col-ram text-center">🧠 RAM %</th>
-            <th class="col-gpu text-center">🎮 GPU %</th>
-            <th class="col-pid text-center">⚙️ Procs</th>
-            <th class="col-memlimit text-center">💾 Mem Limit (MB)</th>
-            <th class="col-status text-center">🚦 Status</th>
-            <th class="col-uptime text-center">⏱️ Uptime</th>
-            <th class="col-netio text-center">🌐 Net I/O</th>
-            <th class="col-blockio text-center">💾 Block I/O</th>
-            <th class="col-image text-center">🖼️ Image</th>
-            <th class="col-ports text-center">🔌 Ports</th>
-            <th class="col-restarts text-center">🔄 Restarts</th>
-            <th class="col-logs text-center">📜 Logs</th>
-            <th class="col-charts text-center">📊 Chart</th>
-            <th class="col-ui text-center">🌐 UI</th>
-            <th class="col-update text-center">⬆️ Updates</th>
-            <th class="col-actions text-center">⚙️ Actions</th>
+            <th class="col-name text-start"><img src="{{ url_for('static', filename='icons/table_name.svg') }}" alt="Name" width="18" height="18"> Name</th>
+            <th class="col-cpu text-center"><img src="{{ url_for('static', filename='icons/table_cpu.svg') }}" alt="CPU" width="18" height="18"> CPU %</th>
+            <th class="col-ram text-center"><img src="{{ url_for('static', filename='icons/table_ram.svg') }}" alt="RAM" width="18" height="18"> RAM %</th>
+            <th class="col-gpu text-center"><img src="{{ url_for('static', filename='icons/table_gpu.svg') }}" alt="GPU" width="18" height="18"> GPU %</th>
+            <th class="col-pid text-center"><img src="{{ url_for('static', filename='icons/table_processes.svg') }}" alt="Procs" width="18" height="18"> Procs</th>
+            <th class="col-memlimit text-center"><img src="{{ url_for('static', filename='icons/table_memory_limit.svg') }}" alt="Mem Limit" width="18" height="18"> Mem Limit (MB)</th>
+            <th class="col-status text-center"><img src="{{ url_for('static', filename='icons/table_status.svg') }}" alt="Status" width="18" height="18"> Status</th>
+            <th class="col-uptime text-center"><img src="{{ url_for('static', filename='icons/table_uptime.svg') }}" alt="Uptime" width="18" height="18"> Uptime</th>
+            <th class="col-netio text-center"><img src="{{ url_for('static', filename='icons/table_net_io.svg') }}" alt="Net I/O" width="18" height="18"> Net I/O</th>
+            <th class="col-blockio text-center"><img src="{{ url_for('static', filename='icons/table_block_io.svg') }}" alt="Block I/O" width="18" height="18"> Block I/O</th>
+            <th class="col-image text-center"><img src="{{ url_for('static', filename='icons/table_image.svg') }}" alt="Image" width="18" height="18"> Image</th>
+            <th class="col-ports text-center"><img src="{{ url_for('static', filename='icons/table_ports.svg') }}" alt="Ports" width="18" height="18"> Ports</th>
+            <th class="col-restarts text-center"><img src="{{ url_for('static', filename='icons/table_restarts.svg') }}" alt="Restarts" width="18" height="18"> Restarts</th>
+            <th class="col-logs text-center"><img src="{{ url_for('static', filename='icons/table_logs.svg') }}" alt="Logs" width="18" height="18"> Logs</th>
+            <th class="col-charts text-center"><img src="{{ url_for('static', filename='icons/table_charts.svg') }}" alt="Chart" width="18" height="18"> Chart</th>
+            <th class="col-ui text-center"><img src="{{ url_for('static', filename='icons/table_ui.svg') }}" alt="UI" width="18" height="18"> UI</th>
+            <th class="col-update text-center"><img src="{{ url_for('static', filename='icons/table_updates.svg') }}" alt="Updates" width="18" height="18"> Updates</th>
+            <th class="col-actions text-center"><img src="{{ url_for('static', filename='icons/table_actions.svg') }}" alt="Actions" width="18" height="18"> Actions</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -1587,16 +1602,16 @@
          `<td class="col-image" title="${imageName}" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">${imageName}</td>` +
          `<td class="col-ports" title="${portInfo}" style="max-width: 250px; overflow: hidden; text-overflow: ellipsis;">${portInfo}</td>` +
          `<td class="col-restarts">${restartsText}</td>` +
-         `<td class="col-logs text-center"><a href="/logs/${d.id}" target="_blank" class="btn btn-link btn-sm p-0">📜</a></td>` +
+         `<td class="col-logs text-center"><a href="/logs/${d.id}" target="_blank" class="btn btn-link btn-sm p-0"><img src="/static/icons/table_logs.svg" alt="Logs" width="18" height="18"></a></td>` +
          `<td class="col-charts text-center">` +
-           `<button class="btn btn-link btn-sm p-0 show-chart-btn" data-container-id="${d.id}" data-container-name="${d.name || 'Unknown'}">📊</button>` +
+           `<button class="btn btn-link btn-sm p-0 show-chart-btn" data-container-id="${d.id}" data-container-name="${d.name || 'Unknown'}"><img src="/static/icons/table_charts.svg" alt="Chart" width="18" height="18"></button>` +
          `</td>` +
-         `<td class="col-ui text-center"><a href="http://${baseIP}:${hostPort}" target="_blank" class="btn btn-link btn-sm p-0">🌐</a></td>` +
-         `<td class="col-update text-center">${d.update_available ? `⬆️` : ''}</td>` +
+         `<td class="col-ui text-center"><a href="http://${baseIP}:${hostPort}" target="_blank" class="btn btn-link btn-sm p-0"><img src="/static/icons/table_ui.svg" alt="UI" width="18" height="18"></a></td>` +
+         `<td class="col-update text-center">${d.update_available ? `<img src="/static/icons/table_updates.svg" alt="Update Available" width="18" height="18">` : ''}</td>` +
          `<td class="col-actions text-center">` +
-           `<button class="btn btn-outline-success btn-sm start-btn">▶️</button>` +
-           `<button class="btn btn-outline-warning btn-sm stop-btn">⏹️</button>` +
-           `<button class="btn btn-outline-danger btn-sm restart-btn">🔄</button>` +
+           `<button class="btn btn-outline-success btn-sm start-btn"><img src="/static/icons/table_play.svg" alt="Start" width="24" height="24"></button>` +
+           `<button class="btn btn-outline-warning btn-sm stop-btn"><img src="/static/icons/table_stop.svg" alt="Stop" width="14" height="14" style="margin: 1px;"></button>` +
+           `<button class="btn btn-outline-danger btn-sm restart-btn"><img src="/static/icons/table_restart.svg" alt="Restart" width="24" height="24"></button>` +
          `</td>`;
        metricsTableBody.appendChild(tr);
      }
@@ -2893,7 +2908,7 @@
           .then(r => r.json())
           .then(me => {
             if (me && me.username) {
-              sidebarUserInfoBtn.textContent = `👤 ${me.username} (${me.role})`;
+              sidebarUserLabel.textContent = `${me.username} (${me.role})`;
             }
           });
       }
