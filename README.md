@@ -123,7 +123,7 @@ If available, GPU usage and memory stats will be displayed in the UI for each co
 - Clone the repository:
   ```bash
   git clone https://github.com/Drakonis96/dockerstats
-  cd docker-monitor
+  cd dockerstats
   ```
 - Start the service with Docker Compose:
   ```bash

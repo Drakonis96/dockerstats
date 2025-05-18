@@ -6,7 +6,7 @@ import math
 
 # --- Funciones Auxiliares ---
 def parse_datetime(dt_str):
-    """Parsea de forma segura varios formatos datetime tipo ISO."""
+    """Safely parses various ISO-like datetime formats."""
     if not dt_str or dt_str == "0001-01-01T00:00:00Z":
         return None
     try:
@@ -23,11 +23,11 @@ def parse_datetime(dt_str):
         # dateutil.parser debería manejar strings con timezone correctamente
         return parser.isoparse(dt_str)
     except Exception as e:
-        # print(f"Warning: No se pudo parsear la cadena datetime '{dt_str}': {e}") # Verbosidad reducida
+        # print(f"Warning: Could not parse datetime string '{dt_str}': {e}") # Reduced verbosity
         return None
 
 def format_uptime(total_seconds):
-    """Formatea segundos totales en una cadena 'Xd Yh Zm Ws'."""
+    """Formats total seconds as a string 'Xd Yh Zm Ws'."""
     if total_seconds is None or not isinstance(total_seconds, (int, float)) or total_seconds < 0:
         return "N/A"
 
@@ -106,7 +106,7 @@ def calc_cpu_percent(current_stats, prev_stats):
         return 0.0 # Retornar 0 en cualquier error de cálculo
 
 def calc_mem_percent_usage(d):
-    """Calcula porcentaje y uso de Memoria desde las estadísticas Docker."""
+    """Calculates memory percent and usage from Docker stats."""
     try:
         if not isinstance(d, dict): return 0.0, 0 # Asegurar que la entrada es un dict
 
@@ -125,8 +125,8 @@ def calc_mem_percent_usage(d):
         return mem_percent, usage_mib # Retorna % y Uso en MiB
 
     except (KeyError, TypeError, ValueError, ZeroDivisionError, AttributeError) as e:
-        # print(f"Warning: Error calculando porcentaje Memoria: {e}") # Verbosidad reducida
-        return 0.0, 0 # Retornar 0 en error
+        # print(f"Warning: Error calculating memory percent: {e}") # Reduced verbosity
+        return 0.0, 0 # Return 0 on error
 
 def calc_net_io(stats):
     """Calcula I/O de red acumulativa en MB."""

@@ -5,45 +5,45 @@ import requests_unixsocket
 import sys
 from config import DOCKER_SOCKET_URL
 
-# Parchear requests para soporte http+docker:// (o manejo de unix://)
-# Es bueno mantenerlo por si acaso requests se usa internamente sobre el socket.
+# Patch requests for http+docker:// support (or unix:// handling)
+# It's good to keep it just in case requests is used internally over the socket.
 requests_unixsocket.monkeypatch()
 
-# --- Inicialización del Cliente Docker ---
+# --- Docker Client Initialization ---
 client = None
 api_client = None
 
 try:
-    print(f"Intentando conectar al daemon Docker vía {DOCKER_SOCKET_URL}...")
-    # Usar explícitamente la ruta del socket Unix estándar para ambos clientes
-    # Establecer un timeout razonable (ej. 10 segundos)
+    print(f"Attempting to connect to Docker daemon via {DOCKER_SOCKET_URL}...")
+    # Explicitly use the standard Unix socket path for both clients
+    # Set a reasonable timeout (e.g. 10 seconds)
     client = docker.DockerClient(base_url=DOCKER_SOCKET_URL, timeout=10)
     api_client = docker.APIClient(base_url=DOCKER_SOCKET_URL, timeout=10)
 
-    # Probar conexión
+    # Test connection
     client.ping()
-    print(f"Cliente Docker conectado exitosamente vía {DOCKER_SOCKET_URL}.")
+    print(f"Docker client successfully connected via {DOCKER_SOCKET_URL}.")
 
 except docker.errors.DockerException as e:
-    print(f"ERROR: Fallo al conectar al daemon Docker en {DOCKER_SOCKET_URL}.")
-    print(f"       Por favor, asegúrate que el daemon Docker está corriendo y el socket es accesible.")
-    print(f"       (En Linux/macOS, revisa que '{DOCKER_SOCKET_URL}' existe y tiene los permisos correctos).")
-    print(f"       Detalles del error: {e}")
-    sys.exit(1) # Salir si la conexión falla
+    print(f"ERROR: Failed to connect to Docker daemon at {DOCKER_SOCKET_URL}.")
+    print(f"       Please make sure the Docker daemon is running and the socket is accessible.")
+    print(f"       (On Linux/macOS, check that '{DOCKER_SOCKET_URL}' exists and has the correct permissions).")
+    print(f"       Error details: {e}")
+    sys.exit(1) # Exit if connection fails
 except Exception as e:
-    print(f"ERROR: Ocurrió un error inesperado al conectar con Docker: {e}")
-    sys.exit(1) # Salir si la conexión falla
+    print(f"ERROR: An unexpected error occurred while connecting to Docker: {e}")
+    sys.exit(1) # Exit if connection fails
 
 def get_docker_client():
-    """Retorna la instancia del cliente Docker."""
+    """Returns the Docker client instance."""
     if not client:
-        raise RuntimeError("El cliente Docker no está inicializado.")
+        raise RuntimeError("Docker client is not initialized.")
     return client
 
 def get_api_client():
-    """Retorna la instancia del cliente API de Docker."""
+    """Returns the Docker API client instance."""
     if not api_client:
-        raise RuntimeError("El cliente API de Docker no está inicializado.")
+        raise RuntimeError("Docker API client is not initialized.")
     return api_client
 
-# --- Fin Inicialización Cliente Docker ---
+# --- End Docker Client Initialization ---

@@ -1026,7 +1026,8 @@
                 <img src="{{ url_for('static', filename='icons/button_comparison_graphs.svg') }}" alt="Comparison Graphs" width="16" height="16"> Comparison graphs
               </button>
               <ul class="dropdown-menu" aria-labelledby="compareDropdown">
-                <li><a class="dropdown-item compare-action" href="#" data-compare-type="usage">CPU/RAM Usage</a></li>
+                <li><a class="dropdown-item compare-action" href="#" data-compare-type="cpu">CPU Usage</a></li>
+                <li><a class="dropdown-item compare-action" href="#" data-compare-type="ram">RAM Usage</a></li>
                 <li><a class="dropdown-item compare-action" href="#" data-compare-type="uptime">Uptime</a></li>
               </ul>
             </div>
@@ -1094,7 +1095,7 @@
 
   <!-- Footer -->
   <footer class="footer container-fluid">
-    <p>DockerStats. Version 0.6.0</p>
+    <p>DockerStats. Version 0.6.4</p>
   </footer>
   <!-- End Footer -->
 
@@ -1632,8 +1633,8 @@
     }
 
     function handleShowHistoryChart(event) {
-        const containerId = event.target.dataset.containerId;
-        const containerName = event.target.dataset.containerName;
+        const containerId = event.currentTarget.dataset.containerId;
+        const containerName = event.currentTarget.dataset.containerName;
         currentChartContainerId = containerId; // Store the selected container ID
         chartTitle.textContent = `Historical Usage for ${containerName} (${containerId.substring(0, 12)})`;
         chartContainer.style.display = 'block'; // Show the chart container
@@ -1845,8 +1846,9 @@
     function bindContainerButtons() {
         // Use event delegation for better reliability
         metricsTableBody.addEventListener('click', async (event) => {
-            const btn = event.target;
-            if (!btn.classList.contains('action-btn') && !btn.classList.contains('update-btn') && !btn.classList.contains('start-btn') && !btn.classList.contains('stop-btn') && !btn.classList.contains('restart-btn')) return;
+            // Traverse up to the closest action button
+            const btn = event.target.closest('.action-btn, .update-btn, .start-btn, .stop-btn, .restart-btn');
+            if (!btn) return;
             let action, containerId, containerName;
             if (btn.classList.contains('update-btn')) {
                 action = 'update';

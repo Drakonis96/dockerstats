@@ -30,46 +30,45 @@ app.register_blueprint(main_routes)
 
 # --- Función para iniciar el thread de muestreo ---
 def start_sampler_thread():
-    print("Iniciando el thread de muestreo de métricas...")
+    print("Starting metrics sampling thread...")
     sampler_thread = threading.Thread(target=sample_metrics, daemon=True)
     sampler_thread.start()
-    print("Thread de muestreo iniciado.")
+    print("Sampling thread started.")
 
 # --- Ejecución Principal ---
 if __name__ == '__main__':
     print("-------------------------------------")
     print(" Docker Monitor ")
     print("-------------------------------------")
-    print("Iniciando servidor Flask...")
+    print("Starting Flask server...")
 
-    # Inicializar la base de datos con el usuario y contraseña de entorno
+    # Initialize the database with environment user and password
     if AUTH_USER and AUTH_PASSWORD:
         init_db(AUTH_USER, AUTH_PASSWORD)
 
-    # Verificar que los clientes Docker se inicializaron correctamente en docker_client.py
+    # Check that Docker clients were initialized correctly in docker_client.py
     if docker_client and docker_api_client:
-        print(f"Conexión Docker establecida vía: {DOCKER_SOCKET_URL}")
+        print(f"Docker connection established via: {DOCKER_SOCKET_URL}")
     else:
-        # Esto no debería ocurrir porque docker_client.py sale si falla
-        print("FATAL: Cliente Docker falló al inicializar al inicio.")
+        # This should not happen because docker_client.py exits if it fails
+        print("FATAL: Docker client failed to initialize at startup.")
         exit(1)
 
-    print(f"Intervalo del Sampler: {SAMPLE_INTERVAL} segundos")
-    print(f"Retención de Historial: {MAX_SECONDS / 3600} horas")
+    print(f"Sampler interval: {SAMPLE_INTERVAL} seconds")
+    print(f"History retention: {MAX_SECONDS / 3600} hours")
 
-    # Iniciar el thread de muestreo en segundo plano
+    # Start the background sampling thread
     start_sampler_thread()
 
-    # Esperar un segundo para que el sampler pueda iniciarse antes de aceptar peticiones
+    # Wait a second so the sampler can start before accepting requests
     time.sleep(1)
 
-    print(f"Accede al monitor en: http://{APP_HOST}:{APP_PORT} (o la IP de tu máquina:{APP_PORT})")
+    print(f"Access the monitor at: http://{APP_HOST}:{APP_PORT} (or your machine's IP:{APP_PORT})")
     print("-------------------------------------")
 
     try:
-        print(f"Usando servidor Waitress con {WAITRESS_THREADS} threads...")
+        print(f"Using Waitress server with {WAITRESS_THREADS} threads...")
         serve(app, host=APP_HOST, port=APP_PORT, threads=WAITRESS_THREADS)
     except ImportError:
-        print("Waitress no encontrado, usando servidor de desarrollo de Flask (ADVERTENCIA: No recomendado para producción).")
-        # debug=False es importante para producción y para evitar que el reloader interfiera con el thread
+        print("Waitress not found, using Flask development server (WARNING: Not recommended for production).")
         app.run(host=APP_HOST, port=APP_PORT, debug=False)

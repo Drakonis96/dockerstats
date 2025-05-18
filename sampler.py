@@ -144,7 +144,7 @@ def get_gpu_usage():
     return gpus
 
 def sample_metrics():
-    """Thread en segundo plano para muestrear periódicamente métricas y comprobar actualizaciones."""
+    """Background thread to periodically sample metrics and check for updates."""
     global history, previous_stats, update_check_cache, update_check_time, force_update_check_all, force_update_check_ids
 
     time.sleep(1)
@@ -156,7 +156,7 @@ def sample_metrics():
         all_container_ids = set()
         try:
             if not client or not api_client:
-                logging.error("Clientes Docker no inicializados en sample_metrics. Esperando...")
+                logging.error("Docker clients not initialized in sample_metrics. Waiting...")
                 time.sleep(SAMPLE_INTERVAL * 2)
                 initialize_sampler_clients()
                 continue
@@ -179,7 +179,7 @@ def sample_metrics():
                     current_status = container.status
                     dq = history.setdefault(cid, collections.deque(maxlen=MAX_SECONDS // SAMPLE_INTERVAL))
                     
-                    # Comprobar si ha cambiado el estado
+                    # Check if status has changed
                     previous_status = None
                     status_changed = False
                     
@@ -190,8 +190,7 @@ def sample_metrics():
                                 status_changed = True
                         except (IndexError, TypeError):
                             pass
-                    
-                    # Si hay cambio de estado o no hay entrada en el historial, añadir nueva muestra
+                    # If status changed or no entry in history, add new sample
                     if not dq or status_changed:
                         # Add a minimal stats entry for non-running containers
                         # time, cpu, mem, status, name, net_rx, net_tx, blk_r, blk_w, update_available, pid_count, mem_limit_mb, gpu_stats, gpu_max
@@ -211,10 +210,9 @@ def sample_metrics():
                             None,         # gpu stats
                             None          # gpu max
                         ))
-                        
-                        # Enviar notificación de cambio de estado si estaba en ejecución antes
+                        # Send status change notification if it was running before
                         if status_changed and previous_status and notification_settings.get('status_enabled', True):
-                            # Solo notificar cambios significativos, especialmente de running a otro estado
+                            # Only notify significant changes, especially from running to another state
                             if previous_status == "running" or current_status == "running":
                                 now = time.time()
                                 n = {
@@ -228,13 +226,12 @@ def sample_metrics():
                                 }
                                 notifications.append(n)
                                 push_notify(n['msg'])
-
         except docker.errors.DockerException as e:
-            logging.error(f"ERROR listando contenedores en sampler: {e}")
+            logging.error(f"ERROR listing containers in sampler: {e}")
             time.sleep(SAMPLE_INTERVAL * 2)
             continue
         except Exception as e:
-            logging.error(f"Error inesperado listando contenedores en sampler: {e}")
+            logging.error(f"Unexpected error listing containers in sampler: {e}")
             time.sleep(SAMPLE_INTERVAL * 2)
             continue
 
@@ -391,7 +388,7 @@ def sample_metrics():
                         notifications.append(n)
                         push_notify(n['msg'])
 
-                time.sleep(0.2)  # Stagger requests para evitar throttling
+                time.sleep(0.2)  # Stagger requests to avoid throttling
 
             except docker.errors.NotFound:
                 if cid in history: del history[cid]
@@ -401,7 +398,7 @@ def sample_metrics():
                 continue
 
             except Exception as e:
-                logging.error(f"ERROR muestreando métricas para contenedor {cid[:12]} (Nombre: {container_name}): {e}")
+                logging.error(f"ERROR sampling metrics for container {cid[:12]} (Name: {container_name}): {e}")
                 dq = history.setdefault(cid, collections.deque(maxlen=MAX_SECONDS // SAMPLE_INTERVAL))
                 dq.append((time.time(), 0.0, 0.0, "error-sample", container_name, 0, 0, 0, 0, None, None, None, None, None))
 
@@ -413,7 +410,7 @@ def sample_metrics():
             # Remove containers from history that don't exist anymore (not even in stopped state)
             history_ids_to_remove = set(history.keys()) - all_container_ids
             for cid_hist_removed in history_ids_to_remove:
-                last_known_name = "Desconocido"
+                last_known_name = "Unknown"
                 try:
                     if cid_hist_removed in history and history[cid_hist_removed]:
                         last_known_name = history[cid_hist_removed][-1][4]
@@ -427,12 +424,12 @@ def sample_metrics():
                     del update_check_time[cid_hist_removed]
 
         except docker.errors.DockerException as e:
-            logging.warning(f"Error Docker durante limpieza de historial: {e}")
+            logging.warning(f"Docker error during history cleanup: {e}")
         except Exception as e:
-            logging.warning(f"Error genérico durante limpieza de historial: {e}")
+            logging.warning(f"Generic error during history cleanup: {e}")
 
         time.sleep(SAMPLE_INTERVAL)
-        force_update_check_all = False  # Reset global force after ciclo
+        force_update_check_all = False  # Reset global force after cycle
 
 # API helper for notifications (to be imported in routes.py)
 def get_notifications(since_ts=None, max_items=50):

@@ -93,7 +93,7 @@
 
   <!-- Footer -->
   <footer class="footer container">
-    <p>DockerStats. Version 0.6.0</p> <!-- Update version if needed -->
+    <p>DockerStats. Version 0.6.4</p> <!-- Update version if needed -->
   </footer>
   <!-- End Footer -->
 
@@ -153,8 +153,10 @@
         const labels = data.map(d => `${d.name} (${d.id.substring(0, 6)})`); // Use name and short ID
 
         // --- Define Chart Configuration based on compareType ---
-        if (compareType === 'usage') {
-            chartConfig = getUsageChartConfig(data, labels);
+        if (compareType === 'cpu') {
+            chartConfig = getSingleMetricChartConfig(data, labels, 'cpu');
+        } else if (compareType === 'ram') {
+            chartConfig = getSingleMetricChartConfig(data, labels, 'ram');
         } else if (compareType === 'size') {
             chartConfig = getSizeChartConfig(data, labels);
         } else if (compareType === 'uptime') {
@@ -176,6 +178,55 @@
     }
 
     // --- Specific Chart Config Functions ---
+
+    function getSingleMetricChartConfig(data, labels, metric) {
+        const colors = getChartColors(currentTheme);
+        let dataset, yAxisTitle, label, color;
+        if (metric === 'cpu') {
+            dataset = {
+                label: 'CPU Usage (%)',
+                data: data.map(d => d.cpu || 0),
+                backgroundColor: colors.cpuColor,
+                borderColor: colors.cpuColor.replace('0.8', '1'),
+                borderWidth: 1
+            };
+            yAxisTitle = 'CPU Usage (%)';
+            label = 'CPU Usage (%)';
+            color = colors.cpuColor;
+        } else if (metric === 'ram') {
+            dataset = {
+                label: 'RAM Usage (%)',
+                data: data.map(d => d.mem || 0),
+                backgroundColor: colors.ramColor,
+                borderColor: colors.ramColor.replace('0.8', '1'),
+                borderWidth: 1
+            };
+            yAxisTitle = 'RAM Usage (%)';
+            label = 'RAM Usage (%)';
+            color = colors.ramColor;
+        }
+        return {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [dataset]
+            },
+            options: Object.assign({}, getBaseChartOptions(currentTheme, yAxisTitle), {
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) label += ': ';
+                                let value = context.parsed.x !== undefined ? context.parsed.x : context.parsed.y;
+                                return label + value + '%';
+                            }
+                        }
+                    }
+                }
+            })
+        };
+    }
 
     function getChartColors(theme) {
         // Define colors for light and dark themes
@@ -222,59 +273,6 @@
                 }
             },
             animation: { duration: 500 }
-        };
-    }
-
-    function getUsageChartConfig(data, labels) {
-        // Format RAM values with thousands separator
-        function formatNumber(num) {
-            if (typeof num !== 'number') num = Number(num);
-            return num.toLocaleString('en-US').replace(/,/g, ' ');
-        }
-        const cpuData = data.map(d => d.cpu || 0);
-        const ramData = data.map(d => d.mem || 0);
-        const colors = getChartColors(currentTheme);
-
-        return {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [
-                    {
-                        label: 'CPU Usage (%)',
-                        data: cpuData,
-                        backgroundColor: colors.cpuColor,
-                        borderColor: colors.cpuColor.replace('0.8', '1'), // Darker border
-                        borderWidth: 1
-                    },
-                    {
-                        label: 'RAM Usage (%)',
-                        data: ramData,
-                        backgroundColor: colors.ramColor,
-                        borderColor: colors.ramColor.replace('0.8', '1'),
-                        borderWidth: 1,
-                        // Custom tooltip formatting for RAM
-                        parsing: false
-                    }
-                ]
-            },
-            options: Object.assign({}, getBaseChartOptions(currentTheme, 'Usage (%)'), {
-                plugins: {
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                let label = context.dataset.label || '';
-                                if (label) label += ': ';
-                                let value = context.parsed.x !== undefined ? context.parsed.x : context.parsed.y;
-                                if (context.dataset.label === 'RAM Usage (%)') {
-                                    return label + formatNumber(value) + '%';
-                                }
-                                return label + value + '%';
-                            }
-                        }
-                    }
-                }
-            })
         };
     }
 

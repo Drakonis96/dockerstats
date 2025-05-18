@@ -697,7 +697,8 @@ def compare_page(compare_type):
         top_n = 5
 
     valid_types = {
-        "usage": "CPU/RAM Usage",
+        "cpu": "CPU Usage",
+        "ram": "RAM Usage",
         "uptime": "Uptime"
     }
     if compare_type not in valid_types:
@@ -764,14 +765,15 @@ def compare_page(compare_type):
                 'name': container_name,
                 'cpu': cpu,
                 'mem': mem,
-                'combined': (cpu or 0) + (mem or 0),
                 'uptime_sec': uptime_sec,
                 'uptime': formatted_uptime,
                 'status': current_status
             }
             keys_to_keep = {'id', 'name'}
-            if compare_type == 'usage':
-                keys_to_keep.update({'cpu', 'mem'})
+            if compare_type == 'cpu':
+                keys_to_keep.update({'cpu'})
+            elif compare_type == 'ram':
+                keys_to_keep.update({'mem'})
             elif compare_type == 'uptime':
                 keys_to_keep.update({'uptime_sec', 'uptime'})
 
@@ -779,7 +781,8 @@ def compare_page(compare_type):
             rows.append(filtered_row_data)
 
         sort_key_map = {
-            "usage": "combined",
+            "cpu": "cpu",
+            "ram": "mem",
             "uptime": "uptime_sec"
         }
         primary_sort_field = sort_key_map.get(compare_type)
@@ -831,7 +834,7 @@ def api_compare_data(compare_type):
     except ValueError:
         top_n = 5
 
-    valid_types = ["usage", "uptime"]
+    valid_types = ["cpu", "ram", "uptime"]
     if compare_type not in valid_types:
         return jsonify({"error": "Invalid comparison type"}), 400
 
@@ -892,14 +895,14 @@ def api_compare_data(compare_type):
             'name': container_name,
             'cpu': cpu,
             'mem': mem,
-            'combined': (cpu or 0) + (mem or 0),
             'uptime_sec': uptime_sec,
             'uptime': formatted_uptime,
             'status': current_status
         })
 
     sort_key_map = {
-        "usage": "combined",
+        "cpu": "cpu",
+        "ram": "mem",
         "uptime": "uptime_sec"
     }
     sort_field = sort_key_map.get(compare_type, "combined")
