@@ -137,6 +137,8 @@ Once running, open your browser and go to:
 http://localhost:5001
 ```
 
+The main UI uses a React front-end for a modern user experience.
+
 Use the **Server IP** field (and "Use Custom IP" checkbox) in the UI to point the links to another host if needed.
 
 ---
