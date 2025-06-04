@@ -73,8 +73,8 @@ To receive push notifications on your phone or device:
 1. Create a free account at [Pushover](https://pushover.net/) and install the app on your device.
 2. Get your **User Key** and create an **Application/API Token**.
 3. Set these values in your `config.py` or as environment variables:
-   - `PUSHOVER_USER_KEY`
-   - `PUSHOVER_API_TOKEN`
+   - `PUSHOVER_TOKEN` *(application token)*
+   - `PUSHOVER_USER` *(user key)*
 4. Enable Pushover notifications in the settings.
 
 You will now receive alerts for CPU/RAM thresholds and container status changes directly to your device.
