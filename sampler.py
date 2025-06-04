@@ -282,6 +282,10 @@ def sample_metrics():
                 pid_count = current_stats_raw.get('pids_stats', {}).get('current')
                 mem_limit_mb = round(current_stats_raw.get('memory_stats', {}).get('limit', 0) / 1048576, 2) or None
 
+                # --- NUEVO: Guardar mem_usage_mib en la tupla de historial ---
+                # Añadir mem_usage_mib después de mem_limit_mb para mantener orden lógico
+                # (time, cpu, mem_percent, status, name, net_rx, net_tx, blk_r, blk_w, update_available, pid_count, mem_limit_mb, mem_usage_mib, gpu_stats, gpu_max)
+
                 # GPU metrics
                 if os.getenv('GPU_METRICS_ENABLED','false').lower() == 'true':
                     try:
@@ -306,7 +310,7 @@ def sample_metrics():
                         pass
                 
                 # Now add the new status to history
-                dq.append((time.time(), cpu, mem_percent, status, container_name, net_rx, net_tx, blk_r, blk_w, update_available, pid_count, mem_limit_mb, gpu_stats, gpu_max))
+                dq.append((time.time(), cpu, mem_percent, status, container_name, net_rx, net_tx, blk_r, blk_w, update_available, pid_count, mem_limit_mb, mem_usage_mib, gpu_stats, gpu_max))
 
                 # --- Notification logic ---
                 now = time.time()

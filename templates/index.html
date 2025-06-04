@@ -910,7 +910,7 @@
           <option value="status">Sort by Status</option>
           <option value="uptime_sec">Sort by Uptime</option>
           <option value="restarts">Sort by Restarts</option>
-          <option value="mem_limit">Sort by Mem Limit</option> <!-- Changed value -->
+          <option value="mem_usage_limit">Sort by Mem. Usage / Mem. Limit</option> <!-- Changed value -->
           <option value="net_io_rx">Sort by Net I/O (Rx)</option> <!-- Added -->
           <option value="block_io_r">Sort by Block I/O (R)</option> <!-- Added -->
           <option value="update_available">Sort by Updates</option> <!-- Added -->
@@ -958,7 +958,7 @@
                 </div>
                 <div class="form-check form-check-inline">
                     <input class="form-check-input" type="checkbox" value="memlimit" id="toggleColMemlimit" checked>
-                    <label class="form-check-label" for="toggleColMemlimit">Mem Limit (MB)</label>
+                    <label class="form-check-label" for="toggleColMemlimit">Mem. Usage / Mem. Limit</label>
                 </div>
                  <div class="form-check form-check-inline">
                     <input class="form-check-input" type="checkbox" value="status" id="toggleColStatus" checked>
@@ -1044,6 +1044,7 @@
     <!-- Add Containers heading -->
     <h2>Containers</h2>
 <div class="text-muted small">{{ cpu_cores }} CPU cores available (maximum CPU usage will be {{ max_cpu_percent }}%)</div>
+<div class="text-muted small">Maximum ram available: {{ max_ram_mb if max_ram_mb is not none else 'Unknown' }} MB</div>
 
     <div id="tableView" class="table-responsive mb-4" style="min-height: 400px;">
       <table id="metricsTable" class="table table-striped table-hover table-sm">
@@ -1054,7 +1055,7 @@
             <th class="col-ram text-center"><img src="{{ url_for('static', filename='icons/table_ram.svg') }}" alt="RAM" width="18" height="18"> RAM %</th>
             <th class="col-gpu text-center"><img src="{{ url_for('static', filename='icons/table_gpu.svg') }}" alt="GPU" width="18" height="18"> GPU %</th>
             <th class="col-pid text-center"><img src="{{ url_for('static', filename='icons/table_processes.svg') }}" alt="Procs" width="18" height="18"> Procs</th>
-            <th class="col-memlimit text-center"><img src="{{ url_for('static', filename='icons/table_memory_limit.svg') }}" alt="Mem Limit" width="18" height="18"> Mem Limit (MB)</th>
+            <th class="col-memlimit text-center"><img src="{{ url_for('static', filename='icons/table_memory_limit.svg') }}" alt="Mem Usage / Mem Limit" width="18" height="18"> Mem. Usage / Mem. Limit</th>
             <th class="col-status text-center"><img src="{{ url_for('static', filename='icons/table_status.svg') }}" alt="Status" width="18" height="18"> Status</th>
             <th class="col-uptime text-center"><img src="{{ url_for('static', filename='icons/table_uptime.svg') }}" alt="Uptime" width="18" height="18"> Uptime</th>
             <th class="col-netio text-center"><img src="{{ url_for('static', filename='icons/table_net_io.svg') }}" alt="Net I/O" width="18" height="18"> Net I/O</th>
@@ -1595,7 +1596,19 @@
          `</td>` +
          gpuCell +
          `<td class="col-pid">${(d.pid_count !== null && d.pid_count !== undefined) ? d.pid_count : 'N/A'}</td>` +
-         `<td class="col-memlimit">${(d.mem_limit !== null && d.mem_limit !== undefined) ? Number(d.mem_limit).toFixed(2) : 'N/A'}</td>` +
+         `<td class="col-memlimit">${
+           (d.mem_usage !== null && d.mem_usage !== undefined && d.mem_limit !== null && d.mem_limit !== undefined && Number(d.mem_limit) > 0)
+             ? `${Number(d.mem_usage).toFixed(2)} / ${Number(d.mem_limit).toFixed(2)} MB`
+             : (d.mem_limit === 0 || d.mem_limit === null || d.mem_limit === undefined || Number(d.mem_limit) === 0)
+               ? ((d.mem_usage !== null && d.mem_usage !== undefined)
+                   ? `${Number(d.mem_usage).toFixed(2)} / NL`
+                   : 'NL')
+               : (d.mem_limit !== null && d.mem_limit !== undefined)
+                 ? `${Number(d.mem_limit).toFixed(2)} MB`
+                 : (d.mem_usage !== null && d.mem_usage !== undefined)
+                   ? `${Number(d.mem_usage).toFixed(2)} MB`
+                   : 'N/A'
+         }</td>` +
          `<td class="col-status">${d.status || 'N/A'}</td>` +
          `<td class="col-uptime">${uptimeText}</td>` +
          `<td class="col-netio">${netRxText} / ${netTxText}</td>` +
@@ -2495,7 +2508,7 @@
                 uptime: 'uptime_sec',
                 restarts: 'restarts',
                 combined: 'combined', // This isn't a header, but kept for reference
-                memlimit: 'mem_limit_mb', // Added
+                memlimit: 'mem_usage_limit', // Cambiado para que coincida con el nuevo valor del dropdown
                 netio: 'net_io_rx',      // Added (sorts by Rx)
                 blockio: 'block_io_r',   // Added (sorts by Read)
                 update: 'update_available' // Added

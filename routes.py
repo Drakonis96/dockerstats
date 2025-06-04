@@ -141,12 +141,18 @@ def index():
     """Sirve la página HTML principal."""
     print("DEBUG: Sirviendo página index.html") # Añadido para depuración
     csrf_token = generate_csrf_token()
-    
     # Detectar número de cores de CPU
     cpu_cores = multiprocessing.cpu_count()
     max_cpu_percent = cpu_cores * 100
-    
-    return render_template('index.html', csrf_token=csrf_token, cpu_cores=cpu_cores, max_cpu_percent=max_cpu_percent)
+    # Obtener RAM total del host usando Docker API
+    try:
+        from docker_client import get_docker_client
+        info = get_docker_client().info()
+        max_ram_mb = int(info.get('MemTotal', 0)) // (1024 * 1024)
+    except Exception as e:
+        print(f"WARN: No se pudo obtener la RAM total del host desde Docker API: {e}")
+        max_ram_mb = None
+    return render_template('index.html', csrf_token=csrf_token, cpu_cores=cpu_cores, max_cpu_percent=max_cpu_percent, max_ram_mb=max_ram_mb)
 
 def get_cadvisor_metrics():
     """Obtiene métricas de cAdvisor para todos los contenedores."""
@@ -234,20 +240,26 @@ def api_metrics():
             try:
                 # Tomar la última muestra; si falla, el contenedor puede estar en error
                 latest_sample = dq[-1]
-                # Orden: time, cpu%, mem%, status, name, net_rx, net_tx, blk_r, blk_w, update_available, pid_count, mem_limit_mb, gpu_stats, gpu_max
-                if len(latest_sample) == 14:
-                    ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w, update_available, pid_count, mem_limit_mb, gpu_stats, gpu_max = latest_sample
+                # Orden: time, cpu%, mem%, status, name, net_rx, net_tx, blk_r, blk_w, update_available, pid_count, mem_limit_mb, mem_usage_mib, gpu_stats, gpu_max
+                if len(latest_sample) == 15:
+                    ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w, update_available, pid_count, mem_limit_mb, mem_usage_mib, gpu_stats, gpu_max = latest_sample
+                elif len(latest_sample) == 14:
+                    ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w, update_available, pid_count, mem_limit_mb, mem_usage_mib, gpu_stats = latest_sample
+                    gpu_max = None
                 elif len(latest_sample) == 13:
-                    ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w, update_available, pid_count, mem_limit_mb, gpu_stats = latest_sample
+                    ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w, update_available, pid_count, mem_limit_mb, mem_usage_mib = latest_sample
+                    gpu_stats = None
                     gpu_max = None
                 elif len(latest_sample) == 12:
                     ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w, update_available, pid_count, mem_limit_mb = latest_sample
+                    mem_usage_mib = None
                     gpu_stats = None
                     gpu_max = None
                 elif len(latest_sample) == 10:
                     ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w, update_available = latest_sample
                     pid_count = None
                     mem_limit_mb = None
+                    mem_usage_mib = None
                     gpu_stats = None
                     gpu_max = None
                 else:
@@ -255,6 +267,7 @@ def api_metrics():
                     update_available = None
                     pid_count = None
                     mem_limit_mb = None
+                    mem_usage_mib = None
                     gpu_stats = None
                     gpu_max = None
 
@@ -400,13 +413,16 @@ def api_metrics():
                         cpu = round(cpu, 2)
                     except Exception:
                         pass
-                    # Memoria
+                    # Memoria - Solo usar cAdvisor para el porcentaje, Docker para usage/limit
                     try:
                         mem = (last['memory']['usage'] / last['memory']['limit']) * 100 if last['memory']['limit'] else None
                         if mem is not None:
                             mem = round(mem, 2)
+                        # CAMBIO: Mantener mem_usage y mem_limit de Docker API (no sobreescribir con cAdvisor)
+                        # mem_usage = round(last['memory']['usage'] / (1024*1024), 2) if last['memory'].get('usage') is not None else None
+                        # mem_limit = round(last['memory']['limit'] / (1024*1024), 2) if last['memory'].get('limit') is not None else None
                     except Exception:
-                        pass
+                        pass  # Si falla cAdvisor, mantener los valores de Docker
                     # Net I/O
                     try:
                         net_rx = sum(i.get('rx_bytes',0) for i in last.get('network',{}).get('interfaces',[])) / (1024*1024)
@@ -431,12 +447,13 @@ def api_metrics():
                     except Exception:
                         blk_r = blk_w = None
                     # --- Escribir DIRECTAMENTE en el dict de la fila ---
-                    # (Se sobreescriben los valores de Docker si cAdvisor los tiene)
+                    # (Se sobreescriben los valores de Docker excepto mem_usage y mem_limit)
                     row_data = {
                         'id': cid,
                         'name': container_name,
                         'pid_count': pid_count,
-                        'mem_limit': mem_limit_mb,
+                        'mem_limit': mem_limit_mb,   # USAR VALOR DE DOCKER API
+                        'mem_usage': mem_usage_mib,  # USAR VALOR DE DOCKER API
                         'cpu': cpu,
                         'mem': mem,
                         'combined': (cpu or 0) + (mem or 0),
@@ -467,6 +484,7 @@ def api_metrics():
             'name': container_name,
             'pid_count': pid_count,
             'mem_limit': mem_limit_mb,
+            'mem_usage': mem_usage_mib,
             'cpu': cpu,
             'mem': mem,
             'combined': (cpu or 0) + (mem or 0),
@@ -513,11 +531,15 @@ def api_metrics():
 
     # --- Ordenación ---
     reverse_sort = (sort_dir == 'desc')
-    numeric_keys = ['cpu', 'mem', 'combined', 'uptime_sec', 'restarts', 'net_io_rx', 'net_io_tx', 'block_io_r', 'block_io_w', 'pid_count', 'mem_limit', 'update_available', 'gpu_max']
+    numeric_keys = ['cpu', 'mem', 'combined', 'uptime_sec', 'restarts', 'net_io_rx', 'net_io_tx', 'block_io_r', 'block_io_w', 'pid_count', 'mem_limit', 'update_available', 'gpu_max', 'mem_usage_limit']
     string_keys = ['name', 'status', 'image', 'ports', 'uptime']
 
     def sort_key(item):
         key_value = item.get(sort_by)
+        if sort_by == 'mem_usage_limit':
+            # Sort by RAM percentage (same as RAM column) instead of usage/limit ratio
+            mem_percentage = item.get('mem')
+            return mem_percentage if mem_percentage is not None else float('-inf')
         if sort_by in numeric_keys:
              if isinstance(key_value, bool):
                  return int(key_value)
