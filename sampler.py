@@ -117,6 +117,8 @@ def get_gpu_usage():
     """
     Devuelve una lista de dicts [{'index':0,'gpu_util':34,'mem_used':1024,'mem_total':8192}, …]
     Requiere que el contenedor se ejecute con `--gpus all` y tenga drivers.
+    Si `nvidia-smi` no está disponible se registra una advertencia y se devuelve
+    una lista vacía.
     """
     if _NVML_OK:
         gpus = []
@@ -132,16 +134,20 @@ def get_gpu_usage():
             })
         return gpus
     # fallback: shell out
-    out = subprocess.check_output([
-        'nvidia-smi',
-        '--query-gpu=index,utilization.gpu,memory.used,memory.total',
-        '--format=csv,noheader,nounits'
-    ], text=True)
-    gpus=[]
-    for line in out.strip().splitlines():
-        idx, util, used, total = map(int, line.split(','))
-        gpus.append({'index':idx,'gpu_util':util,'mem_used':used,'mem_total':total})
-    return gpus
+    try:
+        out = subprocess.check_output([
+            'nvidia-smi',
+            '--query-gpu=index,utilization.gpu,memory.used,memory.total',
+            '--format=csv,noheader,nounits'
+        ], text=True)
+        gpus = []
+        for line in out.strip().splitlines():
+            idx, util, used, total = map(int, line.split(','))
+            gpus.append({'index': idx, 'gpu_util': util, 'mem_used': used, 'mem_total': total})
+        return gpus
+    except FileNotFoundError:
+        logging.warning("nvidia-smi not found")
+        return []
 
 def sample_metrics():
     """Background thread to periodically sample metrics and check for updates."""
