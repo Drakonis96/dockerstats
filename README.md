@@ -137,6 +137,8 @@ Once running, open your browser and go to:
 http://localhost:5001
 ```
 
+The main UI is now built with React, offering the same charts, logs and container controls as the classic page.
+
 Use the **Server IP** field (and "Use Custom IP" checkbox) in the UI to point the links to another host if needed.
 
 ---
