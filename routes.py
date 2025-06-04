@@ -138,13 +138,13 @@ def require_auth():
 # --- Ruta Index ---
 @main_routes.route('/')
 def index():
-    """Serve the modern React-based interface."""
+    """Serve the modern React interface."""
     csrf_token = generate_csrf_token()
     return render_template('react.html', csrf_token=csrf_token)
 
 @main_routes.route('/react')
 def react_ui():
-    """Serve the minimal React-based interface."""
+    """Serve the React interface (alias)."""
     csrf_token = generate_csrf_token()
     return render_template('react.html', csrf_token=csrf_token)
 
