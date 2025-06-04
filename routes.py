@@ -138,21 +138,16 @@ def require_auth():
 # --- Ruta Index ---
 @main_routes.route('/')
 def index():
-    """Sirve la página HTML principal."""
-    print("DEBUG: Sirviendo página index.html") # Añadido para depuración
+    """Serve the modern React-based interface."""
     csrf_token = generate_csrf_token()
-    # Detectar número de cores de CPU
-    cpu_cores = multiprocessing.cpu_count()
-    max_cpu_percent = cpu_cores * 100
-    # Obtener RAM total del host usando Docker API
-    try:
-        from docker_client import get_docker_client
-        info = get_docker_client().info()
-        max_ram_mb = int(info.get('MemTotal', 0)) // (1024 * 1024)
-    except Exception as e:
-        print(f"WARN: No se pudo obtener la RAM total del host desde Docker API: {e}")
-        max_ram_mb = None
-    return render_template('index.html', csrf_token=csrf_token, cpu_cores=cpu_cores, max_cpu_percent=max_cpu_percent, max_ram_mb=max_ram_mb)
+    return render_template('react.html', csrf_token=csrf_token)
+
+@main_routes.route('/react')
+def react_ui():
+    """Serve the minimal React-based interface."""
+    csrf_token = generate_csrf_token()
+    return render_template('react.html', csrf_token=csrf_token)
+
 
 def get_cadvisor_metrics():
     """Obtiene métricas de cAdvisor para todos los contenedores."""
