@@ -8,7 +8,12 @@ print("***********************************")
 import threading
 import time
 from flask import Flask
-from waitress import serve
+try:
+    from waitress import serve
+    HAS_WAITRESS = True
+except ImportError:  # waitress not installed
+    serve = None
+    HAS_WAITRESS = False
 
 # Importar configuración, clientes y rutas
 from config import APP_HOST, APP_PORT, WAITRESS_THREADS, DOCKER_SOCKET_URL, SAMPLE_INTERVAL, MAX_SECONDS, AUTH_USER, AUTH_PASSWORD
@@ -66,9 +71,9 @@ if __name__ == '__main__':
     print(f"Access the monitor at: http://{APP_HOST}:{APP_PORT} (or your machine's IP:{APP_PORT})")
     print("-------------------------------------")
 
-    try:
+    if HAS_WAITRESS:
         print(f"Using Waitress server with {WAITRESS_THREADS} threads...")
         serve(app, host=APP_HOST, port=APP_PORT, threads=WAITRESS_THREADS)
-    except ImportError:
+    else:
         print("Waitress not found, using Flask development server (WARNING: Not recommended for production).")
         app.run(host=APP_HOST, port=APP_PORT, debug=False)
