@@ -159,7 +159,7 @@ Set to `"page"` for a full login screen, or `"popup"` for a simple authenticatio
   <img src="screenshots/Screenshot 1.png" alt="Screenshot 1" width="600">
   <img src="screenshots/Screenshot 2.png" alt="Screenshot 2" width="600">
   <img src="screenshots/Screenshot 3.png" alt="Screenshot 3" width="600">
-  <img src="screenshots/Screenshot 4.png" alt="Screenshot 4" width="600">
+  <img src="screenshots/Screenshot 4.png" alt="Screenshot 4" width="300">
 </div>
 
 ---
