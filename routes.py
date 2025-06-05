@@ -13,7 +13,8 @@ import multiprocessing  # Add for CPU core detection
 from functools import wraps
 from users_db import (
     validate_user, change_password, create_user_with_columns, list_users_with_columns,
-    update_user_columns, delete_user, get_user_columns, get_user_role, user_exists
+    update_user_columns, delete_user, get_user_columns, get_user_role, user_exists,
+    get_notification_settings, set_notification_settings
 )
 errors = docker.errors
 
@@ -1059,17 +1060,23 @@ def api_notifications():
     return jsonify(notifs)
 
 # --- Ruta API para configuración de notificaciones ---
-@main_routes.route('/api/notification-settings', methods=['POST'])
-@csrf_protect
-def api_set_notification_settings():
-    """Permite guardar la configuración de notificaciones desde el frontend."""
+@main_routes.route('/api/notification-settings', methods=['GET', 'POST'])
+def api_notification_settings():
+    """Obtiene o guarda la configuración de notificaciones."""
     from sampler import notification_settings
+    if request.method == 'GET':
+        settings = get_notification_settings(notification_settings)
+        return jsonify(settings)
+    # POST
+    result = validate_csrf()
+    if result is not None:
+        return result
     data = request.get_json(force=True)
-    # Solo actualiza claves válidas
     allowed = {'cpu_enabled', 'ram_enabled', 'status_enabled', 'update_enabled', 'cpu_threshold', 'ram_threshold', 'window_seconds'}
     for k, v in data.items():
         if k in allowed:
             notification_settings[k] = v
+    set_notification_settings(notification_settings)
     return jsonify({'ok': True, 'settings': notification_settings})
 
 # --- Cambiar contraseña desde ajustes ---
