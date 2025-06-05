@@ -2534,9 +2534,36 @@
             });
         })();
 
-        // Load saved notification settings ONLY on initial load
+        // Load saved notification settings and sync from backend
         document.getElementById('notifCpuThreshold').value = localStorage.getItem('notifCpuThreshold') || 80;
         document.getElementById('notifRamThreshold').value = localStorage.getItem('notifRamThreshold') || 80;
+        fetch('/api/notification-settings')
+          .then(res => res.json())
+          .then(settings => {
+            if (settings) {
+              if (settings.cpu_threshold !== undefined) {
+                document.getElementById('notifCpuThreshold').value = settings.cpu_threshold;
+                localStorage.setItem('notifCpuThreshold', settings.cpu_threshold);
+              }
+              if (settings.ram_threshold !== undefined) {
+                document.getElementById('notifRamThreshold').value = settings.ram_threshold;
+                localStorage.setItem('notifRamThreshold', settings.ram_threshold);
+              }
+              if (settings.window_seconds !== undefined) {
+                document.getElementById('notifWindowSeconds').value = settings.window_seconds;
+                localStorage.setItem('notifWindowSeconds', settings.window_seconds);
+              }
+              document.getElementById('notifEnableCPU').checked = settings.cpu_enabled;
+              document.getElementById('notifEnableRAM').checked = settings.ram_enabled;
+              document.getElementById('notifEnableStatus').checked = settings.status_enabled;
+              document.getElementById('notifEnableUpdate').checked = settings.update_enabled;
+              localStorage.setItem('notifEnableCPU', settings.cpu_enabled);
+              localStorage.setItem('notifEnableRAM', settings.ram_enabled);
+              localStorage.setItem('notifEnableStatus', settings.status_enabled);
+              localStorage.setItem('notifEnableUpdate', settings.update_enabled);
+            }
+          })
+          .catch(() => {});
 
         // Setup notification toggle button
         document.getElementById('notifToggle').addEventListener('click', (event) => {

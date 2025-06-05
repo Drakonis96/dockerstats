@@ -22,6 +22,7 @@ from metrics_utils import (
     calc_block_io
 )
 from pushover_client import send as push_notify
+from users_db import get_notification_settings, set_notification_settings
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -47,15 +48,15 @@ force_update_check_ids = set()
 
 # --- Notification System ---
 notifications = collections.deque(maxlen=500)  # Store recent notification events
-notification_settings = {
+notification_settings = get_notification_settings({
     'cpu_enabled': True,
     'ram_enabled': True,
     'status_enabled': True,
     'update_enabled': True,
     'cpu_threshold': 80.0,
     'ram_threshold': 80.0,
-    'window_seconds': 10,  # How long the threshold must be exceeded
-}
+    'window_seconds': 10,
+})
 # Track when each container last exceeded threshold
 cpu_exceed_start = {}
 ram_exceed_start = {}

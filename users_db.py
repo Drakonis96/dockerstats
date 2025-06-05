@@ -10,7 +10,7 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
-def migrate_add_columns_and_role():
+def migrate_add_columns_and_role_and_settings():
     conn = get_db()
     c = conn.cursor()
     # Add columns field if not exists
@@ -23,11 +23,17 @@ def migrate_add_columns_and_role():
         c.execute('ALTER TABLE users ADD COLUMN role TEXT')
     except sqlite3.OperationalError:
         pass  # Already exists
+
+    # Create global settings table if missing
+    try:
+        c.execute('CREATE TABLE IF NOT EXISTS global_settings (key TEXT PRIMARY KEY, value TEXT)')
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 
 # Call migration at import
-migrate_add_columns_and_role()
+migrate_add_columns_and_role_and_settings()
 
 def init_db(default_user, default_password):
     conn = get_db()
@@ -142,3 +148,31 @@ def get_user_role(username):
     if row and row['role']:
         return row['role']
     return 'admin' if username == 'admin' else 'user'
+
+# --- Global Settings Helpers ---
+def set_global_setting(key, value):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('INSERT OR REPLACE INTO global_settings (key, value) VALUES (?, ?)',
+              (key, json.dumps(value)))
+    conn.commit()
+    conn.close()
+
+def get_global_setting(key, default=None):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('SELECT value FROM global_settings WHERE key=?', (key,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        try:
+            return json.loads(row['value'])
+        except Exception:
+            return row['value']
+    return default
+
+def get_notification_settings(default=None):
+    return get_global_setting('notification_settings', default)
+
+def set_notification_settings(settings):
+    set_global_setting('notification_settings', settings)
