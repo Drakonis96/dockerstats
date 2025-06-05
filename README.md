@@ -54,7 +54,7 @@ It displays **CPU and RAM consumption** per container in a simple visual interfa
 - 📥 **Export selected metrics to CSV**
 - 🔔 **Configurable notifications:**
   - Desktop notifications for CPU/RAM thresholds or status changes (notification window in the browser)
-  - **Pushover integration:** Receive alerts on your mobile device via the Pushover app when containers exceed CPU/RAM thresholds or change status. (See configuration below)
+  - **Pushover, Slack, Telegram & Discord integration:** Receive alerts on your mobile device or chat apps when containers exceed CPU/RAM thresholds or change status. (See configuration below)
 - 💬 **Status messages:** Visual feedback for actions like saving settings, checking updates, or errors
 
 ---
@@ -78,6 +78,40 @@ To receive push notifications on your phone or device:
 4. Enable Pushover notifications in the settings.
 
 You will now receive alerts for CPU/RAM thresholds and container status changes directly to your device.
+
+---
+
+## 🔔 Slack Notifications Setup
+
+To send alerts to Slack:
+1. Create an **Incoming Webhook** at <https://slack.com/apps> and copy the webhook URL.
+2. Set the environment variable `SLACK_WEBHOOK_URL` with this URL.
+3. Enable notifications in the settings.
+
+Messages will appear in the channel you selected for the webhook.
+
+---
+
+## 🔔 Telegram Notifications Setup
+
+To send alerts to Telegram:
+1. Create a bot with [@BotFather](https://t.me/BotFather) and obtain the **bot token**.
+2. Get your chat ID (you can message the bot and check `https://api.telegram.org/bot<token>/getUpdates`).
+3. Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` as environment variables.
+4. Enable notifications in the settings.
+
+The bot will send messages to your chosen chat.
+
+---
+
+## 🔔 Discord Notifications Setup
+
+To send alerts to Discord:
+1. Create a **Webhook** in your Discord channel settings and copy its URL.
+2. Set `DISCORD_WEBHOOK_URL` as an environment variable.
+3. Enable notifications in the settings.
+
+Notifications will show up in that Discord channel.
 
 ---
 
