@@ -6,6 +6,7 @@
   <title>Docker Monitor - Comparison: {{ title }}</title>
   <link rel="icon" href="{{ url_for('static', filename='logo.png') }}">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
   <style>
     /* Basic styling - adapt or reuse from index.html if needed */
@@ -53,7 +54,7 @@
       right: 1rem; /* Only one button needed here */
       width: 3rem;
       height: 3rem;
-      font-size: 1.5rem;
+      font-size: 1.15rem;
       line-height: 3rem;
       text-align: center;
       border-radius: 50%;
@@ -81,7 +82,7 @@
 </head>
 <body data-bs-theme="light">
 
-  <button type="button" id="themeToggle" aria-label="Toggle theme">🌙</button>
+  <button type="button" id="themeToggle" aria-label="Toggle theme"><i class="bi bi-moon-stars" aria-hidden="true"></i></button>
 
   <div class="container">
     <div id="chartContainer">
@@ -93,7 +94,7 @@
 
   <!-- Footer -->
   <footer class="footer container">
-    <p>DockerStats. Version 0.6.4</p> <!-- Update version if needed -->
+    <p>DockerStats. Version {{ app_version }}</p>
   </footer>
   <!-- End Footer -->
 
@@ -118,7 +119,9 @@
     // --- Theme Management ---
     function applyTheme(theme) {
         document.body.setAttribute('data-bs-theme', theme);
-        themeToggleButton.textContent = theme === 'dark' ? '☀️' : '🌙';
+        themeToggleButton.innerHTML = theme === 'dark'
+          ? '<i class="bi bi-sun" aria-hidden="true"></i>'
+          : '<i class="bi bi-moon-stars" aria-hidden="true"></i>';
         // Update chart colors if chart exists
         if (comparisonChart) {
             updateChartTheme(theme);

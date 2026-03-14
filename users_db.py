@@ -1,18 +1,34 @@
 import os
 import sqlite3
 import json
+import time
 from werkzeug.security import generate_password_hash, check_password_hash
 
-DB_PATH = os.environ.get('USERS_DB_PATH', os.path.join(os.path.dirname(__file__), 'users.db'))
+DEFAULT_DB_PATH = os.path.join(os.path.dirname(__file__), 'users.db')
+
+
+def get_db_path():
+    return os.environ.get('USERS_DB_PATH', DEFAULT_DB_PATH)
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(get_db_path())
     conn.row_factory = sqlite3.Row
     return conn
 
 def migrate_add_columns_and_role_and_settings():
     conn = get_db()
     c = conn.cursor()
+    c.execute(
+        '''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            columns TEXT,
+            role TEXT
+        )
+        '''
+    )
     # Add columns field if not exists
     try:
         c.execute('ALTER TABLE users ADD COLUMN columns TEXT')
@@ -29,6 +45,25 @@ def migrate_add_columns_and_role_and_settings():
         c.execute('CREATE TABLE IF NOT EXISTS global_settings (key TEXT PRIMARY KEY, value TEXT)')
     except sqlite3.OperationalError:
         pass
+    try:
+        c.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at REAL NOT NULL,
+                actor_username TEXT,
+                actor_role TEXT,
+                action TEXT NOT NULL,
+                target_type TEXT NOT NULL,
+                target_id TEXT,
+                status TEXT NOT NULL,
+                remote_addr TEXT,
+                details TEXT
+            )
+            '''
+        )
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 
@@ -38,20 +73,20 @@ migrate_add_columns_and_role_and_settings()
 def init_db(default_user, default_password):
     conn = get_db()
     c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        columns TEXT,
-        role TEXT
-    )''')
-    conn.commit()
     c.execute('SELECT id FROM users WHERE username=?', (default_user,))
-    if not c.fetchone():
+    if default_user and default_password and not c.fetchone():
         c.execute('INSERT INTO users (username, password_hash, role, columns) VALUES (?, ?, ?, ?)',
                   (default_user, generate_password_hash(default_password), 'admin', None))
         conn.commit()
     conn.close()
+
+def count_users():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('SELECT COUNT(*) AS count FROM users')
+    row = c.fetchone()
+    conn.close()
+    return int(row['count'] or 0)
 
 def validate_user(username, password):
     conn = get_db()
@@ -69,7 +104,9 @@ def change_password(username, new_password):
     c.execute('UPDATE users SET password_hash=? WHERE username=?',
               (generate_password_hash(new_password), username))
     conn.commit()
+    changed = c.rowcount > 0
     conn.close()
+    return changed
 
 def user_exists(username):
     conn = get_db()
@@ -148,6 +185,58 @@ def get_user_role(username):
     if row and row['role']:
         return row['role']
     return 'admin' if username == 'admin' else 'user'
+
+
+def record_audit_event(action, target_type, status, actor_username=None, actor_role=None, target_id=None, remote_addr=None, details=None):
+    conn = get_db()
+    c = conn.cursor()
+    details_json = json.dumps(details or {}, sort_keys=True)
+    c.execute(
+        '''
+        INSERT INTO audit_log (
+            created_at, actor_username, actor_role, action, target_type, target_id, status, remote_addr, details
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''',
+        (time.time(), actor_username, actor_role, action, target_type, target_id, status, remote_addr, details_json),
+    )
+    conn.commit()
+    event_id = c.lastrowid
+    conn.close()
+    return event_id
+
+
+def list_audit_events(limit=100):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute(
+        '''
+        SELECT id, created_at, actor_username, actor_role, action, target_type, target_id, status, remote_addr, details
+        FROM audit_log
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+        ''',
+        (int(limit),),
+    )
+    rows = []
+    for row in c.fetchall():
+        try:
+            details = json.loads(row['details']) if row['details'] else {}
+        except Exception:
+            details = {}
+        rows.append({
+            'id': row['id'],
+            'created_at': row['created_at'],
+            'actor_username': row['actor_username'],
+            'actor_role': row['actor_role'],
+            'action': row['action'],
+            'target_type': row['target_type'],
+            'target_id': row['target_id'],
+            'status': row['status'],
+            'remote_addr': row['remote_addr'],
+            'details': details,
+        })
+    conn.close()
+    return rows
 
 # --- Global Settings Helpers ---
 def set_global_setting(key, value):

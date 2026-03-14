@@ -1,0 +1,17 @@
+.DS_Store
+.env
+.env.*
+.pytest_cache/
+.venv/
+__pycache__/
+*.py[cod]
+*.sqlite3
+*.db
+.coverage
+coverage.xml
+htmlcov/
+node_modules/
+test-results/
+playwright-report/
+package-lock.json.bak
+reload.txt

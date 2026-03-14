@@ -47,7 +47,7 @@ It displays **CPU and RAM consumption** per container in a simple visual interfa
   - Sort by any column (name, CPU, RAM, processes, status, uptime, restarts, memory limit, I/O, update availability)
 - 🌗 **Light/Dark mode** (☀️ / 🌙)
 - 🔝 **Scroll-to-top button** for long lists
-- ⏱️ **Refresh interval control** (5s, 10s, 30s, etc.)
+- ⏱️ **Realtime SSE refresh control** (5s, 10s, 30s, etc. without browser polling)
 - 🛠️ **Settings persistence:** Remembers filters, theme, chart type, visible columns, interval, IP, and project collapse states (localStorage)
 
 ### Export & Notifications
@@ -72,7 +72,7 @@ You can choose on the WebUI how metrics are collected:
 To receive push notifications on your phone or device:
 1. Create a free account at [Pushover](https://pushover.net/) and install the app on your device.
 2. Get your **User Key** and create an **Application/API Token**.
-3. Set these values in your `config.py` or as environment variables:
+3. Set these values as environment variables:
    - `PUSHOVER_TOKEN` *(application token)*
    - `PUSHOVER_USER` *(user key)*
 4. Enable Pushover notifications in the settings.
@@ -128,19 +128,21 @@ Docker Monitor supports NVIDIA GPU metrics for containers.
      environment:
        - GPU_METRICS_ENABLED=true
      ```
-4. (Optional) For more accurate readings, install the `pynvml` library in the container.
+4. (Optional) For more accurate readings, keep `nvidia-ml-py` available in the container.
 
 If available, GPU usage and memory stats will be displayed in the UI for each container.
 
 ---
 
-## 🛡️ Default Credentials
+## 🛡️ Authentication & Secrets
 
-- The default admin user is:
-  - **Username:** `admin`
-  - **Password:** `admin`
-
-⚠️ **Important:** For security, you should change the admin password on first use. You can do this from the settings menu after logging in.
+- There are **no built-in default credentials** anymore.
+- On first startup with `AUTH_ENABLED=true`, you must provide:
+  - `AUTH_USER`
+  - `AUTH_PASSWORD` or `AUTH_PASSWORD_FILE`
+- Set `APP_SECRET_KEY` or `APP_SECRET_KEY_FILE` to keep sessions stable across restarts.
+- `APP_VERSION` controls the version string shown in the UI footer and defaults to `v0.8.0`.
+- If you want to run the app without authentication, set `AUTH_ENABLED=false` explicitly.
 
 ---
 

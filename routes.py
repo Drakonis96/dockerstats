@@ -3,36 +3,68 @@
 import datetime
 import time  # Add time import
 import requests  # Añadido para peticiones HTTP a cAdvisor
-from flask import Blueprint, jsonify, request, render_template, Response, stream_with_context, session, redirect, url_for, flash  # Añadido redirect, url_for y flash
+from flask import Blueprint, current_app, jsonify, request, render_template, Response, stream_with_context, session, redirect, url_for
 from markupsafe import escape  # Añadido para compatibilidad Flask >=2.3
 import docker
 import json  # Add json import for embedding data
-import os  # Add os import for environment variables
 import secrets
 import multiprocessing  # Add for CPU core detection
 from functools import wraps
 from users_db import (
     validate_user, change_password, create_user_with_columns, list_users_with_columns,
     update_user_columns, delete_user, get_user_columns, get_user_role, user_exists,
-    get_notification_settings, set_notification_settings
+    get_notification_settings, list_audit_events, record_audit_event, set_notification_settings
 )
 errors = docker.errors
 
 # Importar estado compartido y clientes/utilidades necesarias
 import sampler
 from sampler import history  # Solo importar history para uso local
-from docker_client import get_docker_client, get_api_client # Necesario para ambas APIs
+from docker_client import get_api_client, get_docker_client, get_docker_status # Necesario para ambas APIs
 from metrics_utils import parse_datetime, format_uptime # Necesario para /api/metrics
+from pushover_client import get_configured_services, send as send_notification
 
 # Crear un Blueprint para las rutas
 main_routes = Blueprint('main_routes', __name__, template_folder='templates', static_folder='static')
 
-# --- Authentication Configuration ---
-from config import AUTH_USER, LOGIN_MODE
+def auth_enabled():
+    return bool(current_app.config.get('AUTH_ENABLED', True))
+
+
+def login_mode():
+    return current_app.config.get('LOGIN_MODE', 'popup')
 
 # --- Check if the user is authenticated for page-based login ---
 def is_authenticated():
     return session.get('authenticated', False)
+
+
+def get_request_username():
+    return session.get('username') or (request.authorization.username if request.authorization else None)
+
+
+def get_request_role():
+    username = get_request_username()
+    if not username:
+        return None
+    return get_user_role(username)
+
+
+def audit_event(action, target_type, status, target_id=None, details=None):
+    record_audit_event(
+        action=action,
+        target_type=target_type,
+        status=status,
+        actor_username=get_request_username(),
+        actor_role=get_request_role(),
+        target_id=target_id,
+        remote_addr=request.headers.get('X-Forwarded-For', request.remote_addr),
+        details=details,
+    )
+
+
+def sse_event(event_name, payload):
+    return f"event: {event_name}\ndata: {json.dumps(payload)}\n\n"
 
 # --- CSRF Token Utilities ---
 def generate_csrf_token():
@@ -40,9 +72,14 @@ def generate_csrf_token():
         session['csrf_token'] = secrets.token_urlsafe(32)
     return session['csrf_token']
 
+
+def has_valid_csrf_token():
+    token = request.headers.get('X-CSRFToken') or request.form.get('csrf_token')
+    return bool(token) and token == session.get('csrf_token')
+
+
 def validate_csrf():
-    token = request.headers.get('X-CSRFToken')
-    if not token or token != session.get('csrf_token'):
+    if not has_valid_csrf_token():
         return jsonify({'error': 'Invalid CSRF token'}), 403
 
 # Decorator for CSRF protection
@@ -55,12 +92,24 @@ def csrf_protect(f):
         return f(*args, **kwargs)
     return decorated_function
 
+
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        username = get_request_username()
+        if not username:
+            return jsonify({'error': 'Authentication required'}), 401
+        if get_request_role() != 'admin':
+            return jsonify({'error': 'Admin privileges required'}), 403
+        return f(*args, **kwargs)
+    return decorated_function
+
 # --- Login Route for Page-Based Authentication ---
 @main_routes.route('/login', methods=['GET', 'POST'])
 def login():
     """Handle login for page-based authentication"""
     # If no credentials are set or login mode is not 'page', redirect to index
-    if not AUTH_USER or LOGIN_MODE != 'page':
+    if not auth_enabled() or login_mode() != 'page':
         return redirect(url_for('main_routes.index'))
     
     # If already authenticated, redirect to index
@@ -73,14 +122,29 @@ def login():
     # Handle login form submission
     error = None
     if request.method == 'POST':
+        if not has_valid_csrf_token():
+            error = "Invalid or expired session. Reload the page and try again."
+            return render_template('login.html', csrf_token=generate_csrf_token(), error=error), 403
+
         username = request.form.get('username')
         password = request.form.get('password')
         
         if validate_user(username, password):
             session['authenticated'] = True
             session['username'] = username
+            audit_event('login', 'session', 'success', target_id=username, details={'mode': 'page'})
             return redirect(url_for('main_routes.index'))
         else:
+            record_audit_event(
+                action='login',
+                target_type='session',
+                status='failure',
+                actor_username=username,
+                actor_role=get_user_role(username) if username and user_exists(username) else None,
+                target_id=username,
+                remote_addr=request.headers.get('X-Forwarded-For', request.remote_addr),
+                details={'mode': 'page', 'reason': 'invalid_credentials'},
+            )
             error = "Invalid username or password"
     
     return render_template('login.html', csrf_token=csrf_token, error=error)
@@ -89,6 +153,7 @@ def login():
 @main_routes.route('/logout')
 def logout():
     """Handle logout for page-based authentication"""
+    username = get_request_username()
     # Clear the entire session instead of just removing 'authenticated'
     session.clear()
     
@@ -102,6 +167,17 @@ def logout():
     
     # Add a cookie expiration header to force removal of the session cookie
     response.delete_cookie('session')
+    if username:
+        record_audit_event(
+            action='logout',
+            target_type='session',
+            status='success',
+            actor_username=username,
+            actor_role=get_user_role(username),
+            target_id=username,
+            remote_addr=request.headers.get('X-Forwarded-For', request.remote_addr),
+            details={'mode': login_mode()},
+        )
     
     return response
 
@@ -113,11 +189,11 @@ def require_auth():
         return
         
     # If credentials are not set, skip authentication
-    if not AUTH_USER:
+    if not auth_enabled():
         return
         
     # Determine authentication method based on LOGIN_MODE
-    if LOGIN_MODE == 'page':
+    if login_mode() == 'page':
         # For page-based auth, check if user is authenticated in the session
         if not is_authenticated():
             # If not authenticated and requesting API endpoint, return JSON 401 error
@@ -140,7 +216,7 @@ def require_auth():
 @main_routes.route('/')
 def index():
     """Sirve la página HTML principal."""
-    print("DEBUG: Sirviendo página index.html") # Añadido para depuración
+    print("DEBUG: Serving index.html")
     csrf_token = generate_csrf_token()
     # Detectar número de cores de CPU
     cpu_cores = multiprocessing.cpu_count()
@@ -151,17 +227,37 @@ def index():
         info = get_docker_client().info()
         max_ram_mb = int(info.get('MemTotal', 0)) // (1024 * 1024)
     except Exception as e:
-        print(f"WARN: No se pudo obtener la RAM total del host desde Docker API: {e}")
+        print(f"WARN: Unable to read total host RAM from Docker API: {e}")
         max_ram_mb = None
     return render_template('index.html', csrf_token=csrf_token, cpu_cores=cpu_cores, max_cpu_percent=max_cpu_percent, max_ram_mb=max_ram_mb)
+
+
+@main_routes.route('/api/system-status')
+def api_system_status():
+    """Expose backend connectivity and notification channel status for the UI."""
+    username = get_request_username()
+    return jsonify({
+        'docker': get_docker_status(),
+        'notifications': get_configured_services(),
+        'auth': {
+            'enabled': auth_enabled(),
+            'mode': login_mode(),
+            'username': username,
+            'role': get_request_role(),
+        },
+        'app': {
+            'version': current_app.config.get('APP_VERSION', 'dev'),
+            'ephemeral_secret_key': bool(current_app.config.get('APP_SECRET_KEY_EPHEMERAL')),
+        },
+    })
 
 def get_cadvisor_metrics():
     """Obtiene métricas de cAdvisor para todos los contenedores."""
     try:
-        CADVISOR_URL = os.environ.get('CADVISOR_URL', 'http://cadvisor:8080')
-        resp = requests.get(f'{CADVISOR_URL}/api/v1.3/subcontainers', timeout=2)
+        cadvisor_url = current_app.config.get('CADVISOR_URL', 'http://cadvisor:8080')
+        resp = requests.get(f'{cadvisor_url}/api/v1.3/subcontainers', timeout=2)
         if resp.status_code != 200:
-            print(f"WARN: cAdvisor respondió {resp.status_code}")
+            print(f"WARN: cAdvisor responded with status {resp.status_code}")
             return {}
         data = resp.json()
         metrics = {}
@@ -187,61 +283,69 @@ def get_cadvisor_metrics():
             metrics[docker_id] = entry
         return metrics
     except Exception as e:
-        print(f"WARN: No se pudo obtener métricas de cAdvisor: {e}")
+        print(f"WARN: Unable to fetch cAdvisor metrics: {e}")
         return {}
 
 # --- Global: Store last cAdvisor stats for delta CPU calculation ---
 cadvisor_last_stats = {}
 
-# --- Ruta API Metrics ---
-@main_routes.route('/api/metrics')
-def api_metrics():
-    """Endpoint API para obtener métricas de contenedores filtradas y ordenadas."""
-    print("DEBUG: Petición recibida en /api/metrics") # Añadido para depuración
+def parse_metrics_request_args(args):
     try:
-        client = get_docker_client()
-        get_api_client() # Verificar que está inicializado
-    except RuntimeError as e:
-         print(f"ERROR API: /api/metrics llamado pero el cliente Docker no está inicializado: {e}")
-         return jsonify({"error": "Docker client not initialized"}), 500
+        max_items = int(args.get('max', 0) or 0)
+    except (TypeError, ValueError):
+        max_items = 0
+    try:
+        stream_interval_ms = max(1000, int(args.get('stream_interval', 5000) or 5000))
+    except (TypeError, ValueError):
+        stream_interval_ms = 5000
+    return {
+        'project_filter': args.get('project', '').strip(),
+        'name_filter': args.get('name', '').lower().strip(),
+        'status_filter': args.get('status', '').strip(),
+        'sort_by': args.get('sort', 'combined'),
+        'sort_dir': args.get('dir', 'desc'),
+        'max_items': max_items,
+        'gpu_requested': args.get('gpu', '0') == '1',
+        'force_update': args.get('force', 'false').lower() == 'true',
+        'source': args.get('source', 'cadvisor').lower(),
+        'stream_interval_ms': stream_interval_ms,
+    }
 
-    # Obtener parámetros de consulta
-    project_filter = request.args.get('project','').strip()  # Nuevo filtro de proyecto
-    name_filter   = request.args.get('name','').lower().strip()
-    status_filter = request.args.get('status','').strip()
-    sort_by  = request.args.get('sort','combined')
-    sort_dir = request.args.get('dir','desc')
-    max_items = int(request.args.get('max', 0))
-    gpu_requested = request.args.get('gpu', '0') == '1'
-    # --- NUEVO: Forzar chequeo de updates si force=true ---
-    force_update = request.args.get('force', 'false').lower() == 'true'
+
+def collect_metrics_rows(query):
+    print("DEBUG: Collecting metrics")
+    client = get_docker_client()
+    get_api_client()
+
+    project_filter = query['project_filter']
+    name_filter = query['name_filter']
+    status_filter = query['status_filter']
+    sort_by = query['sort_by']
+    sort_dir = query['sort_dir']
+    max_items = query['max_items']
+    gpu_requested = query['gpu_requested']
+    force_update = query['force_update']
+    source = query['source']
+
     if force_update:
         sampler.force_update_check_all = True
 
-    source = request.args.get('source', 'cadvisor').lower()
     cadvisor_metrics = get_cadvisor_metrics() if source == 'cadvisor' else {}
 
-    global cadvisor_last_stats
-
     rows = []
-    # Copiar claves para evitar problemas si history cambia durante la iteración
     current_history_keys = list(history.keys())
-    print(f"DEBUG API: Procesando {len(current_history_keys)} CIDs del historial.")
+    print(f"DEBUG API: Processing {len(current_history_keys)} container IDs from history.")
 
     for cid in current_history_keys:
-        # Doble chequeo por si fue eliminado entre list() y aquí
         if cid not in history:
-            print(f"DEBUG API: CID {cid[:6]}.. no encontrado en history (eliminado?)")
+            print(f"DEBUG API: Container ID {cid[:6]}.. not found in history (removed?).")
             continue
 
-        # Obtener la última muestra válida del deque
         dq = history[cid]
         latest_sample = None
         if dq:
             try:
-                # Tomar la última muestra; si falla, el contenedor puede estar en error
                 latest_sample = dq[-1]
-                # Orden: time, cpu%, mem%, status, name, net_rx, net_tx, blk_r, blk_w, update_available, pid_count, mem_limit_mb, mem_usage_mib, gpu_stats, gpu_max
                 if len(latest_sample) == 15:
                     ts, cpu, mem, status_hist, name_hist, net_rx, net_tx, blk_r, blk_w, update_available, pid_count, mem_limit_mb, mem_usage_mib, gpu_stats, gpu_max = latest_sample
                 elif len(latest_sample) == 14:
@@ -272,136 +376,125 @@ def api_metrics():
                     gpu_stats = None
                     gpu_max = None
 
-                # Asegurar que cpu y mem son números o None para la API
                 cpu = float(cpu) if cpu is not None else None
                 mem = float(mem) if mem is not None else None
-
             except (ValueError, IndexError, TypeError) as sample_err:
-                 print(f"DEBUG API: Error procesando última muestra para {cid[:6]}..: {sample_err}")
-                 continue # Saltar este contenedor si la última muestra es inválida
+                print(f"DEBUG API: Error while processing the latest sample for {cid[:6]}..: {sample_err}")
+                continue
         else:
-            print(f"DEBUG API: Deque vacío para {cid[:6]}..")
-            continue # Saltar si no hay historial para este CID
+            print(f"DEBUG API: Empty history deque for {cid[:6]}..")
+            continue
 
-
-        container_name = name_hist # Usar nombre del historial como base
-
-        # --- Filtrar basado en nombre muestreado ---
+        container_name = name_hist
         if name_filter and name_filter not in container_name.lower():
             continue
 
-        # --- Obtener detalles completos desde la API Docker ---
         image_name = "N/A"
         ports_str = "N/A"
         restart_count = 0
         uptime_sec = None
         formatted_uptime = "N/A"
-        current_status = status_hist # Fallback status
+        current_status = status_hist
         compose_project = None
         compose_service = None
-
-        # ---------- Extras que faltaban ----------
         pid_count = None
         mem_limit_mb = None
 
-        # Contador de Reinicios
         try:
-            # Intentar obtener el objeto contenedor completo
             container = client.containers.get(cid)
-            current_status = container.status # Obtener estado más reciente
-
-            # Extraer etiquetas de Compose
+            current_status = container.status
             attrs = container.attrs or {}
-            labels = attrs.get('Config',{}).get('Labels',{}) or {}
+            labels = attrs.get('Config', {}).get('Labels', {}) or {}
             compose_project = labels.get('com.docker.compose.project')
             compose_service = labels.get('com.docker.compose.service')
-            # Filtrar por proyecto si se ha seleccionado uno
             if project_filter and project_filter != compose_project:
                 continue
-
-            # --- Aplicar Filtro de Estado (sobre el estado más reciente) ---
             if status_filter and current_status != status_filter:
                 continue
 
-            # --- Extraer Detalles ---
             state = attrs.get('State', {})
-
-            # PIDs y Memory limit
             try:
                 pid_count = attrs.get('State', {}).get('Pid')
-                mem_bytes  = attrs.get('HostConfig', {}).get('Memory', 0)
-                mem_limit_mb = round(mem_bytes/1048576, 2) if mem_bytes else None
+                mem_bytes = attrs.get('HostConfig', {}).get('Memory', 0)
+                mem_limit_mb = round(mem_bytes / 1048576, 2) if mem_bytes else None
             except Exception:
                 pid_count = None
                 mem_limit_mb = None
 
-            # Imagen
             try:
-                if container.image and container.image.tags: image_name = container.image.tags[0]
-                elif container.image: image_name = str(container.image.id).replace("sha256:", "")[:12]
-            except Exception: image_name = "Error"
+                if container.image and container.image.tags:
+                    image_name = container.image.tags[0]
+                elif container.image:
+                    image_name = str(container.image.id).replace("sha256:", "")[:12]
+            except Exception:
+                image_name = "Error"
 
-            # Puertos
             try:
                 ports_list = []
                 if container.ports:
                     for c_port, h_bind in sorted(container.ports.items()):
                         if h_bind:
-                            h_info = [f"{b.get('HostIp', '')}:{b.get('HostPort', '')}"
-                                      if b.get('HostIp') and b.get('HostIp') not in ['0.0.0.0', '::'] and b.get('HostPort')
-                                      else b.get('HostPort', '')
-                                      for b in h_bind if b.get('HostPort')]
-                            if h_info: ports_list.append(f"{', '.join(h_info)}->{c_port}")
+                            h_info = [
+                                f"{b.get('HostIp', '')}:{b.get('HostPort', '')}"
+                                if b.get('HostIp') and b.get('HostIp') not in ['0.0.0.0', '::'] and b.get('HostPort')
+                                else b.get('HostPort', '')
+                                for b in h_bind if b.get('HostPort')
+                            ]
+                            if h_info:
+                                ports_list.append(f"{', '.join(h_info)}->{c_port}")
                 ports_str = ', '.join(ports_list) if ports_list else "None"
-            except Exception: ports_str = "Error"
+            except Exception:
+                ports_str = "Error"
 
-            # Contador de Reinicios
             restart_count = attrs.get('RestartCount', 0)
-
-            # Uptime (basado en estado actual)
             started_at_str = state.get('StartedAt')
-            finished_at_str = state.get('FinishedAt')
-
             if current_status == 'running' and started_at_str:
-                 started_dt = parse_datetime(started_at_str)
-                 if started_dt:
-                     now_utc = datetime.datetime.now(datetime.timezone.utc)
-                     if started_dt.tzinfo is None: started_dt = started_dt.replace(tzinfo=datetime.timezone.utc)
-                     uptime_sec = max(0, int((now_utc - started_dt).total_seconds()))
-                     formatted_uptime = format_uptime(uptime_sec)
-                 else: formatted_uptime = "Error Parse Start"; uptime_sec = None
-            elif current_status == 'exited': formatted_uptime = "N/A (Exited)"; uptime_sec = None
-            else: formatted_uptime = "N/A"; uptime_sec = None
+                started_dt = parse_datetime(started_at_str)
+                if started_dt:
+                    now_utc = datetime.datetime.now(datetime.timezone.utc)
+                    if started_dt.tzinfo is None:
+                        started_dt = started_dt.replace(tzinfo=datetime.timezone.utc)
+                    uptime_sec = max(0, int((now_utc - started_dt).total_seconds()))
+                    formatted_uptime = format_uptime(uptime_sec)
+                else:
+                    formatted_uptime = "Error Parse Start"
+                    uptime_sec = None
+            elif current_status == 'exited':
+                formatted_uptime = "N/A (Exited)"
+                uptime_sec = None
+            else:
+                formatted_uptime = "N/A"
+                uptime_sec = None
 
         except errors.NotFound:
-             # Contenedor no existe más, usar datos históricos si pasan filtro de estado histórico
-             if status_filter and status_hist != status_filter: continue
-             current_status = status_hist # Usar estado histórico
-             formatted_uptime = "N/A (Removed)"
-             uptime_sec = None
-
-        except errors.DockerException as e:
-            print(f"WARN API: Docker error obteniendo detalles para {cid[:6]}.. ({container_name}): {e}")
-            if status_filter and status_hist != status_filter: continue # Filtrar por estado histórico
-            current_status = status_hist # Fallback a estado histórico
+            if project_filter:
+                continue
+            if status_filter and status_hist != status_filter:
+                continue
+            current_status = status_hist
+            formatted_uptime = "N/A (Removed)"
+            uptime_sec = None
+        except errors.DockerException as exc:
+            print(f"WARN API: Docker error while fetching details for {cid[:6]}.. ({container_name}): {exc}")
+            if status_filter and status_hist != status_filter:
+                continue
+            current_status = status_hist
             formatted_uptime = "Error Fetching"
             uptime_sec = None
+        except Exception as exc:
+            print(f"ERROR API: Unexpected error while processing {cid[:6]}.. ({container_name}): {exc}")
+            if status_filter and status_hist != status_filter:
+                continue
+            current_status = status_hist
+            formatted_uptime = "Error"
+            uptime_sec = None
 
-        except Exception as e:
-             print(f"ERROR API: Error inesperado procesando {cid[:6]}.. ({container_name}): {e}")
-             if status_filter and status_hist != status_filter: continue
-             current_status = status_hist
-             formatted_uptime = "Error"
-             uptime_sec = None
-
-        # --- Si source=cadvisor, intentar sobrescribir métricas con cAdvisor ---
         if source == 'cadvisor' and cid in cadvisor_metrics:
             cad = cadvisor_metrics[cid]
             try:
                 stats = cad.get('stats', [])
                 if len(stats) >= 2:
                     prev, last = stats[-2], stats[-1]
-                    # CPU: fórmula recomendada cAdvisor v1.3+
                     try:
                         last_ts = datetime.datetime.fromisoformat(last['timestamp'].rstrip('Z'))
                         prev_ts = datetime.datetime.fromisoformat(prev['timestamp'].rstrip('Z'))
@@ -414,47 +507,38 @@ def api_metrics():
                         cpu = round(cpu, 2)
                     except Exception:
                         pass
-                    # Memoria - Solo usar cAdvisor para el porcentaje, Docker para usage/limit
                     try:
                         mem = (last['memory']['usage'] / last['memory']['limit']) * 100 if last['memory']['limit'] else None
                         if mem is not None:
                             mem = round(mem, 2)
-                        # CAMBIO: Mantener mem_usage y mem_limit de Docker API (no sobreescribir con cAdvisor)
-                        # mem_usage = round(last['memory']['usage'] / (1024*1024), 2) if last['memory'].get('usage') is not None else None
-                        # mem_limit = round(last['memory']['limit'] / (1024*1024), 2) if last['memory'].get('limit') is not None else None
                     except Exception:
-                        pass  # Si falla cAdvisor, mantener los valores de Docker
-                    # Net I/O
+                        pass
                     try:
-                        net_rx = sum(i.get('rx_bytes',0) for i in last.get('network',{}).get('interfaces',[])) / (1024*1024)
-                        net_tx = sum(i.get('tx_bytes',0) for i in last.get('network',{}).get('interfaces',[])) / (1024*1024)
+                        net_rx = sum(i.get('rx_bytes', 0) for i in last.get('network', {}).get('interfaces', [])) / (1024 * 1024)
+                        net_tx = sum(i.get('tx_bytes', 0) for i in last.get('network', {}).get('interfaces', [])) / (1024 * 1024)
                         net_rx = round(net_rx, 2)
                         net_tx = round(net_tx, 2)
                     except Exception:
                         net_rx = net_tx = None
-                    # Block I/O
                     try:
                         blk_r = blk_w = None
-                        blkio = last.get('diskio', {}).get('io_service_bytes', [])
-                        for entry in blkio:
+                        for entry in last.get('diskio', {}).get('io_service_bytes', []):
                             if entry.get('op') == 'Read':
-                                blk_r = entry.get('value', 0) / (1024*1024)
+                                blk_r = entry.get('value', 0) / (1024 * 1024)
                             elif entry.get('op') == 'Write':
-                                blk_w = entry.get('value', 0) / (1024*1024)
+                                blk_w = entry.get('value', 0) / (1024 * 1024)
                         if blk_r is not None:
                             blk_r = round(blk_r, 2)
                         if blk_w is not None:
                             blk_w = round(blk_w, 2)
                     except Exception:
                         blk_r = blk_w = None
-                    # --- Escribir DIRECTAMENTE en el dict de la fila ---
-                    # (Se sobreescriben los valores de Docker excepto mem_usage y mem_limit)
                     row_data = {
                         'id': cid,
                         'name': container_name,
                         'pid_count': pid_count,
-                        'mem_limit': mem_limit_mb,   # USAR VALOR DE DOCKER API
-                        'mem_usage': mem_usage_mib,  # USAR VALOR DE DOCKER API
+                        'mem_limit': mem_limit_mb,
+                        'mem_usage': mem_usage_mib,
                         'cpu': cpu,
                         'mem': mem,
                         'combined': (cpu or 0) + (mem or 0),
@@ -470,16 +554,16 @@ def api_metrics():
                         'restarts': restart_count,
                         'update_available': update_available,
                         'compose_project': compose_project,
-                        'compose_service': compose_service
+                        'compose_service': compose_service,
                     }
                     if gpu_requested:
                         row_data['gpu'] = gpu_stats
                         row_data['gpu_max'] = gpu_max
                     rows.append(row_data)
-                    continue  # Ya añadimos la fila, saltar el append normal
-            except Exception as e:
-                print(f"WARN: Error procesando métricas cAdvisor para {cid[:12]}: {e}")
-        # --- Añadir Fila (si no fue sobrescrita por cAdvisor) ---
+                    continue
+            except Exception as exc:
+                print(f"WARN: Error while processing cAdvisor metrics for {cid[:12]}: {exc}")
+
         row_data = {
             'id': cid,
             'name': container_name,
@@ -501,36 +585,24 @@ def api_metrics():
             'restarts': restart_count,
             'update_available': update_available,
             'compose_project': compose_project,
-            'compose_service': compose_service
+            'compose_service': compose_service,
         }
         if gpu_requested:
             row_data['gpu'] = gpu_stats
             row_data['gpu_max'] = gpu_max
         rows.append(row_data)
 
-    # --- Filtrado de columnas según permisos del usuario ---
-    username = session.get('username') or (request.authorization.username if request.authorization else None)
+    username = get_request_username()
     allowed_columns = None
-    user_role = None
-    
-    if username:
-        user_role = get_user_role(username)
-        if user_role != 'admin':
-            allowed_columns = set(get_user_columns(username))
-            # Siempre incluir columnas esenciales
-            allowed_columns.add('id')
-            allowed_columns.add('name')
-    
-    # Si allowed_columns es None (admin) o no está vacío (usuario con permisos)
-    if allowed_columns is not None:
-        for i, row in enumerate(rows):
-            # Añadir campo que indique las columnas permitidas para este usuario
-            row['_allowed_columns'] = list(allowed_columns)
-            
-            # NO eliminar las columnas, simplemente añadir un indicador de columnas permitidas
-            # Esto permite que el cliente reciba todos los datos pero solo muestre los permitidos
+    if username and get_user_role(username) != 'admin':
+        allowed_columns = set(get_user_columns(username))
+        allowed_columns.add('id')
+        allowed_columns.add('name')
 
-    # --- Ordenación ---
+    if allowed_columns is not None:
+        for row in rows:
+            row['_allowed_columns'] = list(allowed_columns)
+
     reverse_sort = (sort_dir == 'desc')
     numeric_keys = ['cpu', 'mem', 'combined', 'uptime_sec', 'restarts', 'net_io_rx', 'net_io_tx', 'block_io_r', 'block_io_w', 'pid_count', 'mem_limit', 'update_available', 'gpu_max', 'mem_usage_limit']
     string_keys = ['name', 'status', 'image', 'ports', 'uptime']
@@ -538,30 +610,111 @@ def api_metrics():
     def sort_key(item):
         key_value = item.get(sort_by)
         if sort_by == 'mem_usage_limit':
-            # Sort by RAM percentage (same as RAM column) instead of usage/limit ratio
             mem_percentage = item.get('mem')
             return mem_percentage if mem_percentage is not None else float('-inf')
         if sort_by in numeric_keys:
-             if isinstance(key_value, bool):
-                 return int(key_value)
-             if sort_by == 'update_available' and key_value is None:
-                 return -1
-             return key_value if key_value is not None else float('-inf')
-        elif sort_by in string_keys:
-             return str(key_value) if key_value is not None else ''
+            if isinstance(key_value, bool):
+                return int(key_value)
+            if sort_by == 'update_available' and key_value is None:
+                return -1
+            return key_value if key_value is not None else float('-inf')
+        if sort_by in string_keys:
+            return str(key_value) if key_value is not None else ''
         return key_value if key_value is not None else ''
 
     try:
         rows.sort(key=sort_key, reverse=reverse_sort)
-    except TypeError as e:
-        print(f"WARN API: Error durante ordenación (key '{sort_by}', type: {type(e)}): {e}. Usando orden por nombre.")
+    except TypeError as exc:
+        print(f"WARN API: Sorting error (key '{sort_by}', type: {type(exc)}): {exc}. Falling back to name sorting.")
         rows.sort(key=lambda x: str(x.get('name', '')).lower(), reverse=False)
 
     if max_items > 0:
         rows = rows[:max_items]
 
-    print(f"DEBUG API: Retornando {len(rows)} filas.")
+    return rows
+
+
+# --- Ruta API Metrics ---
+@main_routes.route('/api/metrics')
+def api_metrics():
+    """Endpoint API para obtener métricas de contenedores filtradas y ordenadas."""
+    print("DEBUG: Request received at /api/metrics")
+    try:
+        rows = collect_metrics_rows(parse_metrics_request_args(request.args))
+    except RuntimeError as exc:
+        print(f"ERROR API: /api/metrics called before the Docker client was initialized: {exc}")
+        return jsonify({"error": "Docker client not initialized"}), 500
+    print(f"DEBUG API: Returning {len(rows)} rows.")
     return jsonify(rows)
+
+
+@main_routes.route('/api/stream')
+def api_stream():
+    """SSE stream for metrics snapshots and backend notifications."""
+    query = parse_metrics_request_args(request.args)
+    send_once = request.args.get('once', '0') == '1'
+    heartbeat_seconds = max(5, int(current_app.config.get('STREAM_HEARTBEAT_SECONDS', 15)))
+    try:
+        initial_notif_ts = float(request.args.get('since', 0) or 0)
+    except (TypeError, ValueError):
+        initial_notif_ts = 0.0
+
+    def generate():
+        last_notif_ts = initial_notif_ts
+        last_metrics_seq = sampler.get_metrics_sequence()
+        last_notification_seq = sampler.get_notification_sequence()
+        last_metrics_emit_at = 0.0
+
+        try:
+            rows = collect_metrics_rows(query)
+            yield sse_event('connected', {'transport': 'sse', 'version': current_app.config.get('APP_VERSION', 'dev')})
+            yield sse_event('metrics', {'rows': rows, 'timestamp': time.time()})
+            last_metrics_emit_at = time.time()
+            backlog = sampler.get_notifications(since_ts=last_notif_ts, max_items=200)
+            if backlog:
+                last_notif_ts = max(item.get('timestamp', 0) for item in backlog)
+                yield sse_event('notifications', {'items': backlog})
+        except RuntimeError as exc:
+            yield sse_event('error', {'message': f'Docker client not initialized: {exc}'})
+            return
+
+        if send_once:
+            return
+
+        while True:
+            metrics_seq, notification_seq, timed_out = sampler.wait_for_stream_event(
+                last_metrics_seq,
+                last_notification_seq,
+                timeout=heartbeat_seconds,
+            )
+            now = time.time()
+
+            if metrics_seq != last_metrics_seq:
+                last_metrics_seq = metrics_seq
+                min_emit_seconds = query['stream_interval_ms'] / 1000.0
+                if (now - last_metrics_emit_at) >= min_emit_seconds:
+                    try:
+                        rows = collect_metrics_rows(query)
+                        yield sse_event('metrics', {'rows': rows, 'timestamp': now})
+                        last_metrics_emit_at = now
+                    except RuntimeError as exc:
+                        yield sse_event('error', {'message': f'Docker client not initialized: {exc}'})
+                        return
+
+            if notification_seq != last_notification_seq:
+                last_notification_seq = notification_seq
+                items = sampler.get_notifications(since_ts=last_notif_ts, max_items=200)
+                if items:
+                    last_notif_ts = max(item.get('timestamp', 0) for item in items)
+                    yield sse_event('notifications', {'items': items})
+
+            if timed_out:
+                yield sse_event('heartbeat', {'timestamp': now})
+
+    response = Response(stream_with_context(generate()), mimetype='text/event-stream')
+    response.headers['Cache-Control'] = 'no-cache'
+    response.headers['X-Accel-Buffering'] = 'no'
+    return response
 
 # --- Ruta API para proyectos de Compose ---
 @main_routes.route('/api/projects')
@@ -570,7 +723,7 @@ def api_projects():
     try:
         client = get_docker_client()
     except RuntimeError as e:
-        print(f"ERROR API: /api/projects cliente Docker no inicializado: {e}")
+        print(f"ERROR API: /api/projects called before the Docker client was initialized: {e}")
         return jsonify([]), 500
     projects = set()
     for c in client.containers.list(all=True):
@@ -584,11 +737,11 @@ def api_projects():
 @main_routes.route('/api/history/<container_id>')
 def api_container_history(container_id):
     """Devuelve datos históricos de CPU y RAM para un contenedor específico."""
-    print(f"DEBUG HISTORY: Petición recibida para historial de {container_id[:12]}")
+    print(f"DEBUG HISTORY: History request received for {container_id[:12]}")
     try:
         get_docker_client()
     except RuntimeError as e:
-         print(f"ERROR API: /api/history llamado pero el cliente Docker no está inicializado: {e}")
+         print(f"ERROR API: /api/history called before the Docker client was initialized: {e}")
          return jsonify({"error": "Docker client not initialized"}), 500
 
     try:
@@ -597,10 +750,10 @@ def api_container_history(container_id):
     except ValueError:
         range_seconds = 86400
 
-    print(f"DEBUG HISTORY: Rango solicitado: {range_seconds} segundos para {container_id[:12]}")
+    print(f"DEBUG HISTORY: Requested range: {range_seconds} seconds for {container_id[:12]}")
 
     if container_id not in history:
-        print(f"WARN HISTORY: No se encontró historial para {container_id[:12]}")
+        print(f"WARN HISTORY: No history found for {container_id[:12]}")
         return jsonify({"error": "No history found for this container ID"}), 404
 
     dq = history[container_id]
@@ -613,7 +766,7 @@ def api_container_history(container_id):
 
     try:
         dq_copy = list(dq)
-        print(f"DEBUG HISTORY: Procesando {len(dq_copy)} muestras para {container_id[:12]}")
+        print(f"DEBUG HISTORY: Processing {len(dq_copy)} samples for {container_id[:12]}")
         for sample in dq_copy:
             try:
                 ts, cpu, mem = sample[0], sample[1], sample[2]
@@ -622,10 +775,10 @@ def api_container_history(container_id):
                     cpu_usage.append(float(cpu) if cpu is not None else 0)
                     ram_usage.append(float(mem) if mem is not None else 0)
             except (ValueError, TypeError, IndexError) as sample_err:
-                print(f"WARN HISTORY: Saltando muestra inválida para {container_id[:12]}: {sample_err} - Muestra: {sample}")
+                print(f"WARN HISTORY: Skipping invalid sample for {container_id[:12]}: {sample_err} - Sample: {sample}")
                 continue
 
-        print(f"DEBUG HISTORY: Encontradas {len(timestamps)} muestras dentro del rango para {container_id[:12]}")
+        print(f"DEBUG HISTORY: Found {len(timestamps)} samples within range for {container_id[:12]}")
 
         response_data = {
             "container_id": container_id,
@@ -637,22 +790,22 @@ def api_container_history(container_id):
         return jsonify(response_data)
 
     except Exception as e:
-        print(f"ERROR HISTORY: Error inesperado procesando historial para {container_id[:12]}: {e}")
+        print(f"ERROR HISTORY: Unexpected error while processing history for {container_id[:12]}: {e}")
         return jsonify({"error": "Internal server error processing history"}), 500
 
 # --- Ruta API para Logs del Contenedor ---
 @main_routes.route('/api/logs/<container_id>')
 def stream_container_logs(container_id):
-    print(f"DEBUG LOGS: Petición recibida para logs de {container_id[:12]}")
+    print(f"DEBUG LOGS: Log request received for {container_id[:12]}")
     try:
         client = get_docker_client()
         container = client.containers.get(container_id)
         container_name = escape(container.name)
     except errors.NotFound:
-        print(f"WARN LOGS: Contenedor {container_id[:12]} no encontrado.")
+        print(f"WARN LOGS: Container {container_id[:12]} was not found.")
         return f"<html><body><h1>Error 404</h1><p>Container '{escape(container_id)}' not found.</p></body></html>", 404
     except Exception as e:
-        print(f"ERROR LOGS: Error accediendo al contenedor {container_id[:12]}: {e}")
+        print(f"ERROR LOGS: Error while accessing container {container_id[:12]}: {e}")
         return f"<html><body><h1>Error 500</h1><p>Error accessing container: {escape(str(e))}</p></body></html>", 500
 
     def generate_logs():
@@ -672,7 +825,7 @@ def stream_container_logs(container_id):
 
         log_stream = None
         try:
-            print(f"DEBUG LOGS: Obteniendo stream de logs para {container_id[:12]}")
+            print(f"DEBUG LOGS: Opening log stream for {container_id[:12]}")
             log_stream = container.logs(stream=True, follow=False, tail=200, timestamps=True)
             processed_lines = 0
             for chunk in log_stream:
@@ -682,20 +835,20 @@ def stream_container_logs(container_id):
                     processed_lines += 1
                 except UnicodeDecodeError:
                     yield "[log decode error]\n"
-            print(f"DEBUG LOGS: Procesadas {processed_lines} líneas de log para {container_id[:12]}")
+            print(f"DEBUG LOGS: Processed {processed_lines} log lines for {container_id[:12]}")
 
         except errors.APIError as api_e:
-             print(f"ERROR LOGS: Docker API Error obteniendo logs para {container_id[:12]}: {api_e}")
+             print(f"ERROR LOGS: Docker API error while fetching logs for {container_id[:12]}: {api_e}")
              yield f"\n--- Docker API Error fetching logs: {escape(str(api_e))} ---"
         except Exception as log_e:
-             print(f"ERROR LOGS: Error inesperado streameando logs para {container_id[:12]}: {log_e}")
+             print(f"ERROR LOGS: Unexpected error while streaming logs for {container_id[:12]}: {log_e}")
              yield f"\n--- Error streaming logs: {escape(str(log_e))} ---"
         finally:
              yield '</pre></body></html>'
              if hasattr(log_stream, 'close'):
                  try: log_stream.close()
                  except Exception: pass
-             print(f"DEBUG LOGS: Stream de logs cerrado para {container_id[:12]}")
+             print(f"DEBUG LOGS: Log stream closed for {container_id[:12]}")
 
     return Response(stream_with_context(generate_logs()), mimetype='text/html')
 
@@ -708,7 +861,7 @@ def get_container_logs(container_id):
         logs = container.logs(tail=1000).decode('utf-8')
         return render_template('logs.html', logs=logs, container_name=container.name)
     except Exception as e:
-        return f"Error al obtener logs: {str(e)}", 500
+        return f"Error while retrieving logs: {str(e)}", 500
 
 # --- Ruta para la página de comparación ---
 @main_routes.route('/compare/<compare_type>')
@@ -728,7 +881,7 @@ def compare_page(compare_type):
         return "Invalid comparison type", 404
 
     title = valid_types[compare_type]
-    print(f"DEBUG COMPARE PAGE: Sirviendo página de comparación para '{title}' (Top {top_n}) con datos embebidos.")
+    print(f"DEBUG COMPARE PAGE: Serving comparison page for '{title}' (Top {top_n}) with embedded data.")
 
     comparison_data = []
     try:
@@ -780,7 +933,7 @@ def compare_page(compare_type):
                 except errors.NotFound:
                     uptime_sec = None; formatted_uptime = "N/A (Removed)"; current_status = status_hist
                 except Exception as e:
-                    print(f"WARN COMPARE PAGE: Error obteniendo detalles para {cid[:6]}..: {e}")
+                    print(f"WARN COMPARE PAGE: Error while fetching details for {cid[:6]}..: {e}")
                     uptime_sec = None; formatted_uptime = "Error Fetching"; current_status = status_hist
 
             row_data = {
@@ -821,17 +974,17 @@ def compare_page(compare_type):
         try:
              rows.sort(key=compare_sort_key, reverse=False)
         except TypeError as e:
-            print(f"WARN COMPARE PAGE: Error durante ordenación (key '{primary_sort_field}'): {e}. Usando orden por nombre.")
+            print(f"WARN COMPARE PAGE: Sorting error (key '{primary_sort_field}'): {e}. Falling back to name sorting.")
             rows.sort(key=lambda x: str(x.get('name', '')).lower(), reverse=False)
 
         comparison_data = rows[:top_n]
-        print(f"DEBUG COMPARE PAGE: Datos preparados para {len(comparison_data)} contenedores.")
+        print(f"DEBUG COMPARE PAGE: Prepared data for {len(comparison_data)} containers.")
 
     except RuntimeError as e:
-         print(f"ERROR COMPARE PAGE: Cliente Docker no inicializado: {e}")
+         print(f"ERROR COMPARE PAGE: Docker client not initialized: {e}")
          comparison_data = []
     except Exception as e:
-        print(f"ERROR COMPARE PAGE: Error inesperado preparando datos: {e}")
+        print(f"ERROR COMPARE PAGE: Unexpected error while preparing data: {e}")
         comparison_data = []
 
     return render_template('compare.html',
@@ -843,12 +996,12 @@ def compare_page(compare_type):
 # --- Ruta API para datos de comparación ---
 @main_routes.route('/api/compare/<compare_type>')
 def api_compare_data(compare_type):
-    print(f"DEBUG COMPARE API: Petición recibida para /api/compare/{compare_type}")
+    print(f"DEBUG COMPARE API: Request received for /api/compare/{compare_type}")
     try:
         client = get_docker_client()
         get_api_client()
     except RuntimeError as e:
-         print(f"ERROR API: /api/compare llamado pero el cliente Docker no está inicializado: {e}")
+         print(f"ERROR API: /api/compare called before the Docker client was initialized: {e}")
          return jsonify({"error": "Docker client not initialized"}), 500
 
     try:
@@ -863,7 +1016,7 @@ def api_compare_data(compare_type):
 
     rows = []
     current_history_keys = list(history.keys())
-    print(f"DEBUG COMPARE API: Procesando {len(current_history_keys)} CIDs para comparación '{compare_type}' (Top {top_n})")
+    print(f"DEBUG COMPARE API: Processing {len(current_history_keys)} container IDs for '{compare_type}' comparison (Top {top_n})")
 
     for cid in current_history_keys:
         if cid not in history: continue
@@ -908,7 +1061,7 @@ def api_compare_data(compare_type):
                 formatted_uptime = "N/A (Removed)"
                 current_status = status_hist
             except Exception as e:
-                print(f"WARN COMPARE API: Error obteniendo detalles para {cid[:6]}..: {e}")
+                print(f"WARN COMPARE API: Error while fetching details for {cid[:6]}..: {e}")
                 uptime_sec = None
                 formatted_uptime = "Error Fetching"
                 current_status = status_hist
@@ -937,12 +1090,12 @@ def api_compare_data(compare_type):
     try:
         rows.sort(key=compare_sort_key, reverse=True)
     except TypeError as e:
-        print(f"WARN COMPARE API: Error durante ordenación (key '{sort_field}'): {e}. Usando orden por nombre.")
+        print(f"WARN COMPARE API: Sorting error (key '{sort_field}'): {e}. Falling back to name sorting.")
         rows.sort(key=lambda x: str(x.get('name', '')).lower(), reverse=False)
 
     top_rows = rows[:top_n]
 
-    print(f"DEBUG COMPARE API: Retornando {len(top_rows)} filas para comparación '{compare_type}'.")
+    print(f"DEBUG COMPARE API: Returning {len(top_rows)} rows for '{compare_type}' comparison.")
     return jsonify(top_rows)
 
 # --- CSV Export Endpoint ---
@@ -976,12 +1129,15 @@ def container_action(container_id, action):
 
         if action == 'start':
             container.start()
+            audit_event('container.start', 'container', 'success', target_id=container_id, details={'name': str(container_name)})
             return jsonify({'status': f'Container {container_name} started'})
         elif action == 'stop':
             container.stop()
+            audit_event('container.stop', 'container', 'success', target_id=container_id, details={'name': str(container_name)})
             return jsonify({'status': f'Container {container_name} stopped'})
         elif action == 'restart':
             container.restart()
+            audit_event('container.restart', 'container', 'success', target_id=container_id, details={'name': str(container_name)})
             return jsonify({'status': f'Container {container_name} restarted'})
         elif action == 'update':
             def generate_update_logs():
@@ -1012,12 +1168,15 @@ def container_action(container_id, action):
                     yield f"Restarting container {container_name}...\n"
                     try:
                         container.restart()
+                        audit_event('container.update', 'container', 'success', target_id=container_id, details={'name': str(container_name)})
                         yield f"Container {container_name} restarted successfully.\n"
                         yield "Update process completed.\n"
                     except errors.APIError as restart_err:
+                        audit_event('container.update', 'container', 'failure', target_id=container_id, details={'name': str(container_name), 'error': str(restart_err)})
                         yield f"ERROR restarting container: {escape(str(restart_err))}\n"
                         yield "Update failed during restart.\n"
                     except Exception as restart_ex:
+                        audit_event('container.update', 'container', 'failure', target_id=container_id, details={'name': str(container_name), 'error': str(restart_ex)})
                         yield f"UNEXPECTED ERROR during restart: {escape(str(restart_ex))}\n"
                         yield "Update failed due to unexpected restart error.\n"
 
@@ -1026,22 +1185,27 @@ def container_action(container_id, action):
                         from sampler import force_update_check_ids
                         force_update_check_ids.add(container_id)
                     except Exception as e:
-                        print(f"ERROR: No se pudo forzar chequeo de update tras pull: {e}")
+                        print(f"ERROR: Unable to force an update check after pull: {e}")
 
                 except errors.NotFound:
+                    audit_event('container.update', 'container', 'failure', target_id=container_id, details={'error': 'not_found'})
                     yield f"ERROR: Container {container_id[:12]} not found during update.\n"
                 except Exception as e:
+                    audit_event('container.update', 'container', 'failure', target_id=container_id, details={'error': str(e)})
                     yield f"FATAL ERROR during update process: {escape(str(e))}\n"
 
             # Return a streaming response
             return Response(stream_with_context(generate_update_logs()), mimetype='text/plain')
         else:
+            audit_event(f'container.{action}', 'container', 'failure', target_id=container_id, details={'error': 'invalid_action'})
             return jsonify({'error': 'Invalid action'}), 400
 
     except errors.NotFound:
+        audit_event(f'container.{action}', 'container', 'failure', target_id=container_id, details={'error': 'not_found'})
         return jsonify({'error': f'Container {container_id} not found'}), 404
     except Exception as e:
         print(f"ERROR in container_action ({action} for {container_id[:12]}): {e}")
+        audit_event(f'container.{action}', 'container', 'failure', target_id=container_id, details={'error': str(e)})
         return jsonify({'error': f'An unexpected error occurred: {escape(str(e))}'}), 500
 
 # --- Ruta API para notificaciones ---
@@ -1061,6 +1225,7 @@ def api_notifications():
 
 # --- Ruta API para configuración de notificaciones ---
 @main_routes.route('/api/notification-settings', methods=['GET', 'POST'])
+@admin_required
 def api_notification_settings():
     """Obtiene o guarda la configuración de notificaciones."""
     from sampler import notification_settings
@@ -1079,6 +1244,33 @@ def api_notification_settings():
     set_notification_settings(notification_settings)
     return jsonify({'ok': True, 'settings': notification_settings})
 
+
+@main_routes.route('/api/notification-test', methods=['POST'])
+@admin_required
+@csrf_protect
+def api_notification_test():
+    """Send a test notification and return per-channel diagnostics."""
+    data = request.get_json(silent=True) or {}
+    username = get_request_username() or 'admin'
+    try:
+        priority = int(data.get('priority', 0))
+    except (TypeError, ValueError):
+        priority = 0
+    result = send_notification(
+        data.get('message') or f'Test notification from Docker Stats for {username}',
+        title=data.get('title') or 'Docker Stats Test',
+        priority=priority,
+    )
+
+    if result['ok']:
+        status_code = 200
+    elif result['configured_any']:
+        status_code = 502
+    else:
+        status_code = 400
+
+    return jsonify(result), status_code
+
 # --- Cambiar contraseña desde ajustes ---
 @main_routes.route('/api/change-password', methods=['POST'])
 @csrf_protect
@@ -1087,27 +1279,46 @@ def api_change_password():
     data = request.get_json(force=True)
     current = data.get('current_password', '')
     new = data.get('new_password', '')
-    username = session.get('username') or request.authorization.username if request.authorization else None
+    username = get_request_username()
     if not username:
+        audit_event('user.password_change', 'user', 'failure', details={'reason': 'not_authenticated'})
         return jsonify({'ok': False, 'error': 'Not authenticated.'}), 401
     if not current or not new:
+        audit_event('user.password_change', 'user', 'failure', target_id=username, details={'reason': 'missing_fields'})
         return jsonify({'ok': False, 'error': 'All fields are required.'}), 400
     if not validate_user(username, current):
+        audit_event('user.password_change', 'user', 'failure', target_id=username, details={'reason': 'invalid_current_password'})
         return jsonify({'ok': False, 'error': 'Current password is incorrect.'}), 403
     try:
-        change_password(username, new)
+        if not change_password(username, new):
+            audit_event('user.password_change', 'user', 'failure', target_id=username, details={'reason': 'user_not_found'})
+            return jsonify({'ok': False, 'error': 'User not found.'}), 404
+        audit_event('user.password_change', 'user', 'success', target_id=username)
         return jsonify({'ok': True})
     except Exception as e:
+        audit_event('user.password_change', 'user', 'failure', target_id=username, details={'error': str(e)})
         return jsonify({'ok': False, 'error': f'Error saving password: {str(e)}'}), 500
 
 # --- API: User Management ---
 @main_routes.route('/api/users', methods=['GET'])
+@admin_required
 def api_list_users():
     """Devuelve la lista de usuarios y sus permisos de columnas."""
     users = list_users_with_columns()
     return jsonify(users)
 
+
+@main_routes.route('/api/audit', methods=['GET'])
+@admin_required
+def api_audit_log():
+    try:
+        limit = max(1, min(500, int(request.args.get('limit', 100) or 100)))
+    except (TypeError, ValueError):
+        limit = 100
+    return jsonify(list_audit_events(limit=limit))
+
 @main_routes.route('/api/users', methods=['POST'])
+@admin_required
 @csrf_protect
 def api_create_user():
     data = request.get_json(force=True)
@@ -1115,46 +1326,58 @@ def api_create_user():
     password = data.get('password', '')
     columns = data.get('columns', [])
     if not username or not password or not isinstance(columns, list):
+        audit_event('user.create', 'user', 'failure', target_id=username or None, details={'reason': 'missing_fields'})
         return jsonify({'error': 'Missing fields'}), 400
     if username == 'admin':
+        audit_event('user.create', 'user', 'failure', target_id=username, details={'reason': 'reserved_username'})
         return jsonify({'error': 'Cannot create another admin'}), 403
     if user_exists(username):
+        audit_event('user.create', 'user', 'failure', target_id=username, details={'reason': 'already_exists'})
         return jsonify({'error': 'User already exists'}), 409
     ok = create_user_with_columns(username, password, columns, role='user')
     if not ok:
+        audit_event('user.create', 'user', 'failure', target_id=username, details={'reason': 'storage_error'})
         return jsonify({'error': 'Could not create user'}), 500
+    audit_event('user.create', 'user', 'success', target_id=username, details={'columns': columns})
     return jsonify({'ok': True})
 
 @main_routes.route('/api/users/<username>', methods=['PUT'])
+@admin_required
 @csrf_protect
 def api_update_user_columns(username):
     if username == 'admin':
+        audit_event('user.update_columns', 'user', 'failure', target_id=username, details={'reason': 'reserved_username'})
         return jsonify({'error': 'Cannot edit admin'}), 403
     data = request.get_json(force=True)
     columns = data.get('columns', [])
     if not isinstance(columns, list):
+        audit_event('user.update_columns', 'user', 'failure', target_id=username, details={'reason': 'invalid_columns'})
         return jsonify({'error': 'Invalid columns'}), 400
     if not user_exists(username):
+        audit_event('user.update_columns', 'user', 'failure', target_id=username, details={'reason': 'not_found'})
         return jsonify({'error': 'User not found'}), 404
     update_user_columns(username, columns)
+    audit_event('user.update_columns', 'user', 'success', target_id=username, details={'columns': columns})
     return jsonify({'ok': True})
 
 @main_routes.route('/api/users/<username>', methods=['DELETE'])
+@admin_required
 @csrf_protect
 def api_delete_user(username):
     if username == 'admin':
+        audit_event('user.delete', 'user', 'failure', target_id=username, details={'reason': 'reserved_username'})
         return jsonify({'error': 'Cannot delete admin'}), 403
     if not user_exists(username):
+        audit_event('user.delete', 'user', 'failure', target_id=username, details={'reason': 'not_found'})
         return jsonify({'error': 'User not found'}), 404
     delete_user(username)
+    audit_event('user.delete', 'user', 'success', target_id=username)
     return jsonify({'ok': True})
 
 @main_routes.route('/whoami')
 def whoami():
     """Devuelve el usuario autenticado y su rol."""
-    username = session.get('username') or (request.authorization.username if request.authorization else None)
+    username = get_request_username()
     if not username:
         return jsonify({'username': None, 'role': None})
-    from users_db import get_user_role
-    role = get_user_role(username)
-    return jsonify({'username': username, 'role': role})
+    return jsonify({'username': username, 'role': get_request_role()})

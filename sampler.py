@@ -6,9 +6,16 @@ import collections
 import docker.errors
 import logging
 import subprocess, json, os
+
 try:
-    import pynvml
-    pynvml.nvmlInit()
+    from pynvml import (
+        nvmlDeviceGetCount,
+        nvmlDeviceGetHandleByIndex,
+        nvmlDeviceGetMemoryInfo,
+        nvmlDeviceGetUtilizationRates,
+        nvmlInit,
+    )
+    nvmlInit()
     _NVML_OK = True
 except Exception:
     _NVML_OK = False
@@ -61,6 +68,10 @@ notification_settings = get_notification_settings({
 cpu_exceed_start = {}
 ram_exceed_start = {}
 
+stream_condition = threading.Condition()
+metrics_sequence = 0
+notification_sequence = 0
+
 # Asegura que los clientes se obtienen después de la inicialización
 client = None
 api_client = None
@@ -70,6 +81,40 @@ def initialize_sampler_clients():
     global client, api_client
     client = get_docker_client()
     api_client = get_api_client()
+
+
+def publish_metrics_snapshot():
+    global metrics_sequence
+    with stream_condition:
+        metrics_sequence += 1
+        stream_condition.notify_all()
+
+
+def publish_notification(event):
+    global notification_sequence
+    notifications.append(event)
+    with stream_condition:
+        notification_sequence += 1
+        stream_condition.notify_all()
+
+
+def get_metrics_sequence():
+    with stream_condition:
+        return metrics_sequence
+
+
+def get_notification_sequence():
+    with stream_condition:
+        return notification_sequence
+
+
+def wait_for_stream_event(last_metrics_seq, last_notification_seq, timeout=15):
+    with stream_condition:
+        timed_out = not stream_condition.wait_for(
+            lambda: metrics_sequence != last_metrics_seq or notification_sequence != last_notification_seq,
+            timeout=timeout,
+        )
+        return metrics_sequence, notification_sequence, timed_out
 
 def check_image_update(container):
     """
@@ -82,7 +127,7 @@ def check_image_update(container):
         image_ref = container.attrs['Config']['Image']  # p. ej. 'nginx:latest' o 'nginx@sha256:...'
         # Si la imagen ya está fijada por digest, no tiene sentido buscar updates
         if '@sha256:' in image_ref:
-            logging.info(f"[UpdateCheck] Imagen fijada por digest ({image_ref}), no se comprueba update.")
+            logging.info(f"[UpdateCheck] Image pinned by digest ({image_ref}); skipping update check.")
             return None
 
         local_img = client.images.get(image_ref)
@@ -96,7 +141,7 @@ def check_image_update(container):
                 local_digest_ref = d
                 break
         if not local_digest_ref:
-            logging.warning(f"[UpdateCheck] No se encontró RepoDigest para {image_ref} en {repo_digests}")
+            logging.warning(f"[UpdateCheck] RepoDigest not found for {image_ref} in {repo_digests}")
             return None
         local_manifest_digest = local_digest_ref.split('@')[1]
         # Obtiene el digest remoto del registro
@@ -105,13 +150,13 @@ def check_image_update(container):
         return local_manifest_digest != remote_manifest_digest
 
     except (docker.errors.ImageNotFound, StopIteration):
-        logging.warning(f"[UpdateCheck] No se pudo comparar update para {container.name} ({image_ref}) - imagen no encontrada o sin digest.")
+        logging.warning(f"[UpdateCheck] Could not compare updates for {container.name} ({image_ref}) - image not found or missing digest.")
         return None
     except docker.errors.APIError as e:
-        logging.warning(f"[UpdateCheck] APIError comprobando update para {container.name}: {e}")
+        logging.warning(f"[UpdateCheck] API error while checking updates for {container.name}: {e}")
         return None
     except Exception as e:
-        logging.warning(f"[UpdateCheck] Error inesperado comprobando update para {container.name}: {e}")
+        logging.warning(f"[UpdateCheck] Unexpected error while checking updates for {container.name}: {e}")
         return None
 
 def get_gpu_usage():
@@ -123,10 +168,10 @@ def get_gpu_usage():
     """
     if _NVML_OK:
         gpus = []
-        for i in range(pynvml.nvmlDeviceGetCount()):
-            h = pynvml.nvmlDeviceGetHandleByIndex(i)
-            util = pynvml.nvmlDeviceGetUtilizationRates(h)
-            mem  = pynvml.nvmlDeviceGetMemoryInfo(h)
+        for i in range(nvmlDeviceGetCount()):
+            h = nvmlDeviceGetHandleByIndex(i)
+            util = nvmlDeviceGetUtilizationRates(h)
+            mem  = nvmlDeviceGetMemoryInfo(h)
             gpus.append({
                 'index'    : i,
                 'gpu_util' : util.gpu,
@@ -231,7 +276,7 @@ def sample_metrics():
                                     'timestamp': now,
                                     'msg': f"{container_name}: Status changed from {previous_status} to {current_status}"
                                 }
-                                notifications.append(n)
+                                publish_notification(n)
                                 push_notify(n['msg'])
         except docker.errors.DockerException as e:
             logging.error(f"ERROR listing containers in sampler: {e}")
@@ -337,7 +382,7 @@ def sample_metrics():
                                     'timestamp': now,
                                     'msg': f"{container_name}: CPU usage {cpu:.1f}% exceeded {notification_settings['cpu_threshold']}% for {notification_settings['window_seconds']}s"
                                 }
-                                notifications.append(n)
+                                publish_notification(n)
                                 push_notify(n['msg'])
                     else:
                         cpu_exceed_start.pop(cid, None)
@@ -356,7 +401,7 @@ def sample_metrics():
                                     'timestamp': now,
                                     'msg': f"{container_name}: RAM usage {mem_percent:.1f}% exceeded {notification_settings['ram_threshold']}% for {notification_settings['window_seconds']}s"
                                 }
-                                notifications.append(n)
+                                publish_notification(n)
                                 push_notify(n['msg'])
                     else:
                         ram_exceed_start.pop(cid, None)
@@ -372,7 +417,7 @@ def sample_metrics():
                         'timestamp': now,
                         'msg': f"{container_name}: Status changed from {previous_status} to {status}"
                     }
-                    notifications.append(n)
+                    publish_notification(n)
                     push_notify(n['msg'])
                 
                 # Update notification
@@ -396,7 +441,7 @@ def sample_metrics():
                             'timestamp': now,
                             'msg': f"{container_name}: Update available for this container"
                         }
-                        notifications.append(n)
+                        publish_notification(n)
                         push_notify(n['msg'])
 
                 time.sleep(0.2)  # Stagger requests to avoid throttling
@@ -439,6 +484,7 @@ def sample_metrics():
         except Exception as e:
             logging.warning(f"Generic error during history cleanup: {e}")
 
+        publish_metrics_snapshot()
         time.sleep(SAMPLE_INTERVAL)
         force_update_check_all = False  # Reset global force after cycle
 

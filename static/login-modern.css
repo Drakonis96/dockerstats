@@ -1,0 +1,85 @@
+body,
+html {
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+}
+
+#login-background::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(140deg, rgba(8, 24, 22, 0.35), rgba(12, 29, 25, 0.82)),
+    radial-gradient(circle at top right, rgba(21, 111, 99, 0.24), transparent 28%),
+    radial-gradient(circle at bottom left, rgba(230, 134, 47, 0.18), transparent 24%);
+}
+
+.login-shell {
+  position: relative;
+  z-index: 1;
+}
+
+.login-form {
+  background: rgba(7, 20, 17, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(24px);
+  border-radius: 24px;
+}
+
+.login-kicker {
+  display: inline-flex;
+  padding: 0.45rem 0.85rem;
+  border-radius: 999px;
+  background: rgba(21, 111, 99, 0.22);
+  color: #d6f1e8;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.login-title {
+  margin-top: 1rem;
+  margin-bottom: 0.6rem;
+  line-height: 0.95;
+}
+
+.login-subtitle {
+  color: rgba(255, 255, 255, 0.74);
+  text-align: center;
+  margin-bottom: 1.4rem;
+}
+
+.form-control {
+  background-color: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 0.8rem 0.95rem;
+}
+
+.btn-login {
+  background: linear-gradient(135deg, #156f63, #209c87);
+  border-radius: 14px;
+  padding: 0.85rem;
+  letter-spacing: 0.04em;
+}
+
+.btn-login:hover {
+  background: linear-gradient(135deg, #115e54, #1a816f);
+}
+
+.login-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.login-pill {
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.08);
+}

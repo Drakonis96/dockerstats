@@ -6,6 +6,10 @@
   <title>Docker Monitor</title>
   <link rel="icon" href="{{ url_for('static', filename='logo.png') }}">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script> <!-- Add Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js"></script> <!-- Chart.js Zoom plugin -->
   <style>
@@ -99,17 +103,23 @@
     }
     /* Logo smaller */
     nav.navbar img {
-      width: 40px; /* Smaller logo */
-      height: 40px; /* Smaller logo */
-      margin-right: 0.5rem; /* Space between logo and title */
+      width: 36px;
+      height: 36px;
+      margin-right: 0.45rem;
     }
     /* Title Style */
     .navbar-title {
-        font-size: 1.25rem; /* Adjust size as needed */
+        font-size: 1.15rem;
         font-weight: bold;
         text-transform: uppercase;
-        color: var(--bs-body-color); /* Use theme color */
-        margin-right: auto; /* Push search/buttons to the right */
+        color: var(--bs-body-color);
+        margin-right: auto;
+    }
+    /* On desktop, show a smaller logo-only hamburger area */
+    @media (min-width: 768px) {
+      .mobile-menu-toggle {
+        display: none !important;
+      }
     }
     /* Search input style */
     #navbarSearchInput {
@@ -349,18 +359,18 @@
     /* Column visibility toggles */
     .column-toggles .form-check {
         display: inline-block;
-        margin-right: 10px;
-        margin-bottom: 5px;
+        margin-right: 8px;
+        margin-bottom: 3px;
     }
     .column-toggles {
-        margin-bottom: 1rem;
-        padding: 0.75rem 1rem; /* More padding */
+        margin-bottom: 0.5rem;
+        padding: 0.45rem 0.65rem;
         border: 1px solid var(--bs-border-color-translucent, rgba(0,0,0,0.1));
         border-radius: 0.375rem;
-        background: rgba(var(--bs-secondary-bg-rgb), 0.1); /* Subtle background */
+        background: rgba(var(--bs-secondary-bg-rgb), 0.1);
     }
      .column-toggles strong {
-        margin-right: 10px;
+        margin-right: 8px;
      }
 
      /* --- Mobile Adjustments --- */
@@ -368,7 +378,7 @@
         /* Show hamburger menu button and hide navbar buttons on mobile */
         .mobile-menu-toggle {
             display: block;
-            margin-right: 1rem;
+            margin-right: 0.5rem;
         }
         
         .navbar-buttons {
@@ -432,9 +442,9 @@
      }
 
      /* Action buttons row adjustments */
-     .action-buttons-row .col-12 > * { /* Target direct children of the column */
-         margin-bottom: 0.5rem; /* Add space below each button/group */
-         margin-right: 0.5rem; /* Add space between buttons */
+     .action-buttons-row .col-12 > * {
+         margin-bottom: 0.25rem;
+         margin-right: 0.35rem;
      }
      .action-buttons-row .col-12 {
          display: flex;
@@ -674,6 +684,7 @@
 }
 
   </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='dashboard-modern.css') }}">
 </head>
 <body data-bs-theme="light">
   <script>
@@ -681,13 +692,11 @@
   </script>
   <nav class="navbar fixed-top">
     <div class="container-fluid">
-      <!-- Mobile Menu Button -->
-      <button type="button" class="mobile-menu-toggle" id="mobileMenuToggle" aria-label="Menu">
-        ☰
-      </button>
-      
-      <!-- Left side: Logo and Title -->
+      <!-- Left side: Hamburger + Logo + Title -->
       <div class="d-flex align-items-center">
+        <button type="button" class="mobile-menu-toggle icon-btn icon-btn-only" id="mobileMenuToggle" aria-label="Menu">
+          <i class="bi bi-list" aria-hidden="true"></i>
+        </button>
         <img src="{{ url_for('static', filename='logo.png') }}" alt="Docker Monitor Logo">
         <span class="navbar-title">Docker Stats</span>
       </div>
@@ -697,8 +706,8 @@
         <!-- Eliminated search bar from here -->
         <!-- Wrap notification button in a relative div for panel positioning -->
         <div class="position-relative">
-            <button type="button" id="notifToggle" class="btn btn-outline-secondary" aria-label="Notifications">
-              🔔
+            <button type="button" id="notifToggle" class="btn btn-outline-secondary icon-btn icon-btn-only" aria-label="Notifications">
+              <i class="bi bi-bell" aria-hidden="true"></i>
               <span id="notifBadge" class="badge bg-danger position-absolute top-0 start-100 translate-middle" style="display:none; font-size:0.6rem; padding: 0.2em 0.4em;"></span>
             </button>
             <!-- Notification Panel moved inside relative container -->
@@ -713,16 +722,20 @@
                   <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="notifEnableStatus"><label class="form-check-label" for="notifEnableStatus">Enable Status Notifications</label></div>
                   <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="notifEnableUpdate"><label class="form-check-label" for="notifEnableUpdate">Enable Update Notifications</label></div>
                   <div class="mb-1"><label class="form-label">Notification Window (seconds): <input type="number" id="notifWindowSeconds" class="form-control form-control-sm" min="1"></label></div>
-                  <button type="button" id="saveNotifSettingsBtn" class="btn btn-sm btn-primary">Save</button>
+                  <div class="d-flex flex-wrap gap-2">
+                    <button type="button" id="saveNotifSettingsBtn" class="btn btn-sm btn-primary">Save</button>
+                    <button type="button" id="testNotifBtn" class="btn btn-sm btn-outline-secondary">Send test</button>
+                  </div>
+                  <div id="notifChannelStatus"></div>
                 </div>
                 <div id="notifList" class="mb-2"><p class="small text-muted">No notifications</p></div>
                 <button type="button" id="clearNotifsBtn" class="btn btn-sm btn-secondary">Clear Notifications</button>
             </div>
         </div>
-        <button type="button" id="themeToggle" class="btn btn-outline-secondary" aria-label="Toggle theme">🌙</button>
+        <button type="button" id="themeToggle" class="btn btn-outline-secondary icon-btn icon-btn-only" aria-label="Toggle theme"><i class="bi bi-moon-stars" aria-hidden="true"></i></button>
         <button type="button" id="userInfoBtn" class="btn btn-outline-secondary ms-2" aria-label="User info"><img src="{{ url_for('static', filename='icons/header_user.svg') }}" alt="User" width="16" height="16" style="vertical-align: middle;"></button>
-        <button type="button" id="settingsBtn" class="btn btn-outline-secondary ms-2" aria-label="Settings">⚙️</button>
-        <button type="button" id="logoutBtn" class="btn btn-outline-danger ms-2" style="color: #B30333; border-color: #6c757d;" aria-label="Logout">⏻</button>
+        <button type="button" id="settingsBtn" class="btn btn-outline-secondary ms-2 icon-btn icon-btn-only" aria-label="Settings"><i class="bi bi-sliders2" aria-hidden="true"></i></button>
+        <button type="button" id="logoutBtn" class="btn btn-outline-danger ms-2 icon-btn icon-btn-only" style="color: #B30333; border-color: #6c757d;" aria-label="Logout"><i class="bi bi-power" aria-hidden="true"></i></button>
       </div>
     </div>
   </nav>
@@ -734,47 +747,34 @@
   <div class="sidebar-menu" id="sidebarMenu">
     <div class="sidebar-header">
       <h5>Menu</h5>
-      <button type="button" class="sidebar-close" id="sidebarClose">✕</button>
+      <button type="button" class="sidebar-close icon-btn icon-btn-only" id="sidebarClose" aria-label="Close menu"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
     </div>
     <div class="sidebar-items">
       <div class="position-relative mb-3">
-        <button type="button" id="sidebarNotifToggle" class="btn btn-outline-secondary w-100 text-start" aria-label="Notifications">
-          🔔 Notifications
+        <button type="button" id="sidebarNotifToggle" class="btn btn-outline-secondary w-100 text-start icon-btn" aria-label="Notifications">
+          <i class="bi bi-bell" aria-hidden="true"></i><span>Notifications</span>
           <span id="sidebarNotifBadge" class="badge bg-danger position-absolute top-50 end-0 translate-middle-y me-2" style="display:none; font-size:0.6rem; padding: 0.2em 0.4em;"></span>
         </button>
       </div>
-      <button type="button" id="sidebarThemeToggle" class="btn btn-outline-secondary mb-2 text-start" aria-label="Toggle theme">🌙 Toggle Theme</button>
+      <button type="button" id="sidebarThemeToggle" class="btn btn-outline-secondary mb-2 text-start icon-btn" aria-label="Toggle theme"><i class="bi bi-moon-stars" aria-hidden="true"></i><span>Toggle Theme</span></button>
       <button type="button" id="sidebarUserInfoBtn" class="btn btn-outline-secondary mb-2 text-start d-flex align-items-center gap-2" aria-label="User info"><img src="{{ url_for('static', filename='icons/header_user.svg') }}" alt="User" width="16" height="16" style="vertical-align: middle;"> <span id="sidebarUserLabel">User Info</span></button>
-      <button type="button" id="sidebarSettingsBtn" class="btn btn-outline-secondary mb-2 text-start" aria-label="Settings">⚙️ Settings</button>
-      <button type="button" id="sidebarLogoutBtn" class="btn btn-outline-danger text-start" style="color: #B30333; border-color: #6c757d;" aria-label="Logout">⏻ Logout</button>
+      <button type="button" id="sidebarSettingsBtn" class="btn btn-outline-secondary mb-2 text-start icon-btn" aria-label="Settings"><i class="bi bi-sliders2" aria-hidden="true"></i><span>Settings</span></button>
+      <button type="button" id="sidebarLogoutBtn" class="btn btn-outline-danger text-start icon-btn" style="color: #B30333; border-color: #6c757d;" aria-label="Logout"><i class="bi bi-power" aria-hidden="true"></i><span>Logout</span></button>
     </div>
   </div>
 
   <!-- ScrollTop button remains outside the nav -->
-  <button type="button" id="scrollTop" aria-label="Scroll to top">⬆️</button>
-
-  <script>
-    // Add user info update function
-    function updateUserInfo() {
-      fetch('/whoami')
-        .then(r => r.json())
-        .then(me => {
-          const userInfoBtn = document.getElementById('userInfoBtn');
-          if (me && me.username) {
-            userInfoBtn.innerHTML = `<img src="{{ url_for('static', filename='icons/header_user.svg') }}" alt="User" width="18" height="18"> ${me.username} (${me.role})`;
-          }
-        });
-    }
-    // Call on page load
-    updateUserInfo();
-  </script>
+  <button type="button" id="scrollTop" class="icon-btn icon-btn-only" aria-label="Scroll to top"><i class="bi bi-arrow-up" aria-hidden="true"></i></button>
 
   <!-- Settings Modal -->
       <div class="modal fade" id="settingsModal" tabindex="-1" aria-labelledby="settingsModalLabel" aria-hidden="true">
-        <div class="modal-dialog">
-          <div class="modal-content">
+        <div class="modal-dialog modal-dialog-centered modal-lg settings-dialog">
+          <div class="modal-content settings-modal">
             <div class="modal-header">
-              <h5 class="modal-title" id="settingsModalLabel">Settings</h5>
+              <div>
+                <h5 class="modal-title settings-title" id="settingsModalLabel"><i class="bi bi-sliders2" aria-hidden="true"></i><span>Settings</span></h5>
+                <p class="settings-subtitle">Manage credentials, users, and dashboard access from a centered control panel.</p>
+              </div>
               <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
@@ -789,7 +789,7 @@
               </ul>
               <div class="tab-content mt-3">
                 <!-- Ajustes Tab -->
-                <div class="tab-pane fade show active" id="settingsTabPane" role="tabpanel" aria-labelledby="tab-settings">
+                <div class="tab-pane fade show active settings-pane" id="settingsTabPane" role="tabpanel" aria-labelledby="tab-settings">
                   <h6>Password settings</h6>
                   <form id="passwordForm">
                     <div class="mb-3">
@@ -809,7 +809,7 @@
                   </form>
                 </div>
                 <!-- Manage User Tab -->
-                <div class="tab-pane fade" id="manageUserTabPane" role="tabpanel" aria-labelledby="tab-manageuser">
+                <div class="tab-pane fade settings-pane" id="manageUserTabPane" role="tabpanel" aria-labelledby="tab-manageuser">
                   <h6>Create user</h6>
                   <form id="createUserForm">
                     <div class="mb-3">
@@ -845,8 +845,110 @@
         </div>
       </div>
 
+  <div class="modal fade" id="appDialogModal" tabindex="-1" aria-labelledby="appDialogTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered app-dialog-wrap">
+      <div class="modal-content app-dialog-modal">
+        <div class="modal-header">
+          <h5 class="modal-title app-dialog-title" id="appDialogTitle">Confirm action</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p id="appDialogMessage" class="app-dialog-message mb-0"></p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" id="appDialogCancel" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" id="appDialogConfirm" class="btn btn-primary">Confirm</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="container-fluid px-3">
-    <div class="row g-3 mb-3 align-items-center">
+    <div class="top-panels mb-2">
+    <div class="overview-shell" id="overviewShell">
+      <div class="overview-toggle-row">
+        <div class="overview-toggle-copy">
+          <span class="overview-toggle-label">Overview</span>
+          <span class="overview-toggle-state" id="heroToggleState">Visible</span>
+        </div>
+        <button type="button" id="heroToggleBtn" class="btn btn-outline-secondary btn-sm">Hide overview</button>
+      </div>
+      <section class="hero-shell" id="heroShell">
+      <div class="hero-copy">
+        <h1>One cockpit for containers, updates and alerts.</h1>
+        <p class="hero-subtitle">Track containers, surface pressure quickly, and validate notifications from one clearer operating view.</p>
+        <div class="hero-meta" id="systemStatusChips">
+          <span class="system-chip" id="dockerStatusChip" data-state="warning">Docker status: checking</span>
+          <span class="system-chip" id="notifyStatusChip" data-state="warning">Notifications: checking</span>
+          <span class="system-chip" id="refreshStatusChip" data-state="healthy">Refresh: active</span>
+        </div>
+      </div>
+      <div class="hero-cards-grid">
+        <div class="hero-mini-card" tabindex="0" title="Waiting for first metrics payload">
+          <span class="hero-mini-label">Last refresh</span>
+          <div class="hero-mini-value" id="lastRefreshValue">Pending</div>
+          <div class="hero-mini-subtle" id="lastRefreshMeta">Waiting for first metrics payload</div>
+        </div>
+        <div class="hero-mini-card" tabindex="0" title="0 active filters">
+          <span class="hero-mini-label">Current source</span>
+          <div class="hero-mini-value" id="metricsSourceValue">cAdvisor + Docker</div>
+          <div class="hero-mini-subtle" id="activeFiltersValue">0 active filters</div>
+        </div>
+        <article class="hero-mini-card hero-mini-card--stat" data-quick-filter="all" title="All tracked services">
+          <span class="hero-mini-label">Total</span>
+          <div class="hero-mini-value" id="summaryTotal">0</div>
+          <span class="summary-meta">All tracked services</span>
+        </article>
+        <article class="hero-mini-card hero-mini-card--stat" data-quick-filter="running" title="Focus active containers">
+          <span class="hero-mini-label">Running</span>
+          <div class="hero-mini-value" id="summaryRunning">0</div>
+          <span class="summary-meta">Focus active containers</span>
+        </article>
+        <article class="hero-mini-card hero-mini-card--stat" data-quick-filter="exited" title="Stopped or failed containers">
+          <span class="hero-mini-label">Exited</span>
+          <div class="hero-mini-value" id="summaryExited">0</div>
+          <span class="summary-meta">Stopped or failed containers</span>
+        </article>
+        <article class="hero-mini-card hero-mini-card--stat" data-quick-filter="hot" title="CPU or RAM over threshold">
+          <span class="hero-mini-label">Hot now</span>
+          <div class="hero-mini-value" id="summaryHot">0</div>
+          <span class="summary-meta">CPU or RAM over threshold</span>
+        </article>
+        <article class="hero-mini-card hero-mini-card--stat" data-quick-filter="updates" title="Sampler cache status">
+          <span class="hero-mini-label">Pending updates</span>
+          <div class="hero-mini-value" id="summaryUpdates">0</div>
+          <span class="summary-meta" id="summaryUpdatesMeta">Sampler cache status</span>
+        </article>
+        <div class="hero-mini-card" tabindex="0" title="No metrics yet">
+          <span class="hero-mini-label">Peak pressure</span>
+          <div class="hero-mini-value" id="summaryPeak">--</div>
+          <span class="summary-meta" id="summaryPeakMeta">No metrics yet</span>
+        </div>
+      </div>
+      </section>
+    </div>
+
+    <section class="filters-shell workspace-shell">
+      <div class="toolbar-head">
+        <div>
+          <h2 class="toolbar-title">Container workspace</h2>
+          <p class="toolbar-caption">Persistent filters, fast scoping, and refresh control for active containers.</p>
+        </div>
+        <div class="toolbar-actions">
+          <button id="resetFiltersBtn" type="button" class="btn btn-outline-secondary btn-sm">Reset filters</button>
+          <button id="toggleRefreshBtn" type="button" class="btn btn-outline-secondary btn-sm" data-paused="false">Pause refresh</button>
+        </div>
+      </div>
+
+      <div class="quick-filter-bar mb-2" id="quickFilterBar">
+        <button type="button" class="quick-filter-chip active" data-quick-filter="all">All</button>
+        <button type="button" class="quick-filter-chip" data-quick-filter="running">Running</button>
+        <button type="button" class="quick-filter-chip" data-quick-filter="exited">Exited</button>
+        <button type="button" class="quick-filter-chip" data-quick-filter="hot">Hot</button>
+        <button type="button" class="quick-filter-chip" data-quick-filter="updates">Updates</button>
+      </div>
+
+      <div class="row g-2 mb-2 align-items-center">
       <!-- Reduciendo el ancho de los filtros superiores en escritorio -->
       <div class="col-lg-1 col-md-4 col-sm-6"><input id="filterName" class="form-control form-control-sm" placeholder="Filter by name"></div>
       <div class="col-lg-1 col-md-4 col-sm-6">
@@ -934,10 +1036,16 @@
           <label class="form-check-label mb-0 align-middle" for="useCustomIP">Use Custom IP</label>
         </div>
       </div>  <!-- End maxItems/IP cols -->
-    </div>
+      </div>
 
-     <div class="row mb-3">
-        <div class="col-12">
+      <div class="workspace-foot">
+        <pre id="statusMessageArea" class="mt-2 p-2 border rounded bg-light text-dark"></pre>
+        <div id="updateInfoText" class="small text-muted mt-1"></div>
+        <div class="workspace-advanced workspace-advanced--open">
+          <div class="workspace-advanced-head">
+            <span class="workspace-advanced-title">Advanced tools</span>
+          </div>
+          <div class="workspace-advanced-body">
             <div class="column-toggles">
                 <strong>Show columns:</strong>
                 <div class="form-check form-check-inline">
@@ -1009,45 +1117,43 @@
                     <label class="form-check-label" for="toggleColUpdate">Update</label>
                 </div>
             </div>
-        </div>
-    </div>
-    <!-- Action Buttons Row -->
-    <div class="row mb-3 action-buttons-row">
-      <div class="col-12">
-        <div class="d-flex flex-wrap align-items-center" id="actionButtonsContainer">
-          <button id="saveSettingsBtn" class="btn btn-primary btn-sm"><img src="{{ url_for('static', filename='icons/button_save.svg') }}" alt="Save" width="16" height="16"> Save Settings</button>
-          <button id="checkUpdatesBtn" class="btn btn-warning btn-sm ms-2"><img src="{{ url_for('static', filename='icons/button_check_updates.svg') }}" alt="Check Updates" width="16" height="16"> Check Updates</button>
-          <button id="toggleColsBtn" class="btn btn-secondary btn-sm ms-2"><img src="{{ url_for('static', filename='icons/button_select_deselect_all.svg') }}" alt="Select/Deselect All" width="16" height="16"> Select/Deselect All</button>
-          <button id="exportCsvBtn" class="btn btn-secondary btn-sm ms-2"><img src="{{ url_for('static', filename='icons/button_export.svg') }}" alt="Export CSV" width="16" height="16"> Export CSV</button>
-          <!-- Comparison controls moved here -->
-          <div class="comparison-controls d-inline-flex align-items-center ms-2">
-            <div class="dropdown">
-              <button class="btn btn-secondary btn-sm dropdown-toggle" type="button" id="compareDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                <img src="{{ url_for('static', filename='icons/button_comparison_graphs.svg') }}" alt="Comparison Graphs" width="16" height="16"> Comparison graphs
-              </button>
-              <ul class="dropdown-menu" aria-labelledby="compareDropdown">
-                <li><a class="dropdown-item compare-action" href="#" data-compare-type="cpu">CPU Usage</a></li>
-                <li><a class="dropdown-item compare-action" href="#" data-compare-type="ram">RAM Usage</a></li>
-                <li><a class="dropdown-item compare-action" href="#" data-compare-type="uptime">Uptime</a></li>
-              </ul>
+            <div class="row action-buttons-row">
+            <div class="col-12">
+              <div class="d-flex flex-wrap align-items-center" id="actionButtonsContainer">
+                <button id="saveSettingsBtn" class="btn btn-primary btn-sm"><img src="{{ url_for('static', filename='icons/button_save.svg') }}" alt="Save" width="16" height="16"> Save Settings</button>
+                <button id="checkUpdatesBtn" class="btn btn-warning btn-sm ms-2"><img src="{{ url_for('static', filename='icons/button_check_updates.svg') }}" alt="Check Updates" width="16" height="16"> Check Updates</button>
+                <button id="toggleColsBtn" class="btn btn-secondary btn-sm ms-2"><img src="{{ url_for('static', filename='icons/button_select_deselect_all.svg') }}" alt="Select/Deselect All" width="16" height="16"> Select/Deselect All</button>
+                <button id="exportCsvBtn" class="btn btn-secondary btn-sm ms-2"><img src="{{ url_for('static', filename='icons/button_export.svg') }}" alt="Export CSV" width="16" height="16"> Export CSV</button>
+                <div class="comparison-controls d-inline-flex align-items-center ms-2">
+                  <div class="dropdown">
+                    <button class="btn btn-secondary btn-sm dropdown-toggle" type="button" id="compareDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                      <img src="{{ url_for('static', filename='icons/button_comparison_graphs.svg') }}" alt="Comparison Graphs" width="16" height="16"> Comparison graphs
+                    </button>
+                    <ul class="dropdown-menu" aria-labelledby="compareDropdown">
+                      <li><a class="dropdown-item compare-action" href="#" data-compare-type="cpu">CPU Usage</a></li>
+                      <li><a class="dropdown-item compare-action" href="#" data-compare-type="ram">RAM Usage</a></li>
+                      <li><a class="dropdown-item compare-action" href="#" data-compare-type="uptime">Uptime</a></li>
+                    </ul>
+                  </div>
+                  <input id="compareTopN" type="number" min="1" value="10" class="form-control form-control-sm ms-1" placeholder="Top N" aria-label="Top N" style="width: 4.5rem;">
+                </div>
+              </div>
             </div>
-            <input id="compareTopN" type="number" min="1" value="10" class="form-control form-control-sm ms-1" placeholder="Top N" aria-label="Top N" style="width: 4.5rem;">
+            </div>
           </div>
         </div>
-        <!-- Status Message Area - Alineado con el contenedor de botones -->
-        <pre id="statusMessageArea" class="mt-2 p-2 border rounded bg-light text-dark"></pre>
-        <!-- Info text below status -->
-        <div id="updateInfoText" class="small text-muted mt-1"></div>
       </div>
+    </section>
     </div>
 
     <!-- Add Containers heading -->
-    <h2>Containers</h2>
-<div class="text-muted small">{{ cpu_cores }} CPU cores available (maximum CPU usage will be {{ max_cpu_percent }}%)</div>
-<div class="text-muted small">Maximum ram available: {{ max_ram_mb if max_ram_mb is not none else 'Unknown' }} MB</div>
+    <div class="table-shell mb-4">
+      <h2>Containers</h2>
+      <div class="text-muted small">{{ cpu_cores }} CPU cores available (maximum CPU usage will be {{ max_cpu_percent }}%)</div>
+      <div class="text-muted small">Maximum ram available: {{ max_ram_mb if max_ram_mb is not none else 'Unknown' }} MB</div>
 
-    <div id="tableView" class="table-responsive mb-4" style="min-height: 400px;">
-      <table id="metricsTable" class="table table-striped table-hover table-sm">
+      <div id="tableView" class="table-responsive mb-4" style="min-height: 400px;">
+        <table id="metricsTable" class="table table-striped table-hover table-sm">
         <thead>
           <tr>
             <th class="col-name text-start"><img src="{{ url_for('static', filename='icons/table_name.svg') }}" alt="Name" width="18" height="18"> Name</th>
@@ -1071,9 +1177,10 @@
           </tr>
         </thead>
         <tbody></tbody>
-      </table>
-      <div id="tableStatus" class="text-center text-muted mt-2"></div>
-    </div>  <!-- End #tableView -->
+        </table>
+        <div id="tableStatus" class="text-center text-muted mt-2"></div>
+      </div>  <!-- End #tableView -->
+    </div>
     <!-- Chart Area -->
     <div id="chartContainer">
         <h5 id="chartTitle">Historical Usage</h5>
@@ -1096,1869 +1203,17 @@
 
   <!-- Footer -->
   <footer class="footer container-fluid">
-    <p>DockerStats. Version 0.6.4</p>
+    <p>DockerStats. Version {{ app_version }}</p>
   </footer>
   <!-- End Footer -->
-
   <!-- Bootstrap Bundle with Popper -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
-
   <script>
-    console.log("DEBUG: Script block started."); // <-- Added log
-    // Register zoom plugin for Chart.js
-    Chart.register(ChartZoom);
-    // --- Global Variables ---
-    const metricsTable = document.getElementById('metricsTable');
-    const metricsTableBody = metricsTable.querySelector('tbody');
-    const tableStatusDiv = document.getElementById('tableStatus'); // For 'Loading...' or 'No data' messages
-    const tableDiv = document.getElementById('tableView');
-    const themeToggleButton = document.getElementById('themeToggle'); // Selector remains valid
-    const scrollTopButton = document.getElementById('scrollTop');
-    const chartContainer = document.getElementById('chartContainer');
-    const chartCanvas = document.getElementById('usageChart');
-    const chartTitle = document.getElementById('chartTitle');
-    const chartStatus = document.getElementById('chartStatus');
-    const exportCsvBtn = document.getElementById('exportCsvBtn');
-    const notifications = [];
-    const notifBadge = document.getElementById('notifBadge'); // Selector remains valid
-    const notifPanel = document.getElementById('notifPanel'); // Selector remains valid
-    const notifList = document.getElementById('notifList');
-    const statusMessageArea = document.getElementById('statusMessageArea'); // <-- Add reference to status area
-    const logoutBtn = document.getElementById('logoutBtn'); // Logout button reference
-    let prevMetricsData = [];
-    let refreshIntervalId = null; // To store the interval ID
-    let REFRESH_INTERVAL_MS = 5000; // Default 5 seconds, now mutable
-    let usageChart = null; // To store the Chart.js instance
-    let currentChartContainerId = null; // Track which container's chart is shown
-    let currentChartType = 'line'; // Default chart type
-    let allMetricsData = []; // Store the full unfiltered data
-    let searchDebounceTimer = null; // Timer for debouncing search input
-
-    // --- CSRF Token ---
-    const CSRF_TOKEN = '{{ csrf_token }}';
-
-    // Patch fetch to always add CSRF token for POST, PUT, DELETE requests
-    const originalFetch = window.fetch;
-    window.fetch = function(input, init={}) {
-      const method = (init.method || (input instanceof Request && input.method) || 'GET').toUpperCase();
-      if (["POST", "PUT", "DELETE"].includes(method)) {
-        const headers = init.headers ||= {};
-        headers['X-CSRFToken'] = CSRF_TOKEN;
-      }
-      return originalFetch(input, init);
+    window.DOCKERSTATS_CONFIG = {
+      csrfToken: {{ csrf_token|tojson }},
+      maxCpuPercent: {{ max_cpu_percent|tojson }}
     };
-
-    // --- Theme Management ---
-    function applyTheme(theme) { // theme = 'light' or 'dark'
-        document.body.setAttribute('data-bs-theme', theme);
-        // Update button icon based on theme
-        themeToggleButton.innerHTML = theme === 'dark' ? '☀️' : '🌙';
-    }
-    // Check preference, default to light if not set or invalid
-    let currentTheme = localStorage.getItem('theme') || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-    if (currentTheme !== 'dark' && currentTheme !== 'light') {
-        currentTheme = 'light'; // Default to light if stored value is weird
-    }
-    applyTheme(currentTheme); // Apply initial theme
-
-    themeToggleButton.onclick = () => {
-      currentTheme = (currentTheme === 'light' ? 'dark' : 'light'); // Toggle state
-      localStorage.setItem('theme', currentTheme); // Save preference
-      applyTheme(currentTheme); // Apply the new theme
-    };
-
-    // --- Scroll to Top ---
-    scrollTopButton.onclick = () => {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    };
-
-    // --- Logout Button ---
-    logoutBtn.onclick = () => {
-      const confirmation = confirm('Are you sure you want to log out?');
-      if (confirmation) {
-        // Immediately redirect with a forced reload to prevent caching issues
-        fetch('/logout', {
-          method: 'GET',
-          credentials: 'same-origin',
-          headers: {
-            'Cache-Control': 'no-cache, no-store, must-revalidate'
-          }
-        }).then(() => {
-          // Force a hard reload to clear any cached content
-          window.location.href = '/login';
-          // As an added precaution, set a small timeout to force reload if redirect fails
-          setTimeout(() => {
-            window.location.reload(true);
-          }, 100);
-        }).catch(() => {
-          // Even if the fetch fails, try to redirect
-          window.location.href = '/login';
-        });
-      }
-    };
-
-    // --- Settings Modal Logic ---
-    const settingsBtn = document.getElementById('settingsBtn');
-    const settingsModal = new bootstrap.Modal(document.getElementById('settingsModal'));
-    settingsBtn.addEventListener('click', () => settingsModal.show());
-
-    document.getElementById('passwordForm').addEventListener('submit', async function(e) {
-      e.preventDefault();
-      const current = document.getElementById('currentPassword').value;
-      const newPass = document.getElementById('newPassword').value;
-      const confirm = document.getElementById('confirmPassword').value;
-      const errorDiv = document.getElementById('passwordError');
-      errorDiv.style.display = 'none';
-      errorDiv.textContent = '';
-      if (!current || !newPass || !confirm) {
-        errorDiv.textContent = 'All fields are required.';
-        errorDiv.style.display = 'block';
-        return;
-      }
-      if (newPass !== confirm) {
-        errorDiv.textContent = 'New passwords do not match.';
-        errorDiv.style.display = 'block';
-        return;
-      }
-      // Llamar a la API para cambiar la contraseña
-      const resp = await fetch('/api/change-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ current_password: current, new_password: newPass })
-      });
-      const data = await resp.json();
-      if (!resp.ok || !data.ok) {
-        errorDiv.textContent = data.error || 'Error changing password.';
-        errorDiv.style.display = 'block';
-        return;
-      }
-      // Éxito
-      errorDiv.style.display = 'none';
-      errorDiv.textContent = '';
-      settingsModal.hide();
-      statusMessageArea.textContent = 'Password changed successfully ✅';
-      statusMessageArea.style.color = '#7a49cd';
-      document.getElementById('passwordForm').reset();
-    });
-
-    // --- Column Visibility ---
-    function applyColumnVisibility() {
-        // Apply/remove hide classes on the TABLE element
-        document.querySelectorAll('.column-toggles .form-check-input').forEach(toggle => {
-            const columnKey = toggle.value;
-            const cls = `hide-col-${columnKey}`;
-            metricsTable.classList.toggle(cls, !toggle.checked);
-        });
-
-        // Update colspan for project rows after visibility changes
-        updateProjectRowColspans();
-
-        // Clear the status message if needed
-        if (allMetricsData && allMetricsData.length > 0) {
-            tableStatusDiv.textContent = '';
-        }
-    }
-
-    function updateProjectRowColspans() {
-        const currentVisibleCols = calculateVisibleColumns();
-        document.querySelectorAll('.project-row td[colspan]').forEach(td => {
-            td.setAttribute('colspan', currentVisibleCols);
-        });
-    }
-
-    function calculateVisibleColumns() {
-        let visibleColumnCount = 0;
-        const tableClasses = metricsTable.classList;
-        document.querySelectorAll('#metricsTable thead th').forEach(th => {
-            const colClassIdentifier = [...th.classList].find(c => c.startsWith('col-'));
-            if (colClassIdentifier) {
-                const hideClass = `hide-${colClassIdentifier}`;
-                if (!tableClasses.contains(hideClass)) {
-                    visibleColumnCount++;
-                }
-            }
-        });
-        return Math.max(1, visibleColumnCount); // Ensure at least 1
-    }
-
-    document.querySelectorAll('.column-toggles .form-check-input').forEach(toggle => {
-        // Load saved state
-        const savedState = localStorage.getItem('colVisible-' + toggle.value);
-        // Default to checked (visible) if no saved state, EXCEPT for 'ui' and 'update'
-        const defaultChecked = !['ui', 'update'].includes(toggle.value);
-        toggle.checked = savedState ? savedState === 'true' : defaultChecked;
-        // Always show and disable the Name column
-        if (toggle.value === 'name') {
-            toggle.checked = true;
-            toggle.disabled = true;
-        }
-        // Add listener
-        toggle.addEventListener('change', () => {
-            localStorage.setItem('colVisible-' + toggle.value, toggle.checked);
-            applyColumnVisibility();
-        });
-    });
-
-    let isFetching = false; // Prevent concurrent fetches
-    async function fetchMetrics() {
-        console.log("DEBUG: fetchMetrics called.");
-        if (isFetching) {
-            console.log("DEBUG: Fetch already in progress, skipping.");
-            return; // Don't start a new fetch if one is already running
-        }
-        isFetching = true;
-        // Show loading indicator in table view
-        tableStatusDiv.textContent = "...";
-
-        const nameFilter = document.getElementById("filterName").value.toLowerCase().trim();
-        const statusFilter = document.getElementById("filterStatus").value;
-        const projectFilter = document.getElementById("filterProject").value;
-        const range = document.getElementById("filterRange").value; // Still sent, backend history buffer uses it implicitly
-        const sortBy = document.getElementById("sortBy").value; // Now might be "uptime_sec"
-        const sortDir = document.getElementById("sortDir").value;
-        const maxItems = parseInt(document.getElementById("maxItems").value) || 0; // Default to 0 (no limit backend-side)
-        const metricsSource = document.getElementById("metricsSource").value; // Added metrics source
-
-        // Build API URL (Points to the API route defined in routes.py)
-        let url = `/api/metrics?sort=${sortBy}&dir=${sortDir}&source=${metricsSource}`; // Include metrics source
-        // Conditionally add filters only if they have a value
-        if (nameFilter) url += `&name=${encodeURIComponent(nameFilter)}`;
-        if (statusFilter) url += `&status=${encodeURIComponent(statusFilter)}`;
-        if (projectFilter) url += `&project=${encodeURIComponent(projectFilter)}`;
-        if (range) url += `&range=${encodeURIComponent(range)}`;
-        if (maxItems > 0) url += `&max=${maxItems}`;
-        
-        try {
-            console.log(`DEBUG: Fetching metrics from ${url}`);
-            const response = await fetch(url, { 
-                credentials: "include",  // Ensure cookies are sent
-                headers: {
-                    "Cache-Control": "no-cache",  // Prevent caching
-                    "X-Requested-With": "XMLHttpRequest",  // Help server identify XHR requests
-                    "X-CSRFToken": getCsrfToken() // Add CSRF token
-                }
-            });
-            
-            // Check for authentication issues
-            if (response.status === 401) {
-                console.log("Authentication error, redirecting to login...");
-                window.location.href = "/login";
-                return;
-            }
-            
-            if (!response.ok) {
-                throw new Error(`Network response was not ok: ${response.status} ${response.statusText}`);
-            }
-            
-            const data = await response.json();
-            
-            // Check if data is an error object with auth error
-            if (data && data.error === "auth") {
-                console.log("Session expired, redirecting to login...");
-                window.location.href = "/login";
-                return;
-            }
-            
-            allMetricsData = data; // Store the full data unfiltered
-
-            // Verificar si hay información sobre columnas permitidas (para usuarios no-admin)
-            const userAllowedColumns = data.length > 0 && data[0]._allowed_columns ? data[0]._allowed_columns : null;
-            
-            // Actualizar los checkboxes de columnas si es un usuario normal
-            if (userAllowedColumns) {
-                console.log("User has restricted column access:", userAllowedColumns);
-                updateColumnCheckboxesForUser(userAllowedColumns);
-            }
-            
-            if (Array.isArray(data)) {
-                populateTable(data);
-            } else {
-                console.error("Received non-array response:", data);
-                tableStatusDiv.textContent = "Error: Received invalid data format from server";
-            }
-            
-        } catch (error) {
-            console.error("Error during fetch or processing:", error);
-            
-            // If we get a TypeError about network failure, it might be because the user's
-            // session expired and was redirected to the login page
-            if (error instanceof TypeError && error.message.includes("NetworkError")) {
-                console.log("Possible session expiry, checking...");
-                // Try to make a simple request to check if we're logged in
-                try {
-                    const checkResp = await fetch("/whoami", { credentials: "include" });
-                    if (!checkResp.ok) {
-                        window.location.href = "/login";
-                        return;
-                    }
-                } catch (e) {
-                    window.location.href = "/login";
-                    return;
-                }
-            }
-            
-            tableStatusDiv.textContent = "Error loading data. Error during fetch or processing.";
-            tableStatusDiv.style.color = "red";
-        }
-        isFetching = false;
-    }
-
-    // Helper function for project toggle click
-    function handleProjectToggle(event) {
-        const btn = event.target;
-        const proj = btn.dataset.project;
-        const childRows = document.querySelectorAll(`.project-${proj}`);
-        const isCollapsed = btn.textContent === '[+]';
-        btn.textContent = isCollapsed ? '[-]' : '[+]';
-        childRows.forEach(r => r.style.display = isCollapsed ? '' : 'none');
-        // Save state
-        localStorage.setItem('projectToggle-' + proj, isCollapsed ? 'open' : 'closed');
-    }
-
-    function renderTable(data) {
-       metricsTableBody.innerHTML = '';
-       tableStatusDiv.textContent = '';
-
-       const projectFilterValue = document.getElementById('filterProject').value;
-       const sortByValue = document.getElementById('sortBy').value;
-
-       const filteredData = projectFilterValue
-           ? data.filter(d => d.compose_project === projectFilterValue || (!d.compose_project && projectFilterValue === ''))
-           : data;
-
-       if (!filteredData || filteredData.length === 0) {
-           tableStatusDiv.textContent = 'No containers match filters or no data available.';
-           return;
-       }
-
-       let updateAvailableCount = 0;
-
-       if (sortByValue === 'name') {
-         // --- Unificar proyectos y contenedores sueltos en una sola lista ordenada globalmente ---
-         const projectGroups = {};
-         const standAloneContainers = [];
-         filteredData.forEach(d => {
-           if (d.compose_project) {
-             if (!projectGroups[d.compose_project]) projectGroups[d.compose_project] = [];
-             projectGroups[d.compose_project].push(d);
-           } else {
-             standAloneContainers.push(d);
-           }
-         });
-         // Crear bloques: cada proyecto y cada contenedor individual
-         const blocks = [];
-         Object.entries(projectGroups).forEach(([projectName, containers]) => {
-           blocks.push({
-             type: 'project',
-             name: projectName,
-             containers: containers,
-             sortKey: projectName // Use project name as sort key
-           });
-         });
-         standAloneContainers.forEach(c => {
-           blocks.push({
-             type: 'single',
-             name: c.name || '',
-             container: c,
-             sortKey: c.name || '' // Use container name as sort key
-           });
-         });
-         // Ordenar bloques por nombre (proyecto o contenedor)
-         const sortDirection = document.getElementById('sortDir').value;
-         blocks.sort((a, b) => {
-           return sortDirection === 'asc' 
-             ? a.sortKey.localeCompare(b.sortKey, undefined, {sensitivity: 'base'})
-             : b.sortKey.localeCompare(a.sortKey, undefined, {sensitivity: 'base'});
-         });
-         // Renderizar bloques
-         blocks.forEach(block => {
-           if (block.type === 'project') {
-             const containers = block.containers;
-             containers.forEach(d => { if (d.update_available) updateAvailableCount++; });
-             // Collapse state
-             const projectStates = {};
-             const saved = localStorage.getItem('projectToggle-' + block.name);
-             projectStates[block.name] = saved === 'closed';
-             const allExited = containers.every(c => (c.status||'').toLowerCase() === 'exited');
-             const effectiveColspan = calculateVisibleColumns();
-             const trProj = document.createElement('tr');
-             trProj.classList.add('project-row');
-             const collapsed = projectStates[block.name] === true;
-             trProj.innerHTML = `
-               <td class="col-name${allExited ? ' exited-project-name' : ''}" colspan="${effectiveColspan}">
-                 <button class="btn btn-sm btn-link project-toggle" data-project="${block.name}">${collapsed ? '[+]' : '[-]'}</button>
-                 <span>${block.name} (${containers.length})</span>
-               </td>`;
-             metricsTableBody.appendChild(trProj);
-             containers.forEach((d) => {
-               renderContainerRow(d, block.name, collapsed, projectStates);
-             });
-           } else if (block.type === 'single') {
-             if (block.container.update_available) updateAvailableCount++;
-             renderContainerRow(block.container, null, false, null);
-           }
-         });
-       } else {
-         // Lista plana
-         filteredData.forEach((d) => {
-           if (d.update_available) updateAvailableCount++;
-           renderContainerRow(d, null, false, null);
-         });
-       }
-
-       const updateInfoTextElement = document.getElementById('updateInfoText');
-       if (updateInfoTextElement) {
-           updateInfoTextElement.textContent = updateAvailableCount > 0 ? `(${updateAvailableCount} updates available)` : '';
-       }
-
-       document.querySelectorAll('.project-toggle').forEach(btn => {
-         btn.removeEventListener('click', handleProjectToggle);
-         btn.addEventListener('click', handleProjectToggle);
-       });
-
-       addChartButtonListeners();
-       bindContainerButtons();
-     }
-
-    // Helper function to render a container row
-    function renderContainerRow(d, projectName, collapsed, projectStates) {
-       // --- Service/Container Row Rendering ---
-       const tr = document.createElement('tr');
-       if (projectName) {
-         tr.classList.add('child-row', `project-${projectName}`);
-         if (collapsed) {
-           tr.style.display = 'none';
-         } else {
-           tr.style.display = '';
-         }
-       }
-
-       // --- Exited container name coloring logic ---
-       let nameCellClass = '';
-       if (!projectName && (d.status||'').toLowerCase() === 'exited') {
-         nameCellClass = 'exited-container-name';
-       }
-
-       const imageName = d.image || 'N/A';
-       const portInfo = d.ports || 'N/A';
-       const hostPort = portInfo.split('->')[0].split(':').pop();
-       let baseHost = 'localhost';
-       if (localStorage.getItem('useCustomIP') === 'true') {
-           let raw = (localStorage.getItem('serverIP') || '').trim();
-           raw = raw.split(/[\,\s]+/)[0];
-           raw = raw.replace(/\/$/, '');
-           raw = raw.replace(/^https?:\/\//i, '');
-           baseHost = raw || 'localhost';
-       }
-       const baseIP = baseHost;
-       const uptimeText = d.uptime || 'N/A';
-       const restartsText = (d.restarts !== null && d.restarts !== undefined) ? d.restarts : 'N/A';
-       const netRxText = (d.net_io_rx !== null && d.net_io_rx !== undefined) ? Number(d.net_io_rx).toFixed(2) : '-';
-       const netTxText = (d.net_io_tx !== null && d.net_io_tx !== undefined) ? Number(d.net_io_tx).toFixed(2) : '-';
-       const blockRText = (d.block_io_r !== null && d.block_io_r !== undefined) ? Number(d.block_io_r).toFixed(2) : '-';
-       const blockWText = (d.block_io_w !== null && d.block_io_w !== undefined) ? Number(d.block_io_w).toFixed(2) : '-';
-       const cpuNum = (d.cpu !== null && d.cpu !== undefined) ? Number(d.cpu) : NaN;
-       const cpuVal = !isNaN(cpuNum) ? cpuNum.toFixed(2) : 'N/A';
-       const cpuText = (d.cpu !== null && d.cpu !== undefined) ? `${cpuVal}%` : 'N/A';
-       const maxCpuPercent = window.maxCpuPercent !== undefined ? window.maxCpuPercent : 100;
-       const cpuProgress = !isNaN(cpuNum) ? Math.min(100, (cpuNum / maxCpuPercent) * 100) : 0;
-       const memNum = (d.mem !== null && d.mem !== undefined) ? Number(d.mem) : NaN;
-       const memVal = !isNaN(memNum) ? memNum.toFixed(2) : 'N/A';
-       const memText = (d.mem !== null && d.mem !== undefined) ? `${memVal}%` : 'N/A';
-       const memProgress = !isNaN(memNum) ? Math.max(0, Math.min(100, memNum)) : 0;
-       let cpuClass = 'bg-success';
-       if (!isNaN(cpuNum) && cpuNum >= 80) cpuClass = 'bg-danger';
-       else if (!isNaN(cpuNum) && cpuNum >= 50) cpuClass = 'bg-warning';
-       let ramClass = 'bg-success';
-       if (!isNaN(memNum) && memNum >= 80) ramClass = 'bg-danger';
-       else if (!isNaN(memNum) && memNum >= 50) ramClass = 'bg-warning';
-       const gpuCell = (() => {
-           if (d.gpu_max !== undefined && d.gpu_max !== null) {
-               const v = Number(d.gpu_max);
-               return !isNaN(v) ? `<td class="col-gpu"><div class="progress"><div class="progress-bar bg-info" style="width:${v.toFixed(2)}%">${v.toFixed(2)}%</div></div></td>` : '<td class="col-gpu">N/A</td>';
-           }
-           return '<td class="col-gpu">N/A</td>';
-       })();
-
-       tr.innerHTML =
-         `<td class="col-name${nameCellClass ? ' ' + nameCellClass : ''}">${d.name || 'N/A'}</td>` +
-         `<td class="col-cpu">` +
-           `<span>${cpuText}</span>` +
-           `<div class="progress" role="progressbar" aria-label="CPU usage for ${d.name || 'container'}" aria-valuenow="${cpuProgress}" aria-valuemin="0" aria-valuemax="100">` +
-             `<div class="progress-bar ${cpuClass}" style="width: ${cpuProgress}%;"></div>` +
-           `</div>` +
-         `</td>` +
-         `<td class="col-ram">` +
-           `<span>${memText}</span>` +
-           `<div class="progress" role="progressbar" aria-label="Memory usage for ${d.name || 'container'}" aria-valuenow="${memProgress}" aria-valuemin="0" aria-valuemax="100">` +
-             `<div class="progress-bar ${ramClass}" style="width: ${memProgress}%;"></div>` +
-           `</div>` +
-         `</td>` +
-         gpuCell +
-         `<td class="col-pid">${(d.pid_count !== null && d.pid_count !== undefined) ? d.pid_count : 'N/A'}</td>` +
-         `<td class="col-memlimit">${
-           (d.mem_usage !== null && d.mem_usage !== undefined && d.mem_limit !== null && d.mem_limit !== undefined && Number(d.mem_limit) > 0)
-             ? `${Number(d.mem_usage).toFixed(2)} / ${Number(d.mem_limit).toFixed(2)} MB`
-             : (d.mem_limit === 0 || d.mem_limit === null || d.mem_limit === undefined || Number(d.mem_limit) === 0)
-               ? ((d.mem_usage !== null && d.mem_usage !== undefined)
-                   ? `${Number(d.mem_usage).toFixed(2)} / NL`
-                   : 'NL')
-               : (d.mem_limit !== null && d.mem_limit !== undefined)
-                 ? `${Number(d.mem_limit).toFixed(2)} MB`
-                 : (d.mem_usage !== null && d.mem_usage !== undefined)
-                   ? `${Number(d.mem_usage).toFixed(2)} MB`
-                   : 'N/A'
-         }</td>` +
-         `<td class="col-status">${d.status || 'N/A'}</td>` +
-         `<td class="col-uptime">${uptimeText}</td>` +
-         `<td class="col-netio">${netRxText} / ${netTxText}</td>` +
-         `<td class="col-blockio">${blockRText} / ${blockWText}</td>` +
-         `<td class="col-image" title="${imageName}" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">${imageName}</td>` +
-         `<td class="col-ports" title="${portInfo}" style="max-width: 250px; overflow: hidden; text-overflow: ellipsis;">${portInfo}</td>` +
-         `<td class="col-restarts">${restartsText}</td>` +
-         `<td class="col-logs text-center"><a href="/logs/${d.id}" target="_blank" class="btn btn-link btn-sm p-0"><img src="/static/icons/table_logs.svg" alt="Logs" width="18" height="18"></a></td>` +
-         `<td class="col-charts text-center">` +
-           `<button class="btn btn-link btn-sm p-0 show-chart-btn" data-container-id="${d.id}" data-container-name="${d.name || 'Unknown'}"><img src="/static/icons/table_charts.svg" alt="Chart" width="18" height="18"></button>` +
-         `</td>` +
-         `<td class="col-ui text-center"><a href="http://${baseIP}:${hostPort}" target="_blank" class="btn btn-link btn-sm p-0"><img src="/static/icons/table_ui.svg" alt="UI" width="18" height="18"></a></td>` +
-         `<td class="col-update text-center">${d.update_available ? `<img src="/static/icons/table_updates.svg" alt="Update Available" width="18" height="18">` : ''}</td>` +
-         `<td class="col-actions text-center">` +
-           `<button class="btn btn-outline-success btn-sm start-btn"><img src="/static/icons/table_play.svg" alt="Start" width="24" height="24"></button>` +
-           `<button class="btn btn-outline-warning btn-sm stop-btn"><img src="/static/icons/table_stop.svg" alt="Stop" width="14" height="14" style="margin: 1px;"></button>` +
-           `<button class="btn btn-outline-danger btn-sm restart-btn"><img src="/static/icons/table_restart.svg" alt="Restart" width="24" height="24"></button>` +
-         `</td>`;
-       metricsTableBody.appendChild(tr);
-     }
-
-    // --- Chart Functions ---
-    function addChartButtonListeners() {
-        // Listener for individual container history charts
-        document.querySelectorAll('.show-chart-btn').forEach(button => {
-            button.removeEventListener('click', handleShowHistoryChart); // Remove previous listener if any
-            button.addEventListener('click', handleShowHistoryChart);
-        });
-
-        // Listener for comparison chart dropdown items - NOW OPENS NEW TAB
-        document.querySelectorAll('.compare-action').forEach(action => {
-            action.removeEventListener('click', handleOpenComparisonTab); // Remove previous listener
-            action.addEventListener('click', handleOpenComparisonTab);
-        });
-    }
-
-    function handleShowHistoryChart(event) {
-        const containerId = event.currentTarget.dataset.containerId;
-        const containerName = event.currentTarget.dataset.containerName;
-        currentChartContainerId = containerId; // Store the selected container ID
-        chartTitle.textContent = `Historical Usage for ${containerName} (${containerId.substring(0, 12)})`;
-        chartContainer.style.display = 'block'; // Show the chart container
-        document.getElementById('chartControls').style.display = 'block'; // Show line/bar toggle
-        fetchAndRenderChart(); // Fetch data and render the HISTORY chart
-        chartContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-
-    // NEW function to handle opening comparison charts in a new tab
-    function handleOpenComparisonTab(event) {
-        event.preventDefault(); // Prevent default link behavior
-        const compareType = event.target.dataset.compareType;
-        const topN = document.getElementById('compareTopN').value || 5; // Get Top N value
-        const url = `/compare/${compareType}?topN=${topN}`; // Construct URL for the new route
-        window.open(url, '_blank'); // Open the URL in a new tab
-    }
-
-    async function fetchAndRenderChart() {
-        if (!currentChartContainerId) return; // Don't fetch if no container is selected
-
-        const range = document.getElementById('filterRange').value;
-        const url = `/api/history/${currentChartContainerId}?range=${range}`;
-        chartStatus.textContent = 'Loading chart data...';
-        chartStatus.style.color = 'var(--bs-secondary-color)'; // Reset color
-
-        try {
-            const response = await fetch(url, { credentials: 'include' });
-            if (!response.ok) {
-                console.error("Failed to fetch history:", response.status, await response.text());
-                chartStatus.textContent = `Error loading chart data (Status: ${response.status}).`;
-                chartStatus.style.color = 'var(--bs-danger)';
-                if (usageChart) {
-                    usageChart.destroy(); // Clear existing chart on error
-                    usageChart = null;
-                }
-                return;
-            }
-            const historyData = await response.json();
-            renderChart(historyData);
-
-        } catch (error) {
-            console.error("Error fetching or processing chart data:", error);
-            chartStatus.textContent = 'Network or processing error loading chart data.';
-            chartStatus.style.color = 'var(--bs-danger)';
-             if (usageChart) {
-                usageChart.destroy();
-                usageChart = null;
-            }
-        }
-    }
-
-    function renderChart(historyData) {
-        if (!historyData || !historyData.timestamps || historyData.timestamps.length === 0) {
-            chartStatus.textContent = 'No historical data available for the selected range.';
-            if (usageChart) {
-                usageChart.destroy();
-                usageChart = null;
-            }
-            return;
-        }
-
-        chartStatus.textContent = ''; // Clear status message
-
-        const labels = historyData.timestamps.map(ts => new Date(ts * 1000).toLocaleString()); // Format timestamps
-        const cpuData = historyData.cpu_usage;
-        const ramData = historyData.ram_usage;
-
-        const datasets = [
-            {
-                label: 'CPU Usage (%)',
-                data: cpuData,
-                borderColor: 'rgb(54, 162, 235)', // Blue
-                backgroundColor: 'rgba(54, 162, 235, 0.5)',
-                tension: 0.1, // For line chart smoothness
-                fill: currentChartType === 'line' ? false : true, // Fill for bar, not line
-            },
-            {
-                label: 'RAM Usage (%)',
-                data: ramData,
-                borderColor: 'rgb(75, 192, 192)', // Green
-                backgroundColor: 'rgba(75, 192, 192, 0.5)',
-                tension: 0.1,
-                fill: currentChartType === 'line' ? false : true,
-            }
-        ];
-
-        const config = {
-            type: currentChartType, // 'line' or 'bar'
-            data: {
-                labels: labels,
-                datasets: datasets
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false, // Allow chart to fill container height
-                animation: {
-                    duration: 500 // Shorter animation
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        min: 0,
-                        max: 100, // Assuming percentage
-                        title: {
-                            display: true,
-                            text: 'Usage (%)'
-                        }
-                    },
-                    x: {
-                        title: {
-                            display: true,
-                            text: 'Time'
-                        },
-                        ticks: {
-                            maxRotation: 70, // Rotate labels if they overlap
-                            minRotation: 0,
-                            autoSkip: true, // Skip labels automatically if too dense
-                            maxTicksLimit: 20 // Limit number of visible ticks
-                        }
-                    }
-                },
-                plugins: {
-                    legend: {
-                        position: 'top',
-                    },
-                    tooltip: {
-                        mode: 'index',
-                        intersect: false,
-                    },
-                    zoom: {
-                        zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'xy' },
-                        pan: { enabled: true, mode: 'xy' }
-                    }
-                },
-                hover: { // Performance optimization for large datasets
-                    mode: 'nearest',
-                    intersect: true
-                }
-            }
-        };
-
-        // Destroy previous chart instance if it exists
-        if (usageChart) {
-            usageChart.destroy();
-        }
-
-        // Create new chart
-        usageChart = new Chart(chartCanvas, config);
-    }
-
-    // Función para guardar todos los ajustes en localStorage
-    function saveSettings() {
-      // Persist project toggle states
-      document.querySelectorAll('.project-toggle').forEach(btn => {
-        const proj = btn.dataset.project;
-        const open = btn.textContent === '[-]';
-        localStorage.setItem('projectToggle-' + proj, open ? 'open' : 'closed');
-      });
-      const ids = ['filterName','filterStatus','filterRange','sortBy','sortDir','maxItems', 'refreshInterval', 'metricsSource']; // Added metricsSource
-      ids.forEach(id => localStorage.setItem(id, document.getElementById(id).value));
-      localStorage.setItem('chartType', currentChartType);
-      localStorage.setItem('theme', currentTheme);
-      // Save server IP settings
-      localStorage.setItem('serverIP', document.getElementById('serverIP').value);
-      localStorage.setItem('useCustomIP', document.getElementById('useCustomIP').checked);
-      // Guardar columnas visibles
-      document.querySelectorAll('.column-toggles .form-check-input').forEach(input => {
-        localStorage.setItem(input.id, input.checked);
-      });
-      // Save notification settings
-      localStorage.setItem('notifEnableCPU', document.getElementById('notifEnableCPU').checked);
-      localStorage.setItem('notifEnableRAM', document.getElementById('notifEnableRAM').checked);
-      localStorage.setItem('notifEnableStatus', document.getElementById('notifEnableStatus').checked);
-      localStorage.setItem('notifEnableUpdate', document.getElementById('notifEnableUpdate').checked);
-      localStorage.setItem('notifWindowSeconds', document.getElementById('notifWindowSeconds').value);
-      // Show message in status area instead of alert
-      statusMessageArea.textContent = 'Settings saved ✅';
-      statusMessageArea.style.color = '#7a49cd';
-    }
-
-    // Toggle all column visibility
-    function toggleAllColumns() {
-      const inputs = document.querySelectorAll('.column-toggles .form-check-input');
-      const anyChecked = Array.from(inputs).some(i => !i.disabled && i.checked);
-      
-      // Solo afectar a los checkboxes no deshabilitados (columnas permitidas para el usuario)
-      inputs.forEach(i => {
-        // No cambiar columnas deshabilitadas (a las que el usuario no tiene acceso)
-        if (!i.disabled) {
-          i.checked = anyChecked ? false : true;
-          localStorage.setItem(i.id, i.checked);
-        }
-      });
-      applyColumnVisibility();
-    }
-
-    // --- Export & Container Controls ---
-    function getSelectedMetrics() {
-      return Array.from(metricsTableBody.querySelectorAll('tr')).map(tr => ({
-        id: tr.querySelector('.show-chart-btn')?.dataset.containerId || '',
-        name: tr.querySelector('.col-name')?.textContent || '',
-        cpu: tr.querySelector('.col-cpu span')?.textContent.replace('%','') || '',
-        ram: tr.querySelector('.col-ram span')?.textContent.replace('%','') || '',
-        status: tr.querySelector('.col-status')?.textContent || '',
-        uptime: tr.querySelector('.col-uptime')?.textContent || ''
-      }));
-    }
-
-    function bindContainerButtons() {
-        // Use event delegation for better reliability
-        metricsTableBody.addEventListener('click', async (event) => {
-            // Traverse up to the closest action button
-            const btn = event.target.closest('.action-btn, .update-btn, .start-btn, .stop-btn, .restart-btn');
-            if (!btn) return;
-            let action, containerId, containerName;
-            if (btn.classList.contains('update-btn')) {
-                action = 'update';
-                containerId = btn.dataset.containerId;
-                containerName = btn.closest('tr').querySelector('.col-name')?.textContent || containerId?.substring(0, 12) || '';
-            } else if (btn.classList.contains('start-btn')) {
-                action = 'start';
-                containerId = btn.closest('tr').querySelector('.show-chart-btn')?.dataset.containerId;
-                containerName = btn.closest('tr').querySelector('.col-name')?.textContent || containerId?.substring(0, 12) || '';
-            } else if (btn.classList.contains('stop-btn')) {
-                action = 'stop';
-                containerId = btn.closest('tr').querySelector('.show-chart-btn')?.dataset.containerId;
-                containerName = btn.closest('tr').querySelector('.col-name')?.textContent || containerId?.substring(0, 12) || '';
-            } else if (btn.classList.contains('restart-btn')) {
-                action = 'restart';
-                containerId = btn.closest('tr').querySelector('.show-chart-btn')?.dataset.containerId;
-                containerName = btn.closest('tr').querySelector('.col-name')?.textContent || containerId?.substring(0, 12) || '';
-            } else if (btn.classList.contains('action-btn')) {
-                action = btn.dataset.action;
-                containerId = btn.dataset.id;
-                containerName = btn.dataset.name || containerId?.substring(0, 12) || '';
-            } else {
-                return;
-            }
-            if (!containerId || !action) return;
-            const url = `/api/containers/${containerId}/${action}`;
-            btn.disabled = true;
-            statusMessageArea.textContent = `Starting '${action}' for ${containerName}...\n`;
-            statusMessageArea.style.color = '#7a49cd';
-            try {
-                const response = await fetch(url, { method: 'POST' });
-                if (action === 'update' && response.ok && response.headers.get('content-type')?.includes('text/plain')) {
-                    statusMessageArea.textContent = `Updating ${containerName}...\n`;
-                    const reader = response.body.getReader();
-                    const decoder = new TextDecoder();
-                    let hadOutput = false;
-                    while (true) {
-                        const { done, value } = await reader.read();
-                        if (done)break;
-                        const chunk = decoder.decode(value, { stream: true });
-                        if (chunk) {
-                            statusMessageArea.textContent += chunk;
-                            statusMessageArea.scrollTop = statusMessageArea.scrollHeight;
-                            hadOutput = true;
-                        }
-                    }
-                    if (!hadOutput) {
-                        statusMessageArea.textContent += '\nNo output received from update operation.';
-                    }
-                    statusMessageArea.textContent += '\nUpdate process finished.';
-                    setTimeout(fetchMetrics, 1000);
-                } else {
-                    let result = null;
-                    let text = '';
-                    try {
-                        text = await response.text();
-                        result = JSON.parse(text);
-                    } catch (e) {
-                        // Not JSON, fallback to text
-                    }
-                    if (!response.ok) {
-                        statusMessageArea.textContent = result?.error ? `Error: ${result.error}` : `Error: ${text || 'Unknown error'}`;
-                        statusMessageArea.style.color = 'red';
-                    } else {
-                        let msg = result?.status || text || `Action '${action}' completedsuccessfully.`;
-                        statusMessageArea.textContent = msg;
-                        statusMessageArea.style.color = '#7a49cd';
-                        fetchMetrics();
-                    }
-                }
-            } catch (error) {
-                statusMessageArea.textContent = `Network or server error: ${error.message}`;
-                statusMessageArea.style.color = 'red';
-            } finally {
-                btn.disabled = false;
-            }
-        });
-    }
-
-    // Export CSV handler
-    exportCsvBtn.addEventListener('click', () => {
-      const data = getSelectedMetrics();
-      fetch('/api/export/csv', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({metrics: data}),
-        credentials: 'include'
-      })
-      .then(res => res.blob())
-      .then(blob => {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'metrics.csv';
-        a.click();
-        URL.revokeObjectURL(url);
-      });
-    });
-
-    // --- Notification Functions ---
-    function addNotification(type, containerName, containerId) {
-      const timestamp = new Date();
-      notifications.push({type, containerName, containerId, timestamp});
-      updateNotifBadge();
-      // Only render if panel is already visible
-      const notifPanelElement = document.getElementById('notifPanel'); // Get panel element
-      if (notifPanelElement && notifPanelElement.style.display === 'block') {
-        renderNotifList();
-      }
-    }
-
-    function updateNotifBadge() {
-      if (notifications.length > 0) {
-        notifBadge.textContent = notifications.length;
-        notifBadge.style.display = 'inline-block';
-      } else {
-        notifBadge.style.display = 'none';
-      }
-    }
-
-    function renderNotifList() {
-      if (notifications.length === 0) {
-        notifList.innerHTML = '<p class="small text-muted">No notifications</p>';
-        return;
-      }
-      notifList.innerHTML = notifications.map(n => {
-        const time = n.timestamp.toLocaleTimeString();
-        return `<div class="notif-item"><strong>${n.type}</strong> ${n.containerName} at ${time}</div>`;
-      }).join('');
-    }
-
-    function checkNotifications(data) {
-      const cpuEnabled = document.getElementById('notifEnableCPU').checked;
-      const ramEnabled = document.getElementById('notifEnableRAM').checked;
-      const statusEnabled = document.getElementById('notifEnableStatus').checked;
-      const updateEnabled = document.getElementById('notifEnableUpdate').checked;
-      
-      data.forEach(d => {
-        const prev = prevMetricsData.find(p => p.id === d.id);
-        
-        // CPU notification
-        const cpu = Number(d.cpu) || 0;
-        const prevCpu = prev ? (Number(prev.cpu) || 0) : 0;
-        const cpuThresh = Number(document.getElementById('notifCpuThreshold').value) || 0;
-        if (cpuEnabled && cpu >= cpuThresh && prevCpu < cpuThresh) {
-          addNotification('CPU', `${d.name} has exceeded CPU threshold (${cpu.toFixed(1)}% > ${cpuThresh}%)`, d.id);
-        }
-        
-        // RAM notification
-        const mem = Number(d.mem) || 0;
-        const prevMem = prev ? (Number(prev.mem) || 0) : 0;
-        const memThresh = Number(document.getElementById('notifRamThreshold').value) || 0;
-        if (ramEnabled && mem >= memThresh && prevMem < memThresh) {
-          addNotification('RAM', `${d.name} has exceeded RAM threshold (${mem.toFixed(1)}% > ${memThresh}%)`, d.id);
-        }
-        
-        // Status change notification
-        if (prev && statusEnabled && d.status !== prev.status) {
-          addNotification('Status', `${d.name} status changed: ${prev.status} → ${d.status}`, d.id);
-        }
-        
-        // Update notification
-        if (updateEnabled && d.update_available && (!prev || !prev.update_available)) {
-          addNotification('Update', `${d.name}: update available for this container`, d.id);
-        }
-      });
-      
-      prevMetricsData = JSON.parse(JSON.stringify(data));
-    }
-
-    // --- Notification Polling ---
-    let lastNotifTimestamp = 0;
-    function pollNotifications() {
-      // Leer el estado de los checkmarks
-      const cpuEnabled = document.getElementById('notifEnableCPU').checked;
-      const ramEnabled = document.getElementById('notifEnableRAM').checked;
-      const statusEnabled = document.getElementById('notifEnableStatus').checked;
-      const updateEnabled = document.getElementById('notifEnableUpdate').checked;
-      fetch(`/api/notifications?since=${lastNotifTimestamp}`)
-        .then(res => res.json())
-        .then(newNotifs => {
-          if (Array.isArray(newNotifs) && newNotifs.length > 0) {
-            // Update last timestamp
-            lastNotifTimestamp = Math.max(...newNotifs.map(n => n.timestamp), lastNotifTimestamp);
-            // Filtrar según checkmarks
-            newNotifs.forEach(n => {
-              if (
-                (n.type === 'CPU' && cpuEnabled) ||
-                (n.type === 'RAM' && ramEnabled) ||
-                (n.type === 'Status' && statusEnabled) ||
-                (n.type === 'Update' && updateEnabled)
-              ) {
-                notifications.push(n);
-              }
-            });
-            updateNotifBadge();
-            renderNotifList();
-          }
-        })
-        .catch(() => {});
-    }
-    setInterval(pollNotifications, 2000); // Poll every 2s
-
-    // --- Notification Settings Controls ---
-    document.getElementById('notifEnableCPU').addEventListener('change', e => {
-      localStorage.setItem('notifEnableCPU', e.target.checked);
-      if (!e.target.checked) {
-        // Remove CPU notifications when disabled
-        notifications.splice(0, notifications.length, ...notifications.filter(n => n.type !== 'CPU'));
-        updateNotifBadge();
-        renderNotifList();
-      }
-    });
-    document.getElementById('notifEnableRAM').addEventListener('change', e => {
-      localStorage.setItem('notifEnableRAM', e.target.checked);
-      if (!e.target.checked) {
-        // Remove RAM notifications when disabled
-        notifications.splice(0, notifications.length, ...notifications.filter(n => n.type !== 'RAM'));
-        updateNotifBadge();
-        renderNotifList();
-      }
-    });
-    document.getElementById('notifEnableStatus').addEventListener('change', e => {
-      localStorage.setItem('notifEnableStatus', e.target.checked);
-      if (!e.target.checked) {
-        // Remove Status notifications when disabled
-        notifications.splice(0, notifications.length, ...notifications.filter(n => n.type !== 'Status'));
-        updateNotifBadge();
-        renderNotifList();
-      }
-    });
-    document.getElementById('notifEnableUpdate').addEventListener('change', e => {
-      localStorage.setItem('notifEnableUpdate', e.target.checked);
-      if (!e.target.checked) {
-        // Remove Update notifications when disabled
-        notifications.splice(0, notifications.length, ...notifications.filter(n => n.type !== 'Update'));
-        updateNotifBadge();
-        renderNotifList();
-      }
-    });
-    document.getElementById('notifWindowSeconds').addEventListener('change', e => {
-      localStorage.setItem('notifWindowSeconds', e.target.value);
-    });
-    // On load, set checkboxes/inputs from localStorage
-    document.getElementById('notifEnableCPU').checked = localStorage.getItem('notifEnableCPU') === 'true';
-    document.getElementById('notifEnableRAM').checked = localStorage.getItem('notifEnableRAM') === 'true';
-    document.getElementById('notifEnableStatus').checked = localStorage.getItem('notifEnableStatus') === 'true';
-    document.getElementById('notifEnableUpdate').checked = localStorage.getItem('notifEnableUpdate') === 'true';
-    document.getElementById('notifWindowSeconds').value = localStorage.getItem('notifWindowSeconds') || 10;
-
-    // --- Manage User Tab Logic (real backend) ---
-    function getAllTableColumns() {
-      const columns = [];
-      document.querySelectorAll('#metricsTable thead th').forEach(th => {
-        const colClass = [...th.classList].find(c => c.startsWith('col-'));
-        if (!colClass) return;
-        const key = colClass.replace('col-', '');
-        if (key === 'name') return;
-        columns.push({ key, label: th.textContent.trim() });
-      });
-      return columns;
-    }
-
-    function renderUserColumnsCheckboxes(selectedCols = []) {
-      const container = document.getElementById('userColumnsCheckboxes');
-      container.innerHTML = '';
-      const columns = getAllTableColumns();
-      columns.forEach(col => {
-        const div = document.createElement('div');
-        div.className = 'form-check form-check-inline';
-        div.innerHTML = `
-          <input class="form-check-input" type="checkbox" value="${col.key}" id="userCol_${col.key}" ${selectedCols.length === 0 || selectedCols.includes(col.key) ? 'checked' : ''}>
-          <label class="form-check-label" for="userCol_${col.key}">${col.label}</label>
-        `;
-        container.appendChild(div);
-      });
-    }
-
-    async function loadUsersList() {
-      const usersListDiv = document.getElementById('usersList');
-      usersListDiv.innerHTML = '<div class="text-muted">Loading users...</div>';
-      try {
-        const resp = await fetch('/api/users');
-        if (!resp.ok) throw new Error('Failed to fetch users');
-        const users = await resp.json();
-        if (!Array.isArray(users)) throw new Error('Invalid users data');
-        if (users.length === 0) {
-          usersListDiv.innerHTML = '<div class="text-muted">No users found.</div>';
-          return;
-        }
-        usersListDiv.innerHTML = '';
-        users.forEach(user => {
-          if (user.role === 'admin') return; // No mostrar admin ni permitir editarlo
-          const userDiv = document.createElement('div');
-          userDiv.className = 'mb-2 border rounded p-2';
-          userDiv.innerHTML = `
-            <div class="d-flex align-items-center justify-content-between">
-              <div><strong>${user.username}</strong> <span class="badge bg-secondary">user</span></div>
-              <div>
-                <button class="btn btn-link btn-sm toggle-user-details" data-username="${user.username}">
-                  <span class="toggle-icon">[+]</span>
-                </button>
-                <button class="btn btn-danger btn-sm delete-user-btn" data-username="${user.username}">Delete</button>
-              </div>
-            </div>
-            <div class="user-details mt-2" data-username="${user.username}" style="display: none;">
-              <strong>Columns:</strong>
-              <div class="user-cols-checkboxes" data-username="${user.username}"></div>
-              <button class="btn btn-primary btn-sm mt-1 save-cols-btn" data-username="${user.username}">Save columns</button>
-              <span class="save-cols-status ms-2"></span>
-            </div>
-          `;
-          usersListDiv.appendChild(userDiv);
-          
-          // Render checkboxes para columnas
-          const colDiv = userDiv.querySelector('.user-cols-checkboxes');
-          const columns = getAllTableColumns();
-          columns.forEach(col => {
-            const div = document.createElement('div');
-            div.className = 'form-check form-check-inline';
-            div.innerHTML = `
-              <input class="form-check-input" type="checkbox" value="${col.key}" id="userCol_${user.username}_${col.key}" ${user.columns.includes(col.key) ? 'checked' : ''}>
-              <label class="form-check-label" for="userCol_${user.username}_${col.key}">${col.label}</label>
-            `;
-            colDiv.appendChild(div);
-          });
-        });
-        
-        // Añadir listeners para eliminar usuario
-        usersListDiv.querySelectorAll('.delete-user-btn').forEach(btn => {
-          btn.addEventListener('click', async e => {
-            const username = btn.dataset.username;
-            if (!confirm(`Delete user '${username}'?`)) return;
-            const resp = await fetch(`/api/users/${encodeURIComponent(username)}`, { method: 'DELETE' });
-            if (resp.ok) {
-              loadUsersList();
-            } else {
-              alert('Error deleting user');
-            }
-          });
-        });
-        
-        // Añadir listeners para expandir/colapsar detalles de usuario
-        usersListDiv.querySelectorAll('.toggle-user-details').forEach(btn => {
-          btn.addEventListener('click', e => {
-            const username = btn.dataset.username;
-            const detailsDiv = usersListDiv.querySelector(`.user-details[data-username="${username}"]`);
-            const toggleIcon = btn.querySelector('.toggle-icon');
-            
-            if (detailsDiv.style.display === 'none') {
-              detailsDiv.style.display = 'block';
-              toggleIcon.textContent = '[-]';
-            } else {
-              detailsDiv.style.display = 'none';
-              toggleIcon.textContent = '[+]';
-            }
-          });
-        });
-        
-        // Añadir listeners para guardar columnas
-        usersListDiv.querySelectorAll('.save-cols-btn').forEach(btn => {
-          btn.addEventListener('click', async e => {
-            const username = btn.dataset.username;
-            const colDiv = usersListDiv.querySelector(`.user-cols-checkboxes[data-username="${username}"]`);
-            const selectedCols = Array.from(colDiv.querySelectorAll('.form-check-input:checked')).map(cb => cb.value);
-            const statusSpan = btn.parentElement.querySelector('.save-cols-status');
-            statusSpan.textContent = 'Saving...';
-            const resp = await fetch(`/api/users/${encodeURIComponent(username)}`, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ columns: selectedCols })
-            });
-            if (resp.ok) {
-              statusSpan.textContent = 'Saved!';
-              statusSpan.style.color = 'green';
-              setTimeout(() => { statusSpan.textContent = ''; }, 1500);
-            } else {
-              statusSpan.textContent = 'Error';
-              statusSpan.style.color = 'red';
-            }
-          });
-        });
-      } catch (e) {
-        usersListDiv.innerHTML = '<div class="text-danger">Error loading users.</div>';
-      }
-    }
-
-    const createUserForm = document.getElementById('createUserForm');
-    if (createUserForm) {
-      createUserForm.addEventListener('submit', async function(e) {
-        e.preventDefault();
-        const username = document.getElementById('newUsername').value.trim();
-        const password = document.getElementById('newUserPassword').value;
-        const confirm = document.getElementById('confirmUserPassword').value;
-        const errorDiv = document.getElementById('userFormError');
-        errorDiv.style.display = 'none';
-        errorDiv.textContent = '';
-        if (!username || !password || !confirm) {
-          errorDiv.textContent = 'All fields are required.';
-          errorDiv.style.display = 'block';
-          return;
-        }
-        if (password !== confirm) {
-          errorDiv.textContent = 'Passwords do not match.';
-          errorDiv.style.display = 'block';
-          return;
-        }
-        const selectedCols = Array.from(document.querySelectorAll('#userColumnsCheckboxes .form-check-input:checked')).map(cb => cb.value);
-        try {
-          const resp = await fetch('/api/users', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password, columns: selectedCols })
-          });
-          if (!resp.ok) {
-            const data = await resp.json().catch(() => ({}));
-            errorDiv.textContent = data.error || 'Error creating user.';
-            errorDiv.style.display = 'block';
-            return;
-          }
-          createUserForm.reset();
-          renderUserColumnsCheckboxes();
-          errorDiv.style.display = 'block';
-          errorDiv.style.color = 'green';
-          errorDiv.textContent = 'User created.';
-          setTimeout(() => { errorDiv.style.display = 'none'; errorDiv.style.color = ''; }, 2000);
-          loadUsersList();
-        } catch (e) {
-          errorDiv.textContent = 'Network error.';
-          errorDiv.style.display = 'block';
-        }
-      });
-    }
-
-    document.getElementById('tab-manageuser').addEventListener('shown.bs.tab', () => {
-      renderUserColumnsCheckboxes();
-      loadUsersList();
-    });
-    if (document.getElementById('tab-manageuser').classList.contains('active')) {
-      renderUserColumnsCheckboxes();
-      loadUsersList();
-    }
-
-    // --- Control de acceso a notificaciones y gestión de usuarios según rol ---
-    function blockAdminFeaturesIfUser() {
-      fetch('/api/users')
-        .then(res => res.json())
-        .then(users => {
-          fetch('/whoami').then(r => r.json()).then(me => {
-            if (!me || me.role !== 'admin') {
-              // Bloquear botón de notificaciones
-              const notifBtn = document.getElementById('notifToggle');
-              notifBtn.classList.add('disabled');
-              notifBtn.style.pointerEvents = 'auto';
-              notifBtn.style.opacity = '0.5';
-              notifBtn.title = 'Only admin has access to this feature';
-              notifBtn.addEventListener('click', function(e) {
-                e.preventDefault();
-                alert('Only admin has access to this feature');
-                // Ocultar panel si se muestra
-                const notifPanel = document.getElementById('notifPanel');
-                if (notifPanel) notifPanel.style.display = 'none';
-                return false;
-              });
-              // Bloquear pestaña de usuarios
-              const tabManageUser = document.getElementById('tab-manageuser');
-              tabManageUser.classList.add('disabled');
-              tabManageUser.style.pointerEvents = 'auto';
-              tabManageUser.style.opacity = '0.5';
-              tabManageUser.title = 'Only admin has access to this feature';
-              tabManageUser.addEventListener('click', function(e) {
-                e.preventDefault();
-                alert('Only admin has access to this feature');
-                return false;
-              });
-            }
-          });
-        });
-    }
-
-    document.addEventListener('DOMContentLoaded', blockAdminFeaturesIfUser);
-
-    // --- Initial Load & Event Listeners ---
-    document.addEventListener('DOMContentLoaded', () => {
-      try {
-        // Load persisted controls
-        const savedName = localStorage.getItem('filterName');
-        if (savedName) document.getElementById('filterName').value = savedName;
-        
-        // Cargar el valor guardado del filtro de rango
-        const savedRange = localStorage.getItem('filterRange');
-        if (savedRange) document.getElementById('filterRange').value = savedRange;
-        
-        const savedSortBy = localStorage.getItem('sortBy');
-        const savedStatus = localStorage.getItem('filterStatus');
-        const savedProject = localStorage.getItem('filterProject');
-        // Populate project dropdown
-        fetch('/api/projects', { credentials: 'include' })
-          .then(res => res.json())
-          .then(projects => {
-            const sel = document.getElementById('filterProject');
-            projects.forEach(p => {
-                const opt = document.createElement('option'); opt.value = p; opt.textContent = p;
-                sel.appendChild(opt);
-            });
-            if (savedProject) sel.value = savedProject;
-          });
-        // On change, persist and fetch
-        const projEl = document.getElementById('filterProject');
-        projEl.addEventListener('change', e => {
-            localStorage.setItem('filterProject', e.target.value);
-            fetchMetrics();
-        });
-        if (savedName) document.getElementById('filterName').value = savedName;
-        if (savedStatus) document.getElementById('filterStatus').value = savedStatus;
-        if (savedSortBy) document.getElementById('sortBy').value = savedSortBy;
-        const savedSortDir = localStorage.getItem('sortDir');
-        if (savedSortDir) document.getElementById('sortDir').value = savedSortDir;
-        const savedMax = localStorage.getItem('maxItems');
-        if (savedMax) document.getElementById('maxItems').value = savedMax;
-
-        // Load saved refresh interval
-        const savedInterval = localStorage.getItem('refreshInterval');
-        const refreshIntervalSelect = document.getElementById('refreshInterval');
-        if (savedInterval) {
-            refreshIntervalSelect.value = savedInterval;
-            REFRESH_INTERVAL_MS = parseInt(savedInterval, 10);
-        } else {
-            // Use default if nothing saved
-            REFRESH_INTERVAL_MS = parseInt(refreshIntervalSelect.value, 10);
-        }
-
-        // Load saved server IP and custom IP toggle
-        const savedIP = localStorage.getItem('serverIP');
-        if (savedIP) document.getElementById('serverIP').value = savedIP;
-        const savedUseCustom = localStorage.getItem('useCustomIP');
-        if (savedUseCustom !== null) document.getElementById('useCustomIP').checked = (savedUseCustom === 'true');
-        const savedChartType = localStorage.getItem('chartType');
-        if (savedChartType) {
-            document.getElementById(savedChartType + 'ChartBtn').checked = true;
-            currentChartType = savedChartType;
-        }
-        // Load saved metrics source
-        const savedMetricsSource = localStorage.getItem('metricsSource') || 'cadvisor';
-        document.getElementById('metricsSource').value = savedMetricsSource;
-        // Listener for metrics source change
-        document.getElementById('metricsSource').addEventListener('change', e => {
-          localStorage.setItem('metricsSource', e.target.value);
-          // Refresh metrics without reloading the page
-          fetchMetrics();
-        });
-        // Cargar estado guardado de columnas y aplicar visibilidad inicial
-        document.querySelectorAll('.column-toggles .form-check-input').forEach(input => {
-          const saved = localStorage.getItem(input.id);
-          // Default to checked (visible) if no saved state, EXCEPT for specific columns like 'ui', 'update', etc.
-          const defaultChecked = !['netio', 'blockio', 'image', 'ports', 'restarts', 'ui', 'update'].includes(input.value);
-          if (input.value === 'name') { // Ensure Name is always checked and disabled
-              input.checked = true;
-              input.disabled = true;
-          } else {
-              input.checked = saved ? (saved === 'true') : defaultChecked;
-          }
-          // Apply initial class to table based on loaded state
-          const columnClass = `hide-col-${input.value}`;
-          metricsTable.classList.toggle(columnClass, !input.checked);
-        });
-
-        // Añadir listener para el botón de guardar ajustes
-        document.getElementById('saveSettingsBtn').addEventListener('click', saveSettings);
-        document.getElementById('toggleColsBtn').addEventListener('click', toggleAllColumns);
-
-        // Add listeners to all filter/control elements
-        document.querySelectorAll('#filterName, #filterStatus, #filterRange, #sortBy, #sortDir, #refreshInterval')
-            .forEach(el => {
-                el.addEventListener('change', fetchMetrics);
-                el.addEventListener('change', e => localStorage.setItem(e.target.id, e.target.value));
-            });
-        // maxItems persistence and fetch
-        const maxEl = document.getElementById('maxItems');
-        maxEl.addEventListener('change', e => { localStorage.setItem('maxItems', e.target.value); fetchMetrics(); });
-
-        // Add listener for refresh interval changes
-        const refreshIntervalSelectEl = document.getElementById('refreshInterval');
-        refreshIntervalSelectEl.addEventListener('change', e => {
-            const newInterval = parseInt(e.target.value, 10);
-            localStorage.setItem('refreshInterval', newInterval);
-            REFRESH_INTERVAL_MS = newInterval;
-            console.log(`Refresh interval changed to ${REFRESH_INTERVAL_MS / 1000} seconds.`);
-            // Clear existing interval and set a new one
-            if (refreshIntervalId) {
-                clearInterval(refreshIntervalId);
-            }
-            fetchMetrics(); // Fetch immediately after changing interval
-            refreshIntervalId = setInterval(() => fetchMetrics(false), REFRESH_INTERVAL_MS);
-        });
-
-        fetchMetrics(); // Initial load is not triggered by check updates
-
-        // Set interval for periodic refresh
-        if (refreshIntervalId) { clearInterval(refreshIntervalId); } // Clear previous interval if any
-        refreshIntervalId = setInterval(() => fetchMetrics(false), REFRESH_INTERVAL_MS); // Use the potentially loaded interval
-
-        // Set initial project toggle states
-        document.querySelectorAll('.project-toggle').forEach(btn => {
-          const proj = btn.dataset.project;
-          const savedState = localStorage.getItem('projectToggle-' + proj);
-          const isCollapsed = savedState === 'closed';
-          btn.textContent = isCollapsed ? '[+]' : '[-]';
-          const childRows = document.querySelectorAll(`.project-${proj}`);
-          childRows.forEach(r => r.style.display = isCollapsed ? 'none' : '');
-        });
-
-        // Add listener for Range changes to update the chart if visible
-        document.getElementById('filterRange').addEventListener('change', () => {
-            if (chartContainer.style.display === 'block' && currentChartContainerId) {
-                fetchAndRenderChart();
-            } else {
-                // If range changes but no chart is active, just fetch table data
-                fetchMetrics();
-            }
-        });
-
-        // Add listeners for chart type toggle buttons
-        document.querySelectorAll('input[name="chartType"]').forEach(radio => {
-            radio.addEventListener('change', (event) => {
-                currentChartType = event.target.value;
-                localStorage.setItem('chartType', event.target.value);
-                if (usageChart) fetchAndRenderChart();
-            });
-        });
-
-        // Add click handlers on column headers to sort table
-        (function addHeaderSorting() {
-            const sortByEl = document.getElementById('sortBy');
-            const sortDirEl = document.getElementById('sortDir');
-            // Map column class suffix to the sort key used in the API
-            const headerSortMap = {
-                name: 'name',
-                cpu: 'cpu',
-                ram: 'mem',
-                gpu: 'gpu_max',
-                pid: 'pid_count', // Added mapping for Procs column
-                status: 'status',
-                uptime: 'uptime_sec',
-                restarts: 'restarts',
-                combined: 'combined', // This isn't a header, but kept for reference
-                memlimit: 'mem_usage_limit', // Cambiado para que coincida con el nuevo valor del dropdown
-                netio: 'net_io_rx',      // Added (sorts by Rx)
-                blockio: 'block_io_r',   // Added (sorts by Read)
-                update: 'update_available' // Added
-            };
-            document.querySelectorAll('#metricsTable thead th').forEach(th => {
-                const colClass = [...th.classList].find(c => c.startsWith('col-'));
-                if (!colClass) return;
-                const key = colClass.replace('col-', '');
-                const sortKey = headerSortMap[key];
-                if (!sortKey) return;
-                th.style.cursor = 'pointer';
-                th.addEventListener('click', () => {
-                    if (sortByEl.value === sortKey) {
-                        sortDirEl.value = sortDirEl.value === 'asc' ? 'desc' : 'asc';
-                    } else {
-                        sortByEl.value = sortKey;
-                        sortDirEl.value = 'desc';
-                    }
-                    localStorage.setItem('sortBy', sortByEl.value);
-                    localStorage.setItem('sortDir', sortDirEl.value);
-                    fetchMetrics();
-                });
-            });
-        })();
-
-        // Load saved notification settings and sync from backend
-        document.getElementById('notifCpuThreshold').value = localStorage.getItem('notifCpuThreshold') || 80;
-        document.getElementById('notifRamThreshold').value = localStorage.getItem('notifRamThreshold') || 80;
-        fetch('/api/notification-settings')
-          .then(res => res.json())
-          .then(settings => {
-            if (settings) {
-              if (settings.cpu_threshold !== undefined) {
-                document.getElementById('notifCpuThreshold').value = settings.cpu_threshold;
-                localStorage.setItem('notifCpuThreshold', settings.cpu_threshold);
-              }
-              if (settings.ram_threshold !== undefined) {
-                document.getElementById('notifRamThreshold').value = settings.ram_threshold;
-                localStorage.setItem('notifRamThreshold', settings.ram_threshold);
-              }
-              if (settings.window_seconds !== undefined) {
-                document.getElementById('notifWindowSeconds').value = settings.window_seconds;
-                localStorage.setItem('notifWindowSeconds', settings.window_seconds);
-              }
-              document.getElementById('notifEnableCPU').checked = settings.cpu_enabled;
-              document.getElementById('notifEnableRAM').checked = settings.ram_enabled;
-              document.getElementById('notifEnableStatus').checked = settings.status_enabled;
-              document.getElementById('notifEnableUpdate').checked = settings.update_enabled;
-              localStorage.setItem('notifEnableCPU', settings.cpu_enabled);
-              localStorage.setItem('notifEnableRAM', settings.ram_enabled);
-              localStorage.setItem('notifEnableStatus', settings.status_enabled);
-              localStorage.setItem('notifEnableUpdate', settings.update_enabled);
-            }
-          })
-          .catch(() => {});
-
-        // Setup notification toggle button
-        document.getElementById('notifToggle').addEventListener('click', (event) => {
-          event.stopPropagation(); // Prevent click from closing panel immediately if bubbling
-          const notifPanelElement = document.getElementById('notifPanel'); // Get panel element
-          const isVisible = notifPanelElement.style.display === 'block';
-          notifPanelElement.style.display = isVisible ? 'none' : 'block';
-          if (!isVisible) { // If panel was just opened
-            renderNotifList(); // Render the current list
-            notifications.length = 0; // Clear notifications (mark as read)
-            updateNotifBadge(); // Update badge count
-          }
-        });
-        // Close notification panel if clicking outside
-        document.addEventListener('click', (event) => {
-            const notifPanelElement = document.getElementById('notifPanel');
-            const notifToggleElement = document.getElementById('notifToggle');
-            // Check if the click is outside the panel AND outside the toggle button
-            if (notifPanelElement && notifToggleElement && !notifPanelElement.contains(event.target) && !notifToggleElement.contains(event.target)) {
-                notifPanelElement.style.display = 'none';
-            }
-        });
-
-        // Clear notifications
-        document.getElementById('clearNotifsBtn').addEventListener('click', () => {
-          notifications.length = 0;
-          renderNotifList();
-          updateNotifBadge();
-        });
-
-        // Save notification settings
-        document.getElementById('saveNotifSettingsBtn').addEventListener('click', () => {
-          localStorage.setItem('notifCpuThreshold', document.getElementById('notifCpuThreshold').value);
-          localStorage.setItem('notifRamThreshold', document.getElementById('notifRamThreshold').value);
-          // Reset previous metrics so new thresholds will trigger
-          prevMetricsData = [];
-          // Show message in status area instead of alert
-          statusMessageArea.textContent = 'Notification settings saved ✅';
-          statusMessageArea.style.color = '#7a49cd';
-
-          // --- NEW: Sync settings with backend ---
-          fetch('/api/notification-settings', {
-            method: 'POST',
-            headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({
-              cpu_enabled:   document.getElementById('notifEnableCPU').checked,
-              ram_enabled:   document.getElementById('notifEnableRAM').checked,
-              status_enabled:document.getElementById('notifEnableStatus').checked,
-              update_enabled:document.getElementById('notifEnableUpdate').checked,
-              cpu_threshold: +document.getElementById('notifCpuThreshold').value,
-              ram_threshold: +document.getElementById('notifRamThreshold').value,
-              window_seconds:+document.getElementById('notifWindowSeconds').value
-            })
-          });
-        });
-
-        document.getElementById('checkUpdatesBtn').addEventListener('click', async () => {
-          statusMessageArea.textContent = 'Checking for updates...';
-          statusMessageArea.style.color = '#7a49cd';
-          try {
-            await fetch('/api/metrics?force=true');
-            statusMessageArea.textContent = 'Update check completed.';
-            statusMessageArea.style.color = '#7a49cd';
-          } catch (e) {
-            statusMessageArea.textContent = 'Error checking for updates.';
-            statusMessageArea.style.color = 'red';
-          }
-        });
-
-        console.log(`Docker Monitor UI Initialized. Refreshing every ${REFRESH_INTERVAL_MS / 1000} seconds.`);
-      } catch (e) {
-        console.error('Init error', e);
-        statusMessageArea.textContent = 'Initialization error. Check console.'; // Show init error
-      }
-    });
-
-    function updateColumnCheckboxesForUser(allowedColumns) {
-        // Esta función actualiza los checkboxes de columnas basándose en los permisos del usuario
-        if (!allowedColumns || !Array.isArray(allowedColumns)) {
-            console.error("No se proporcionaron columnas permitidas válidas");
-            return;
-        }
-
-        console.log("Actualizando checkboxes con permisos:", allowedColumns);
-        
-        // Recorrer todos los checkboxes de columnas
-        document.querySelectorAll('.column-toggles .form-check-input').forEach(checkbox => {
-            const columnName = checkbox.value;
-            
-            // Siempre permitir la columna 'name'
-            if (columnName === 'name') {
-                checkbox.checked = true;
-                checkbox.disabled = true;
-                return;
-            }
-            
-            // Verificar si la columna está en la lista de permitidas
-            const isAllowed = allowedColumns.includes(columnName);
-            
-            // Si no está permitida, desactivar y desmarcar el checkbox
-            if (!isAllowed) {
-                checkbox.checked = false;
-                checkbox.disabled = true;
-                checkbox.parentElement.classList.add('text-muted'); // Atenuar visualmente
-                
-                // Esconder la columna en la tabla
-                metricsTable.classList.add(`hide-col-${columnName}`);
-                
-                // Opcional: agregar un tooltip o indicador visual
-                checkbox.title = "No tienes permiso para ver esta columna";
-            }
-        });
-        
-        // Actualizar el colspan para filas de proyecto después de aplicar los cambios
-        updateProjectRowColspans();
-    }
-    
-    // Función auxiliar para obtener el token CSRF
-    function getCsrfToken() {
-        return '{{ csrf_token }}';
-    }
-
-    function populateTable(data) {
-      // Check if we have data
-      if (!data || !Array.isArray(data)) {
-        console.error("Invalid data format received:", data);
-        tableStatusDiv.textContent = "Error: No se recibieron datos válidos";
-        return;
-      }
-      
-      console.log(`Rendering table with ${data.length} containers`);
-      
-      // Keep a copy for notifications processing
-      checkNotifications(data);
-      
-      // Process and display data
-      renderTable(data);
-      
-      // Update the status area with info about the data refresh
-      const now = new Date();
-      const time = now.toLocaleTimeString();
-      
-      // Clear previous error styling if present
-      tableStatusDiv.style.color = '';
-      tableStatusDiv.textContent = `${data.length} container(s) - Updated at ${time}`;
-    }
-
-    // --- Mobile Sidebar Menu Logic ---
-    document.addEventListener('DOMContentLoaded', function() {
-      // Mobile menu elements
-      const mobileMenuToggle = document.getElementById('mobileMenuToggle');
-      const sidebarMenu = document.getElementById('sidebarMenu');
-      const sidebarClose = document.getElementById('sidebarClose');
-      const sidebarOverlay = document.getElementById('sidebarOverlay');
-      const sidebarNotifToggle = document.getElementById('sidebarNotifToggle');
-      const sidebarThemeToggle = document.getElementById('sidebarThemeToggle');
-      const sidebarUserInfoBtn = document.getElementById('sidebarUserInfoBtn');
-      const sidebarSettingsBtn = document.getElementById('sidebarSettingsBtn');
-      const sidebarLogoutBtn = document.getElementById('sidebarLogoutBtn');
-      
-      // Show sidebar menu
-      mobileMenuToggle.addEventListener('click', function() {
-        sidebarMenu.classList.add('active');
-        sidebarOverlay.style.display = 'block';
-        document.body.style.overflow = 'hidden'; // Prevent scrolling while menu is open
-      });
-      
-      // Hide sidebar menu
-      function closeSidebarMenu() {
-        sidebarMenu.classList.remove('active');
-        sidebarOverlay.style.display = 'none';
-        document.body.style.overflow = '';
-      }
-      
-      sidebarClose.addEventListener('click', closeSidebarMenu);
-      sidebarOverlay.addEventListener('click', closeSidebarMenu);
-      
-      // Copy notification badge from top navigation to sidebar
-      function syncNotificationsBadge() {
-        const mainBadge = document.getElementById('notifBadge');
-        const sidebarBadge = document.getElementById('sidebarNotifBadge');
-        if (mainBadge && sidebarBadge) {
-          sidebarBadge.textContent = mainBadge.textContent;
-          sidebarBadge.style.display = mainBadge.style.display;
-        }
-      }
-      
-      // Call it initially and whenever notifications change
-      syncNotificationsBadge();
-      const originalUpdateNotifBadge = updateNotifBadge;
-      updateNotifBadge = function() {
-        originalUpdateNotifBadge.apply(this, arguments);
-        syncNotificationsBadge();
-      };
-      
-      // Create a notification panel for mobile view
-      function createMobileNotifPanel() {
-        // Check if mobile notification panel already exists
-        if (document.getElementById('mobileNotifPanel')) {
-          return document.getElementById('mobileNotifPanel');
-        }
-        
-        // Clone the existing notification panel
-        const originalPanel = document.getElementById('notifPanel');
-        const mobilePanel = originalPanel.cloneNode(true);
-        mobilePanel.id = 'mobileNotifPanel';
-        mobilePanel.style.display = 'none';
-        
-        // Position it fixed instead of absolute for mobile
-        mobilePanel.style.position = 'fixed';
-        mobilePanel.style.top = '50%';
-        mobilePanel.style.left = '50%';
-        mobilePanel.style.transform = 'translate(-50%, -50%)';
-        mobilePanel.style.width = '90%';
-        mobilePanel.style.maxWidth = '400px';
-        mobilePanel.style.maxHeight = '90vh';
-        mobilePanel.style.overflowY = 'auto';
-        mobilePanel.style.zIndex = '2000';
-        mobilePanel.style.backgroundColor = 'var(--bs-body-bg)';
-        mobilePanel.style.border = '1px solid var(--bs-border-color)';
-        mobilePanel.style.borderRadius = '8px';
-        mobilePanel.style.boxShadow = '0 5px 15px rgba(0, 0, 0, 0.3)';
-        mobilePanel.style.padding = '16px';
-        
-        // Add title to the mobile notification panel
-        const titleEl = document.createElement('h5');
-        titleEl.textContent = 'Notifications';
-        titleEl.style.marginBottom = '16px';
-        titleEl.style.textAlign = 'center';
-        mobilePanel.insertBefore(titleEl, mobilePanel.firstChild);
-        
-        // Clone event listeners as well for form elements inside the panel
-        const originalSaveBtn = originalPanel.querySelector('#saveNotifSettingsBtn');
-        const mobileSaveBtn = mobilePanel.querySelector('#saveNotifSettingsBtn');
-        
-        if (mobileSaveBtn && originalSaveBtn) {
-          mobileSaveBtn.addEventListener('click', () => {
-            // Update values in the original panel
-            const fields = ['notifCpuThreshold', 'notifRamThreshold', 'notifEnableCPU', 
-                           'notifEnableRAM', 'notifEnableStatus', 'notifEnableUpdate', 'notifWindowSeconds'];
-            
-            fields.forEach(field => {
-              const mobileElement = mobilePanel.querySelector(`#${field}`);
-              const originalElement = document.getElementById(field);
-              
-              if (mobileElement && originalElement) {
-                if (mobileElement.type === 'checkbox') {
-                  originalElement.checked = mobileElement.checked;
-                } else {
-                  originalElement.value = mobileElement.value;
-                }
-              }
-            });
-            
-            // Save settings to localStorage
-            localStorage.setItem('notifCpuThreshold', document.getElementById('notifCpuThreshold').value);
-            localStorage.setItem('notifRamThreshold', document.getElementById('notifRamThreshold').value);
-            localStorage.setItem('notifEnableCPU', document.getElementById('notifEnableCPU').checked);
-            localStorage.setItem('notifEnableRAM', document.getElementById('notifEnableRAM').checked);
-            localStorage.setItem('notifEnableStatus', document.getElementById('notifEnableStatus').checked);
-            localStorage.setItem('notifEnableUpdate', document.getElementById('notifEnableUpdate').checked);
-            localStorage.setItem('notifWindowSeconds', document.getElementById('notifWindowSeconds').value);
-            
-            // Hide mobile panel
-            mobilePanel.style.display = 'none';
-            document.getElementById('mobileNotifOverlay').style.display = 'none';
-            
-            // Show confirmation message
-            statusMessageArea.textContent = 'Notification settings saved ✅';
-            statusMessageArea.style.color = '#7a49cd';
-          });
-        }
-        
-        const originalClearBtn = originalPanel.querySelector('#clearNotifsBtn');
-        const mobileClearBtn = mobilePanel.querySelector('#clearNotifsBtn');
-        
-        if (mobileClearBtn && originalClearBtn) {
-          mobileClearBtn.addEventListener('click', () => {
-            // Clear notifications
-            notifications.length = 0;
-            renderNotifList();
-            updateNotifBadge();
-            
-            // Update the mobile panel's notification list
-            if (mobilePanel.querySelector('#notifList')) {
-              mobilePanel.querySelector('#notifList').innerHTML = '<p class="small text-muted">No notifications</p>';
-            }
-          });
-        }
-        
-        // Create an overlay behind the mobile notification panel
-        const mobileOverlay = document.createElement('div');
-        mobileOverlay.id = 'mobileNotifOverlay';
-        mobileOverlay.style.position = 'fixed';
-        mobileOverlay.style.top = '0';
-        mobileOverlay.style.left = '0';
-        mobileOverlay.style.width = '100%';
-        mobileOverlay.style.height = '100%';
-        mobileOverlay.style.backgroundColor = 'rgba(0,0,0,0.5)';
-        mobileOverlay.style.zIndex = '1990';
-        mobileOverlay.style.display = 'none';
-        
-        // Close panel when clicking overlay
-        mobileOverlay.addEventListener('click', () => {
-          mobilePanel.style.display = 'none';
-          mobileOverlay.style.display = 'none';
-        });
-        
-        // Add a close button to the mobile panel
-        const closeBtn = document.createElement('button');
-        closeBtn.type = 'button';
-        closeBtn.className = 'btn-close position-absolute';
-        closeBtn.style.top = '10px';
-        closeBtn.style.right = '10px';
-        closeBtn.setAttribute('aria-label', 'Close');
-        
-        closeBtn.addEventListener('click', () => {
-          mobilePanel.style.display = 'none';
-          mobileOverlay.style.display = 'none';
-        });
-        
-        mobilePanel.appendChild(closeBtn);
-        document.body.appendChild(mobileOverlay);
-        document.body.appendChild(mobilePanel);
-        
-        return mobilePanel;
-      }
-      
-      // Sidebar buttons functionality
-      sidebarNotifToggle.addEventListener('click', function() {
-        closeSidebarMenu();
-        
-        // Create/get the mobile notification panel
-        const mobilePanel = createMobileNotifPanel();
-        const mobileOverlay = document.getElementById('mobileNotifOverlay');
-        
-        // Update notification list in mobile panel
-        mobilePanel.querySelector('#notifList').innerHTML = document.getElementById('notifList').innerHTML;
-        
-        // Sync settings from original panel to mobile panel
-        mobilePanel.querySelector('#notifCpuThreshold').value = document.getElementById('notifCpuThreshold').value;
-        mobilePanel.querySelector('#notifRamThreshold').value = document.getElementById('notifRamThreshold').value;
-        mobilePanel.querySelector('#notifEnableCPU').checked = document.getElementById('notifEnableCPU').checked;
-        mobilePanel.querySelector('#notifEnableRAM').checked = document.getElementById('notifEnableRAM').checked;
-        mobilePanel.querySelector('#notifEnableStatus').checked = document.getElementById('notifEnableStatus').checked;
-        mobilePanel.querySelector('#notifEnableUpdate').checked = document.getElementById('notifEnableUpdate').checked;
-        mobilePanel.querySelector('#notifWindowSeconds').value = document.getElementById('notifWindowSeconds').value;
-        
-        // Show mobile panel
-        mobilePanel.style.display = 'block';
-        mobileOverlay.style.display = 'block';
-        
-        // Mark notifications as read
-        notifications.length = 0;
-        updateNotifBadge();
-        renderNotifList();
-      });
-      
-      sidebarThemeToggle.addEventListener('click', function() {
-        currentTheme = (currentTheme === 'light' ? 'dark' : 'light');
-        localStorage.setItem('theme', currentTheme);
-        applyTheme(currentTheme);
-        document.getElementById('sidebarThemeToggle').innerHTML = currentTheme === 'dark' ? '☀️ Toggle Theme' : '🌙 Toggle Theme';
-      });
-      
-      sidebarUserInfoBtn.addEventListener('click', function() {
-        closeSidebarMenu();
-        // Already displays user info in the button
-      });
-      
-      sidebarSettingsBtn.addEventListener('click', function() {
-        closeSidebarMenu();
-        settingsModal.show();
-      });
-      
-      sidebarLogoutBtn.addEventListener('click', function() {
-        closeSidebarMenu();
-        logoutBtn.click();
-      });
-      
-      // Update user info in sidebar
-      function updateSidebarUserInfo() {
-        fetch('/whoami')
-          .then(r => r.json())
-          .then(me => {
-            if (me && me.username) {
-              sidebarUserLabel.textContent = `${me.username} (${me.role})`;
-            }
-          });
-      }
-      updateSidebarUserInfo();
-      
-      // Update theme toggle button in sidebar initially
-      sidebarThemeToggle.innerHTML = currentTheme === 'dark' ? '☀️ Toggle Theme' : '🌙 Toggle Theme';
-    });
   </script>
+  <script type="module" src="{{ url_for('static', filename='js/dashboard/app.js') }}"></script>
 </body>
 </html>

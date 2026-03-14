@@ -1,49 +1,80 @@
 # -*- coding: utf-8 -*-
 
+import logging
+
 import docker
 import requests_unixsocket
-import sys
+
 from config import DOCKER_SOCKET_URL
 
 # Patch requests for http+docker:// support (or unix:// handling)
-# It's good to keep it just in case requests is used internally over the socket.
 requests_unixsocket.monkeypatch()
 
-# --- Docker Client Initialization ---
 client = None
 api_client = None
+init_error = None
+init_attempted = False
 
-try:
-    print(f"Attempting to connect to Docker daemon via {DOCKER_SOCKET_URL}...")
-    # Explicitly use the standard Unix socket path for both clients
-    # Set a reasonable timeout (e.g. 10 seconds)
-    client = docker.DockerClient(base_url=DOCKER_SOCKET_URL, timeout=10)
-    api_client = docker.APIClient(base_url=DOCKER_SOCKET_URL, timeout=10)
 
-    # Test connection
-    client.ping()
-    print(f"Docker client successfully connected via {DOCKER_SOCKET_URL}.")
+def initialize_docker_clients(force=False):
+    """Initialize Docker clients lazily so the app can start in degraded mode."""
+    global client, api_client, init_error, init_attempted
 
-except docker.errors.DockerException as e:
-    print(f"ERROR: Failed to connect to Docker daemon at {DOCKER_SOCKET_URL}.")
-    print(f"       Please make sure the Docker daemon is running and the socket is accessible.")
-    print(f"       (On Linux/macOS, check that '{DOCKER_SOCKET_URL}' exists and has the correct permissions).")
-    print(f"       Error details: {e}")
-    sys.exit(1) # Exit if connection fails
-except Exception as e:
-    print(f"ERROR: An unexpected error occurred while connecting to Docker: {e}")
-    sys.exit(1) # Exit if connection fails
+    if init_attempted and not force and client and api_client:
+        return True
+
+    init_attempted = True
+
+    try:
+        logging.info("Attempting to connect to Docker daemon via %s", DOCKER_SOCKET_URL)
+        client = docker.DockerClient(base_url=DOCKER_SOCKET_URL, timeout=10)
+        api_client = docker.APIClient(base_url=DOCKER_SOCKET_URL, timeout=10)
+        client.ping()
+        init_error = None
+        logging.info("Docker client successfully connected via %s", DOCKER_SOCKET_URL)
+        return True
+    except docker.errors.DockerException as exc:
+        client = None
+        api_client = None
+        init_error = (
+            f"Failed to connect to Docker daemon at {DOCKER_SOCKET_URL}: {exc}. "
+            "Make sure the daemon is running and the socket is accessible."
+        )
+        logging.error(init_error)
+        return False
+    except Exception as exc:
+        client = None
+        api_client = None
+        init_error = f"Unexpected Docker initialization error at {DOCKER_SOCKET_URL}: {exc}"
+        logging.error(init_error)
+        return False
+
+
+def get_docker_status():
+    """Return the current Docker connectivity status for diagnostics."""
+    if not init_attempted:
+        initialize_docker_clients()
+
+    return {
+        "connected": bool(client and api_client),
+        "base_url": DOCKER_SOCKET_URL,
+        "error": init_error,
+    }
+
 
 def get_docker_client():
-    """Returns the Docker client instance."""
+    """Return the Docker client instance, retrying initialization if needed."""
     if not client:
-        raise RuntimeError("Docker client is not initialized.")
+        initialize_docker_clients(force=True)
+    if not client:
+        raise RuntimeError(init_error or "Docker client is not initialized.")
     return client
 
-def get_api_client():
-    """Returns the Docker API client instance."""
-    if not api_client:
-        raise RuntimeError("Docker API client is not initialized.")
-    return api_client
 
-# --- End Docker Client Initialization ---
+def get_api_client():
+    """Return the low-level Docker API client instance, retrying if needed."""
+    if not api_client:
+        initialize_docker_clients(force=True)
+    if not api_client:
+        raise RuntimeError(init_error or "Docker API client is not initialized.")
+    return api_client
