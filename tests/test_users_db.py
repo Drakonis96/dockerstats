@@ -22,6 +22,20 @@ def test_user_crud_and_password_change(temp_db):
     assert users_db.user_exists("alice") is False
 
 
+def test_directory_db_path_is_resolved_to_file(tmp_path, monkeypatch):
+    db_dir = tmp_path / "users.db"
+    db_dir.mkdir()
+    monkeypatch.setenv("USERS_DB_PATH", str(db_dir))
+
+    users_db.migrate_add_columns_and_role_and_settings()
+    users_db.init_db("admin", "adminpass")
+
+    resolved_path = users_db.get_db_path()
+    assert resolved_path == str(db_dir / "users.db")
+    assert (db_dir / "users.db").exists()
+    assert users_db.validate_user("admin", "adminpass") is True
+
+
 def test_notification_settings_are_persisted(temp_db):
     settings = {
         "cpu_enabled": False,

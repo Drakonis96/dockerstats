@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.8.2
+
+- Fixed database path resolution on fresh Docker installs and legacy bind mounts.
+
 ## v0.8.1
 
 - Minor fixes.

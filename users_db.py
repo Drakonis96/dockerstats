@@ -1,17 +1,36 @@
+import json
+import logging
 import os
 import sqlite3
-import json
 import time
-from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 
-DEFAULT_DB_PATH = os.path.join(os.path.dirname(__file__), 'users.db')
+APP_DIR = os.path.dirname(__file__)
+DEFAULT_DB_PATH = os.path.join(APP_DIR, 'data', 'users.db')
+LEGACY_DB_PATH = os.path.join(APP_DIR, 'users.db')
+
+
+def _normalize_db_path(path):
+    if os.path.isdir(path):
+        resolved_path = os.path.join(path, 'users.db')
+        logging.warning("Database path %s is a directory; using %s instead.", path, resolved_path)
+        return resolved_path
+    return path
 
 
 def get_db_path():
-    return os.environ.get('USERS_DB_PATH', DEFAULT_DB_PATH)
+    configured_path = os.environ.get('USERS_DB_PATH', '').strip()
+    if configured_path:
+        return _normalize_db_path(configured_path)
+    if os.path.isfile(LEGACY_DB_PATH) or os.path.isdir(LEGACY_DB_PATH):
+        return _normalize_db_path(LEGACY_DB_PATH)
+    return DEFAULT_DB_PATH
+
 
 def get_db():
-    conn = sqlite3.connect(get_db_path())
+    db_path = get_db_path()
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     return conn
 

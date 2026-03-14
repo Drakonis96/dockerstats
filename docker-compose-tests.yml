@@ -34,7 +34,7 @@ services:
       - "5001:5000"   # Expose the monitor app on the host
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./users.db:/app/users.db
+      - ./data:/app/data
     environment:
       #AUTH_USER: "admin"
       #AUTH_PASSWORD: "admin"
