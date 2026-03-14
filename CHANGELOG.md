@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.8.1
+
+- Minor fixes.
+
 ## v0.8.0
 
 ### Added

@@ -5,7 +5,7 @@ services:
     image: drakonis96/dockerstats:latest
     container_name: docker-stats
     environment:
-      APP_VERSION: ${APP_VERSION:-v0.8.0}
+      APP_VERSION: ${APP_VERSION:-v0.8.1}
       APP_SECRET_KEY: ${APP_SECRET_KEY}
       AUTH_ENABLED: ${AUTH_ENABLED:-true}
       AUTH_USER: ${AUTH_USER:-}
