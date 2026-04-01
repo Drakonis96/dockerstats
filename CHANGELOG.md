@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.9.3
+
+### Changed
+- Redesigned the Update Manager inventory into a compact, collapsed-by-default layout so Compose stacks, standalone containers, and history entries show only the item name plus the new target version until expanded.
+- Added smooth expand/collapse transitions and a shared chevron-driven interaction model across Projects, Containers, and History tabs for higher information density and better visual consistency.
+
+### Testing
+- Updated the end-to-end Update Manager coverage to validate the collapsed-by-default behavior, on-demand expansion, and update/rollback actions from the expanded details panel.
+
 ## v0.9.2
 
 ### Changed

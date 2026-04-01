@@ -390,7 +390,19 @@ export function createNotificationController(ctx) {
 
   function confirmClearNotifications() {
     clearNotifications();
-    ensureClearNotificationsModal()?.hide();
+    const modal = ensureClearNotificationsModal();
+    modal?.hide();
+    requestAnimationFrame(() => {
+      if (!ctx.elements.clearNotificationsModalEl?.classList.contains('show')) {
+        return;
+      }
+      ctx.elements.clearNotificationsModalEl.classList.remove('show');
+      ctx.elements.clearNotificationsModalEl.style.display = 'none';
+      ctx.elements.clearNotificationsModalEl.setAttribute('aria-hidden', 'true');
+      document.body.classList.remove('modal-open');
+      document.body.style.removeProperty('padding-right');
+      document.querySelectorAll('.modal-backdrop').forEach((element) => element.remove());
+    });
   }
 
   async function saveSettings() {

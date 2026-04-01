@@ -36,84 +36,114 @@ function formatTargetType(value) {
   return String(value || '').toLowerCase() === 'project' ? 'Compose stack' : 'Container';
 }
 
-function renderVersion(value) {
+function renderVersion(value, className = 'update-version-code') {
   const safe = escapeHtml(value || 'Unknown');
-  return `<code class="update-version-code">${safe}</code>`;
+  return `<code class="${className}">${safe}</code>`;
 }
 
-function renderListHead(includeActions = true) {
+function renderPlaceholder(message) {
+  return `<div class="update-manager-empty">${escapeHtml(message)}</div>`;
+}
+
+function renderKeyValue(label, value, valueClass = '') {
   return `
-    <div class="update-target-list-head">
-      <div>Name</div>
-      <div>Type</div>
-      <div>Current version</div>
-      <div>Latest version</div>
-      <div>Status</div>
-      <div>Last check</div>
-      ${includeActions ? '<div>Action</div>' : '<div>Result</div>'}
+    <div class="update-entry-detail">
+      <span class="update-entry-detail-label">${escapeHtml(label)}</span>
+      <span class="update-entry-detail-value ${valueClass}">${value}</span>
     </div>
   `;
 }
 
-function renderEntryDetails(entries = []) {
+function renderServiceEntries(entries = []) {
   if (!Array.isArray(entries) || entries.length === 0) {
     return '';
   }
 
   return `
-    <div class="update-target-row-details">
-      ${entries.map((entry) => `
-        <div class="update-target-row-detail">
-          <span class="update-target-row-detail-service">${escapeHtml(entry.service || entry.container_id || 'service')}</span>
-          <span class="update-target-row-detail-versions">
-            ${renderVersion(entry.current_version)}
-            <span class="update-entry-arrow"><i class="bi bi-arrow-right" aria-hidden="true"></i></span>
-            ${renderVersion(entry.latest_version || entry.new_version)}
-          </span>
-        </div>
-      `).join('')}
+    <div class="update-entry-section">
+      <div class="update-entry-section-title">Services</div>
+      <div class="update-entry-service-list">
+        ${entries.map((entry) => `
+          <div class="update-entry-service-row">
+            <span class="update-entry-service-name">${escapeHtml(entry.service || entry.container_id || 'service')}</span>
+            <span class="update-entry-service-versions">
+              ${renderVersion(entry.current_version, 'update-version-code update-version-code--inline')}
+              <i class="bi bi-arrow-right" aria-hidden="true"></i>
+              ${renderVersion(entry.latest_version || entry.new_version, 'update-version-code update-version-code--inline')}
+            </span>
+          </div>
+        `).join('')}
+      </div>
     </div>
   `;
 }
 
-function renderTargetRow(item) {
-  const state = String(item.update_state || '').toLowerCase();
+function renderSummaryVersion(value) {
+  return `
+    <span class="update-entry-summary-version-copy">
+      <span class="update-entry-summary-version-label">New version</span>
+      ${renderVersion(value, 'update-version-code update-version-code--summary')}
+    </span>
+  `;
+}
+
+function renderTargetEntry(item, index, groupKey) {
+  const state = String(item.update_state || '').toLowerCase() || 'pending';
+  const panelId = `update-entry-panel-${groupKey}-${index}`;
   const buttonDisabled = state !== 'ready' ? 'disabled' : '';
-  const serviceSummary = Array.isArray(item.entries) && item.entries.length > 0
-    ? `<div class="update-target-row-meta">${escapeHtml(item.entries.map((entry) => entry.service || entry.container_id || 'service').join(', '))}</div>`
-    : '';
   const reason = item.state_reason
-    ? `<div class="update-target-row-note">${escapeHtml(item.state_reason)}</div>`
+    ? `<div class="update-entry-note">${escapeHtml(item.state_reason)}</div>`
     : '';
 
   return `
-    <div class="update-target-list-row" data-target-type="${escapeHtml(item.type)}" data-update-state="${escapeHtml(state || 'pending')}">
-      <div class="update-target-list-cell update-target-list-cell--name">
-        <strong>${escapeHtml(item.name)}</strong>
-        ${serviceSummary}
-        ${reason}
+    <article class="update-entry" data-target-type="${escapeHtml(item.type)}" data-update-state="${escapeHtml(state)}">
+      <button
+        type="button"
+        class="update-entry-toggle"
+        data-update-entry-toggle
+        aria-expanded="false"
+        aria-controls="${panelId}"
+      >
+        <span class="update-entry-summary">
+          <span class="update-entry-summary-copy">
+            <span class="update-entry-summary-name">${escapeHtml(item.name)}</span>
+            <span class="update-entry-summary-version">${renderSummaryVersion(item.latest_version)}</span>
+          </span>
+        </span>
+        <span class="update-entry-chevron" aria-hidden="true">
+          <i class="bi bi-chevron-down"></i>
+        </span>
+      </button>
+      <div id="${panelId}" class="update-entry-panel" aria-hidden="true" hidden>
+        <div class="update-entry-panel-inner">
+          <div class="update-entry-details-grid">
+            ${renderKeyValue('Type', escapeHtml(formatTargetType(item.type)))}
+            ${renderKeyValue('Current version', renderVersion(item.current_version))}
+            ${renderKeyValue('Latest version', renderVersion(item.latest_version))}
+            ${renderKeyValue('Status', `<span class="update-target-state" data-state="${escapeHtml(state)}">${escapeHtml(formatStateLabel(state))}</span>`)}
+            ${renderKeyValue('Last check', escapeHtml(formatTimestamp(item.last_checked_at)))}
+          </div>
+          ${reason}
+          ${renderServiceEntries(item.entries)}
+          <div class="update-entry-actions">
+            <button type="button" class="btn btn-primary btn-sm update-target-btn" data-update-target-type="${escapeHtml(item.type)}" data-update-target-id="${escapeHtml(item.target_id)}" ${buttonDisabled}>
+              <i class="bi bi-arrow-repeat" aria-hidden="true"></i>
+              <span>Update</span>
+            </button>
+          </div>
+        </div>
       </div>
-      <div class="update-target-list-cell">${escapeHtml(formatTargetType(item.type))}</div>
-      <div class="update-target-list-cell">${renderVersion(item.current_version)}</div>
-      <div class="update-target-list-cell">${renderVersion(item.latest_version)}</div>
-      <div class="update-target-list-cell">
-        <span class="update-target-state" data-state="${escapeHtml(state || 'pending')}">${escapeHtml(formatStateLabel(state))}</span>
-      </div>
-      <div class="update-target-list-cell">${escapeHtml(formatTimestamp(item.last_checked_at))}</div>
-      <div class="update-target-list-cell update-target-list-cell--actions">
-        <button type="button" class="btn btn-primary btn-sm update-target-btn" data-update-target-type="${escapeHtml(item.type)}" data-update-target-id="${escapeHtml(item.target_id)}" ${buttonDisabled}>
-          <i class="bi bi-arrow-repeat" aria-hidden="true"></i>
-          <span>Update</span>
-        </button>
-      </div>
-    </div>
-    ${renderEntryDetails(item.entries)}
+    </article>
   `;
 }
 
-function renderHistoryRow(entry) {
+function renderHistoryEntry(entry, index) {
   const action = String(entry.action || '').toLowerCase();
-  const result = String(entry.result || '').toLowerCase();
+  const result = String(entry.result || '').toLowerCase() || 'pending';
+  const panelId = `update-entry-panel-history-${index}`;
+  const notes = entry.notes
+    ? `<div class="update-entry-note">${escapeHtml(entry.notes)}</div>`
+    : '';
   const rollbackButton = entry.can_rollback
     ? `
       <button type="button" class="btn btn-outline-secondary btn-sm update-rollback-btn" data-rollback-history-id="${escapeHtml(entry.id)}">
@@ -121,46 +151,54 @@ function renderHistoryRow(entry) {
         <span>Rollback</span>
       </button>
     `
-    : '<span class="update-target-row-meta">No rollback available</span>';
-  const notes = entry.notes
-    ? `<div class="update-target-row-note">${escapeHtml(entry.notes)}</div>`
-    : '';
+    : '<span class="update-entry-actions-note">No rollback available</span>';
 
   return `
-    <div class="update-target-list-row" data-target-type="${escapeHtml(entry.target_type)}" data-update-state="${escapeHtml(result || 'pending')}">
-      <div class="update-target-list-cell update-target-list-cell--name">
-        <strong>${escapeHtml(entry.target_name)}</strong>
-        <div class="update-target-row-meta">${escapeHtml(action === 'rollback' ? 'Rollback' : 'Update')}</div>
-        ${notes}
+    <article class="update-entry" data-target-type="${escapeHtml(entry.target_type)}" data-update-state="${escapeHtml(result)}">
+      <button
+        type="button"
+        class="update-entry-toggle"
+        data-update-entry-toggle
+        aria-expanded="false"
+        aria-controls="${panelId}"
+      >
+        <span class="update-entry-summary">
+          <span class="update-entry-summary-copy">
+            <span class="update-entry-summary-name">${escapeHtml(entry.target_name)}</span>
+            <span class="update-entry-summary-version">${renderSummaryVersion(entry.new_version)}</span>
+          </span>
+        </span>
+        <span class="update-entry-chevron" aria-hidden="true">
+          <i class="bi bi-chevron-down"></i>
+        </span>
+      </button>
+      <div id="${panelId}" class="update-entry-panel" aria-hidden="true" hidden>
+        <div class="update-entry-panel-inner">
+          <div class="update-entry-details-grid">
+            ${renderKeyValue('Type', escapeHtml(formatTargetType(entry.target_type)))}
+            ${renderKeyValue('Action', escapeHtml(action === 'rollback' ? 'Rollback' : 'Update'))}
+            ${renderKeyValue('Previous version', renderVersion(entry.previous_version))}
+            ${renderKeyValue('New version', renderVersion(entry.new_version))}
+            ${renderKeyValue('Result', `<span class="update-target-state" data-state="${escapeHtml(result)}">${escapeHtml(formatStateLabel(result))}</span>`)}
+            ${renderKeyValue('Date', escapeHtml(formatTimestamp(entry.created_at)))}
+          </div>
+          ${notes}
+          <div class="update-entry-actions">
+            ${rollbackButton}
+          </div>
+        </div>
       </div>
-      <div class="update-target-list-cell">${escapeHtml(formatTargetType(entry.target_type))}</div>
-      <div class="update-target-list-cell">${renderVersion(entry.previous_version)}</div>
-      <div class="update-target-list-cell">${renderVersion(entry.new_version)}</div>
-      <div class="update-target-list-cell">
-        <span class="update-target-state" data-state="${escapeHtml(result || 'pending')}">${escapeHtml(formatStateLabel(result))}</span>
-      </div>
-      <div class="update-target-list-cell">${escapeHtml(formatTimestamp(entry.created_at))}</div>
-      <div class="update-target-list-cell update-target-list-cell--actions">
-        ${rollbackButton}
-      </div>
-    </div>
+    </article>
   `;
 }
 
-function renderPlaceholder(message) {
-  return `<div class="update-manager-empty">${escapeHtml(message)}</div>`;
-}
-
-function renderTargetList(items = [], emptyMessage) {
+function renderTargetList(items = [], emptyMessage, groupKey) {
   if (!Array.isArray(items) || items.length === 0) {
     return renderPlaceholder(emptyMessage);
   }
   return `
-    <div class="update-target-list-shell">
-      ${renderListHead(true)}
-      <div class="update-target-list-body">
-        ${items.map(renderTargetRow).join('')}
-      </div>
+    <div class="update-entry-stack">
+      ${items.map((item, index) => renderTargetEntry(item, index, groupKey)).join('')}
     </div>
   `;
 }
@@ -170,11 +208,8 @@ function renderHistoryList(items = [], emptyMessage) {
     return renderPlaceholder(emptyMessage);
   }
   return `
-    <div class="update-target-list-shell">
-      ${renderListHead(true)}
-      <div class="update-target-list-body">
-        ${items.map(renderHistoryRow).join('')}
-      </div>
+    <div class="update-entry-stack">
+      ${items.map((entry, index) => renderHistoryEntry(entry, index)).join('')}
     </div>
   `;
 }
@@ -248,8 +283,8 @@ export function createUpdateManagerController(ctx, deps) {
     const history = Array.isArray(payload.history) ? payload.history : [];
 
     ctx.elements.updateManagerMeta.textContent = `${projects.length} Compose stack(s), ${containers.length} standalone container(s), ${history.length} history entr${history.length === 1 ? 'y' : 'ies'}`;
-    ctx.elements.updateManagerProjectList.innerHTML = renderTargetList(projects, 'No Compose stacks currently have a confirmed update available.');
-    ctx.elements.updateManagerContainerList.innerHTML = renderTargetList(containers, 'No standalone containers currently have a confirmed update available.');
+    ctx.elements.updateManagerProjectList.innerHTML = renderTargetList(projects, 'No Compose stacks currently have a confirmed update available.', 'projects');
+    ctx.elements.updateManagerContainerList.innerHTML = renderTargetList(containers, 'No standalone containers currently have a confirmed update available.', 'containers');
     ctx.elements.updateManagerHistoryList.innerHTML = renderHistoryList(history, 'No updates or rollbacks have been recorded yet.');
   }
 
@@ -292,6 +327,55 @@ export function createUpdateManagerController(ctx, deps) {
         ctx.elements.refreshUpdateManagerBtn.textContent = 'Refresh list';
       }
     }
+  }
+
+  function setEntryExpanded(toggleButton, expanded) {
+    const entry = toggleButton?.closest('.update-entry');
+    const panel = entry?.querySelector('.update-entry-panel');
+    if (!entry || !panel) {
+      return;
+    }
+
+    toggleButton.setAttribute('aria-expanded', String(expanded));
+    panel.setAttribute('aria-hidden', String(!expanded));
+    entry.classList.toggle('is-expanded', expanded);
+
+    if (expanded) {
+      panel.hidden = false;
+      panel.style.maxHeight = '0px';
+      const onTransitionEnd = () => {
+        if (entry.classList.contains('is-expanded')) {
+          panel.style.maxHeight = 'none';
+        }
+        panel.removeEventListener('transitionend', onTransitionEnd);
+      };
+      panel.addEventListener('transitionend', onTransitionEnd);
+      requestAnimationFrame(() => {
+        panel.style.maxHeight = `${panel.scrollHeight}px`;
+      });
+      return;
+    }
+
+    if (panel.style.maxHeight === 'none') {
+      panel.style.maxHeight = `${panel.scrollHeight}px`;
+    }
+    panel.style.maxHeight = `${panel.scrollHeight}px`;
+    requestAnimationFrame(() => {
+      panel.style.maxHeight = '0px';
+    });
+
+    const onTransitionEnd = () => {
+      if (!entry.classList.contains('is-expanded')) {
+        panel.hidden = true;
+      }
+      panel.removeEventListener('transitionend', onTransitionEnd);
+    };
+    panel.addEventListener('transitionend', onTransitionEnd);
+  }
+
+  function toggleEntry(toggleButton) {
+    const expanded = toggleButton.getAttribute('aria-expanded') === 'true';
+    setEntryExpanded(toggleButton, !expanded);
   }
 
   async function executeUpdate(targetType, targetId, button) {
@@ -393,6 +477,12 @@ export function createUpdateManagerController(ctx, deps) {
   }
 
   function handleModalClick(event) {
+    const toggleButton = event.target.closest('[data-update-entry-toggle]');
+    if (toggleButton) {
+      toggleEntry(toggleButton);
+      return;
+    }
+
     const updateButton = event.target.closest('[data-update-target-type][data-update-target-id]');
     if (updateButton) {
       executeUpdate(updateButton.dataset.updateTargetType, updateButton.dataset.updateTargetId, updateButton);

@@ -168,13 +168,23 @@ test('opens the update manager, runs update and rollback, and shows load errors'
   await page.locator('#updateManagerToggle').click();
   await expect(page.locator('#updateManagerModal')).toHaveClass(/show/);
   await expect(page.locator('#updateManagerModal')).toContainText('Experimental');
-  await expect(page.locator('#updateManagerProjectList .update-target-list-head')).toContainText('Current version');
-  await expect(page.locator('#updateManagerProjectList .update-target-list-head')).toContainText('Latest version');
   await expect(page.locator('#updateManagerProjectList')).toContainText('demo');
-  await expect(page.locator('#updateManagerProjectList')).not.toContainText('Blocked');
   await expect(page.locator('#updateManagerContainerList')).toContainText('No standalone containers');
 
-  const updateButton = page.locator('#updateManagerProjectList .update-target-btn').first();
+  const projectEntry = page.locator('#updateManagerProjectList .update-entry').first();
+  const projectToggle = projectEntry.locator('[data-update-entry-toggle]');
+  const projectPanel = projectEntry.locator('.update-entry-panel');
+  await expect(projectToggle).toContainText('demo');
+  await expect(projectToggle).toContainText('New version');
+  await expect(projectPanel).toBeHidden();
+
+  await projectToggle.click();
+  await expect(projectToggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(projectPanel).toBeVisible();
+  await expect(projectPanel).toContainText('Current version');
+  await expect(projectPanel).toContainText('Ready');
+
+  const updateButton = projectPanel.locator('.update-target-btn').first();
   await updateButton.click();
   await expect(page.locator('#appDialogModal')).toHaveClass(/show/);
   await page.locator('#appDialogConfirm').click();
@@ -184,10 +194,20 @@ test('opens the update manager, runs update and rollback, and shows load errors'
 
   await page.locator('#updateManagerHistoryTab').click();
   await expect(page.locator('#updateManagerHistoryPane')).toBeVisible();
-  await expect(page.locator('#updateManagerHistoryList .update-target-list-head')).toContainText('Current version');
-  await expect(page.locator('#updateManagerHistoryList')).toContainText('Rollback');
+  const historyEntry = page.locator('#updateManagerHistoryList .update-entry').first();
+  const historyToggle = historyEntry.locator('[data-update-entry-toggle]');
+  const historyPanel = historyEntry.locator('.update-entry-panel');
+  await expect(historyToggle).toContainText('demo');
+  await expect(historyToggle).toContainText('New version');
+  await expect(historyPanel).toBeHidden();
 
-  const rollbackButton = page.locator('#updateManagerHistoryList .update-rollback-btn').first();
+  await historyToggle.click();
+  await expect(historyToggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(historyPanel).toBeVisible();
+  await expect(historyPanel).toContainText('Previous version');
+  await expect(historyPanel).toContainText('Rollback');
+
+  const rollbackButton = historyPanel.locator('.update-rollback-btn').first();
   await rollbackButton.click();
   await expect(page.locator('#appDialogModal')).toHaveClass(/show/);
   await page.locator('#appDialogConfirm').click();
