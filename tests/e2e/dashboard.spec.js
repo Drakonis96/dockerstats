@@ -7,6 +7,19 @@ test.beforeEach(async ({ request }) => {
 test('renders table, summaries and filters', async ({ page }) => {
   await page.goto('/');
 
+  const layoutMetrics = await page.evaluate(() => {
+    const tableView = document.getElementById('tableView');
+    return {
+      docClientWidth: document.documentElement.clientWidth,
+      docScrollWidth: document.documentElement.scrollWidth,
+      tableClientWidth: tableView?.clientWidth ?? 0,
+      tableScrollWidth: tableView?.scrollWidth ?? 0,
+    };
+  });
+
+  expect(layoutMetrics.docScrollWidth).toBe(layoutMetrics.docClientWidth);
+  expect(layoutMetrics.tableScrollWidth).toBeGreaterThan(layoutMetrics.tableClientWidth);
+
   await expect(page.locator('#summaryTotal')).toHaveText('3');
   await expect(page.locator('#summaryRunning')).toHaveText('2');
   await expect(page.locator('#summaryExited')).toHaveText('1');

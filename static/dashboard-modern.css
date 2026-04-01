@@ -20,6 +20,7 @@ body {
     radial-gradient(circle at top right, rgba(230, 134, 47, 0.12), transparent 28%),
     linear-gradient(180deg, #f9fbf8 0%, var(--ds-bg) 100%);
   color: var(--ds-text);
+  overflow-x: hidden;
 }
 
 body::before {
@@ -1115,10 +1116,31 @@ nav.navbar {
 .table-shell {
   border-radius: 24px;
   padding: 1rem;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 #tableView {
   border-radius: 18px;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+}
+
+.dashboard-view-shell,
+.dashboard-view-content,
+.dashboard-view-content > .tab-pane,
+#dashboardContainersPane,
+#dashboardComposePane {
+  min-width: 0;
+  max-width: 100%;
+}
+
+#metricsTable {
+  min-width: 100%;
 }
 
 #metricsTable thead th {

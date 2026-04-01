@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.9.4
+
+### Fixed
+- Contained the containers table horizontal scroll inside the `Containers` panel again so the page no longer expands sideways with the table width.
+- Added explicit width/min-width guards around the dashboard tab content and table shell to prevent document-level horizontal overflow regressions.
+
+### Testing
+- Added an end-to-end layout regression check to verify the document width stays equal to the viewport while `#tableView` keeps its own horizontal scrolling area.
+
 ## v0.9.3
 
 ### Changed
