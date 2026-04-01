@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.9.2
 
 ### Changed
 - Split the main dashboard into properly tabbed `Compose Stacks` and `Containers` views so only one view is displayed at a time.
