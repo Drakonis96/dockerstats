@@ -44,6 +44,7 @@ previous_states = {}
 # --- NUEVO: Control de cacheo de update_available ---
 # Diccionario para cachear el resultado de check_image_update por contenedor
 update_check_cache = {}
+update_check_details_cache = {}
 # Timestamp del último chequeo por contenedor
 update_check_time = {}
 # Intervalo mínimo entre chequeos automáticos (segundos)
@@ -59,11 +60,11 @@ NOTIFICATION_SETTINGS_DEFAULTS = {
     'ram_enabled': True,
     'status_enabled': True,
     'update_enabled': True,
-    'security_enabled': True,
-    'security_privileged_enabled': True,
-    'security_public_ports_enabled': True,
-    'security_latest_enabled': True,
-    'security_docker_socket_enabled': True,
+    'security_enabled': False,
+    'security_privileged_enabled': False,
+    'security_public_ports_enabled': False,
+    'security_latest_enabled': False,
+    'security_docker_socket_enabled': False,
     'cpu_threshold': 80.0,
     'ram_threshold': 80.0,
     'window_seconds': 10,
@@ -261,6 +262,43 @@ def _cleanup_notification_runtime(now_ts, max_age):
         for key, ts in list(state_map.items()):
             if ts < expiry_cutoff:
                 state_map.pop(key, None)
+
+
+def _repo_name_from_image_ref(image_ref):
+    normalized = str(image_ref or '').strip()
+    if '@' in normalized:
+        return normalized.split('@', 1)[0]
+    last_segment = normalized.rsplit('/', 1)[-1]
+    if ':' in last_segment:
+        return normalized.rsplit(':', 1)[0]
+    return normalized
+
+
+def _local_digest_for_image(image, image_ref):
+    if image is None:
+        return None
+    try:
+        repo_digests = image.attrs.get('RepoDigests', []) or []
+    except Exception:
+        repo_digests = []
+
+    repo_name = _repo_name_from_image_ref(image_ref)
+    for digest_ref in repo_digests:
+        if digest_ref.startswith(f'{repo_name}@'):
+            return digest_ref.split('@', 1)[1]
+    if repo_digests:
+        first_digest = repo_digests[0]
+        return first_digest.split('@', 1)[1] if '@' in first_digest else first_digest
+    image_id = getattr(image, 'id', None)
+    return image_id.split(':', 1)[1] if isinstance(image_id, str) and ':' in image_id else image_id
+
+
+def _format_version(image_ref, token, *, pending_label='pending'):
+    if token:
+        return f'{image_ref} @ {str(token)[:12]}'
+    if image_ref:
+        return f'{image_ref} @ {pending_label}'
+    return 'Unknown image'
 
 
 def should_emit_notification(event, settings=None):
@@ -525,6 +563,71 @@ def wait_for_stream_event(last_metrics_seq, last_notification_seq, timeout=15):
         )
         return metrics_sequence, notification_sequence, timed_out
 
+
+def get_update_check_details(container):
+    image_ref = ''
+    current_image = getattr(container, 'image', None)
+    try:
+        image_ref = container.attrs['Config']['Image']
+    except Exception:
+        image_ref = ''
+
+    details = {
+        'image_ref': image_ref,
+        'current_token': None,
+        'latest_token': None,
+        'current_version': _format_version(image_ref, None, pending_label='local-unavailable'),
+        'latest_version': _format_version(image_ref, None, pending_label='registry-pending'),
+        'current_image_id': getattr(current_image, 'id', None),
+        'update_available': None,
+        'error': None,
+    }
+
+    try:
+        if '@sha256:' in image_ref:
+            logging.info(f"[UpdateCheck] Image pinned by digest ({image_ref}); skipping update check.")
+            details['current_version'] = image_ref
+            details['latest_version'] = image_ref
+            details['error'] = 'pinned-digest-image'
+            return details
+
+        if current_image is None:
+            current_image = client.images.get(image_ref)
+            details['current_image_id'] = getattr(current_image, 'id', None)
+
+        current_token = _local_digest_for_image(current_image, image_ref)
+        details['current_token'] = current_token
+        details['current_version'] = _format_version(image_ref, current_token, pending_label='local-unavailable')
+
+        if not current_token:
+            details['latest_version'] = _format_version(image_ref, None, pending_label='registry-unavailable')
+            details['error'] = 'missing-local-digest'
+            logging.warning(f"[UpdateCheck] RepoDigest not found for {image_ref}")
+            return details
+
+        remote_manifest_digest = client.images.get_registry_data(image_ref).id
+        details['latest_token'] = remote_manifest_digest
+        details['latest_version'] = _format_version(image_ref, remote_manifest_digest)
+        details['update_available'] = current_token != remote_manifest_digest
+        logging.info(f"[UpdateCheck] {image_ref} local_digest={current_token} remote_digest={remote_manifest_digest}")
+        return details
+
+    except (docker.errors.ImageNotFound, StopIteration):
+        details['latest_version'] = _format_version(image_ref, None, pending_label='registry-unavailable')
+        details['error'] = 'image-not-found-or-missing-digest'
+        logging.warning(f"[UpdateCheck] Could not compare updates for {container.name} ({image_ref}) - image not found or missing digest.")
+        return details
+    except docker.errors.APIError as e:
+        details['latest_version'] = _format_version(image_ref, None, pending_label='registry-unavailable')
+        details['error'] = f'api-error:{e}'
+        logging.warning(f"[UpdateCheck] API error while checking updates for {container.name}: {e}")
+        return details
+    except Exception as e:
+        details['latest_version'] = _format_version(image_ref, None, pending_label='registry-unavailable')
+        details['error'] = f'unexpected-error:{e}'
+        logging.warning(f"[UpdateCheck] Unexpected error while checking updates for {container.name}: {e}")
+        return details
+
 def check_image_update(container):
     """
     Comprueba si hay una actualización disponible para la imagen del contenedor.
@@ -532,41 +635,11 @@ def check_image_update(container):
     Busca el digest real de la imagen local tal como está referenciada en el registro (por ejemplo, "nginx@sha256:...").
     Así, evita problemas si hay varias imágenes locales con el mismo id pero diferentes referencias.
     """
-    try:
-        image_ref = container.attrs['Config']['Image']  # p. ej. 'nginx:latest' o 'nginx@sha256:...'
-        # Si la imagen ya está fijada por digest, no tiene sentido buscar updates
-        if '@sha256:' in image_ref:
-            logging.info(f"[UpdateCheck] Image pinned by digest ({image_ref}); skipping update check.")
-            return None
-
-        local_img = client.images.get(image_ref)
-        repo_digests = local_img.attrs.get('RepoDigests', [])
-        # Busca el digest real de la imagen local tal como está referenciada en el registro
-        # Ejemplo: si image_ref es 'nginx:latest', busca 'nginx@sha256:...'
-        repo = image_ref.split(':')[0] if ':' in image_ref else image_ref
-        local_digest_ref = None
-        for d in repo_digests:
-            if d.startswith(f'{repo}@'):
-                local_digest_ref = d
-                break
-        if not local_digest_ref:
-            logging.warning(f"[UpdateCheck] RepoDigest not found for {image_ref} in {repo_digests}")
-            return None
-        local_manifest_digest = local_digest_ref.split('@')[1]
-        # Obtiene el digest remoto del registro
-        remote_manifest_digest = client.images.get_registry_data(image_ref).id
-        logging.info(f"[UpdateCheck] {image_ref} local_digest={local_manifest_digest} remote_digest={remote_manifest_digest}")
-        return local_manifest_digest != remote_manifest_digest
-
-    except (docker.errors.ImageNotFound, StopIteration):
-        logging.warning(f"[UpdateCheck] Could not compare updates for {container.name} ({image_ref}) - image not found or missing digest.")
-        return None
-    except docker.errors.APIError as e:
-        logging.warning(f"[UpdateCheck] API error while checking updates for {container.name}: {e}")
-        return None
-    except Exception as e:
-        logging.warning(f"[UpdateCheck] Unexpected error while checking updates for {container.name}: {e}")
-        return None
+    details = get_update_check_details(container)
+    container_id = getattr(container, 'id', None)
+    if container_id:
+        update_check_details_cache[container_id] = details
+    return details.get('update_available')
 
 def get_gpu_usage():
     """
@@ -606,7 +679,7 @@ def get_gpu_usage():
 
 def sample_metrics():
     """Background thread to periodically sample metrics and check for updates."""
-    global history, previous_stats, update_check_cache, update_check_time, force_update_check_all, force_update_check_ids
+    global history, previous_stats, update_check_cache, update_check_details_cache, update_check_time, force_update_check_all, force_update_check_ids
 
     time.sleep(1)
     initialize_sampler_clients()
@@ -861,6 +934,7 @@ def sample_metrics():
                 if cid in history: del history[cid]
                 if cid in previous_stats: del previous_stats[cid]
                 if cid in update_check_cache: del update_check_cache[cid]
+                if cid in update_check_details_cache: del update_check_details_cache[cid]
                 if cid in update_check_time: del update_check_time[cid]
                 previous_security_findings.pop(cid, None)
                 continue
@@ -888,6 +962,8 @@ def sample_metrics():
                     del previous_stats[cid_hist_removed]
                 if cid_hist_removed in update_check_cache:
                     del update_check_cache[cid_hist_removed]
+                if cid_hist_removed in update_check_details_cache:
+                    del update_check_details_cache[cid_hist_removed]
                 if cid_hist_removed in update_check_time:
                     del update_check_time[cid_hist_removed]
                 previous_security_findings.pop(cid_hist_removed, None)

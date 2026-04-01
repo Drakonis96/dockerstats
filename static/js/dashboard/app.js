@@ -491,6 +491,29 @@ function loadPersistedControls() {
   });
 }
 
+function initDashboardViewTabs() {
+  const tabs = [ctx.elements.dashboardComposeTab, ctx.elements.dashboardContainersTab].filter(Boolean);
+  if (tabs.length === 0) {
+    return;
+  }
+
+  tabs.forEach((tab) => {
+    tab.addEventListener('shown.bs.tab', (event) => {
+      const viewName = event.target.dataset.dashboardView || 'containers';
+      localStorage.setItem('dashboardView', viewName);
+      if (viewName === 'containers' && ctx.state.usageChart) {
+        requestAnimationFrame(() => ctx.state.usageChart.resize());
+      }
+    });
+  });
+
+  const savedView = localStorage.getItem('dashboardView') || 'containers';
+  const target = tabs.find((tab) => tab.dataset.dashboardView === savedView) || ctx.elements.dashboardContainersTab || tabs[0];
+  if (target) {
+    bootstrap.Tab.getOrCreateInstance(target).show();
+  }
+}
+
 function bindControls() {
   ctx.elements.themeToggleButton.onclick = toggleTheme;
   ctx.elements.scrollTopButton.onclick = () => window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -584,6 +607,7 @@ async function init() {
   updates.init();
   await notifications.loadSettings();
   await initProjects();
+  initDashboardViewTabs();
   initHeaderSorting();
   bindControls();
   updateQuickFilterUI(ctx);

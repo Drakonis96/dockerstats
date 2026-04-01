@@ -16,14 +16,25 @@ class DummyContainer:
         self.attrs = attrs
 
 
+def enabled_security_settings(**overrides):
+    return {
+        "security_enabled": True,
+        "security_privileged_enabled": True,
+        "security_public_ports_enabled": True,
+        "security_latest_enabled": True,
+        "security_docker_socket_enabled": True,
+        **overrides,
+    }
+
+
 def test_normalize_notification_settings_includes_advanced_defaults():
     settings = sampler.normalize_notification_settings({})
 
-    assert settings["security_enabled"] is True
-    assert settings["security_privileged_enabled"] is True
-    assert settings["security_public_ports_enabled"] is True
-    assert settings["security_latest_enabled"] is True
-    assert settings["security_docker_socket_enabled"] is True
+    assert settings["security_enabled"] is False
+    assert settings["security_privileged_enabled"] is False
+    assert settings["security_public_ports_enabled"] is False
+    assert settings["security_latest_enabled"] is False
+    assert settings["security_docker_socket_enabled"] is False
     assert settings["project_rule_mode"] == "all"
     assert settings["container_rule_mode"] == "all"
     assert settings["cooldown_seconds"] == 0
@@ -163,7 +174,7 @@ def test_collect_security_findings_reports_basic_container_risks():
         ],
     })
 
-    findings = sampler.collect_security_findings(container)
+    findings = sampler.collect_security_findings(container, settings=enabled_security_settings())
     finding_ids = {finding["finding"] for finding in findings}
 
     assert finding_ids == {"privileged", "public_ports", "latest_tag", "docker_socket"}
@@ -183,12 +194,12 @@ def test_get_new_security_notifications_only_emits_new_findings_and_respects_tog
     }
     container = DummyContainer(base_attrs)
 
-    first = sampler.get_new_security_notifications(container)
-    second = sampler.get_new_security_notifications(container)
+    enabled_settings = enabled_security_settings()
+    first = sampler.get_new_security_notifications(container, settings=enabled_settings)
+    second = sampler.get_new_security_notifications(container, settings=enabled_settings)
     muted = sampler.collect_security_findings(container, settings={
-        "security_enabled": True,
+        **enabled_security_settings(),
         "security_privileged_enabled": False,
-        "security_latest_enabled": True,
     })
 
     assert {finding["finding"] for finding in first} == {"privileged", "latest_tag"}

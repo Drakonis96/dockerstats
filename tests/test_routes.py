@@ -162,6 +162,21 @@ def test_notification_settings_roundtrip_for_admin(client, monkeypatch):
     assert get_response.get_json()["security_public_ports_enabled"] is False
 
 
+def test_notification_settings_defaults_disable_security_advisories(client, monkeypatch):
+    set_auth_mode(client, "page")
+    set_page_session(client)
+
+    response = client.get("/api/notification-settings")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["security_enabled"] is False
+    assert payload["security_privileged_enabled"] is False
+    assert payload["security_public_ports_enabled"] is False
+    assert payload["security_latest_enabled"] is False
+    assert payload["security_docker_socket_enabled"] is False
+
+
 def test_notification_test_reports_missing_configuration(client, monkeypatch):
     set_auth_mode(client, "page")
     monkeypatch.setattr(routes, "send_notification", lambda *args, **kwargs: {

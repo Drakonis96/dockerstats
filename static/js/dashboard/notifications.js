@@ -5,11 +5,11 @@ const DEFAULT_NOTIFICATION_SETTINGS = {
   ram_enabled: true,
   status_enabled: true,
   update_enabled: true,
-  security_enabled: true,
-  security_privileged_enabled: true,
-  security_public_ports_enabled: true,
-  security_latest_enabled: true,
-  security_docker_socket_enabled: true,
+  security_enabled: false,
+  security_privileged_enabled: false,
+  security_public_ports_enabled: false,
+  security_latest_enabled: false,
+  security_docker_socket_enabled: false,
   cpu_threshold: 80,
   ram_threshold: 80,
   window_seconds: 10,
@@ -49,6 +49,22 @@ function stringFromStorage(key, fallback) {
 
 export function createNotificationController(ctx) {
   let tooltipInstances = [];
+
+  function ensureNotifSettingsModal() {
+    if (!ctx.elements.notifSettingsModalEl) {
+      return null;
+    }
+    ctx.state.notifSettingsModal = bootstrap.Modal.getOrCreateInstance(ctx.elements.notifSettingsModalEl);
+    return ctx.state.notifSettingsModal;
+  }
+
+  function ensureClearNotificationsModal() {
+    if (!ctx.elements.clearNotificationsModalEl) {
+      return null;
+    }
+    ctx.state.clearNotificationsModal = bootstrap.Modal.getOrCreateInstance(ctx.elements.clearNotificationsModalEl);
+    return ctx.state.clearNotificationsModal;
+  }
 
   function getCurrentSettings() {
     return {
@@ -372,6 +388,11 @@ export function createNotificationController(ctx) {
     updateNotifBadge();
   }
 
+  function confirmClearNotifications() {
+    clearNotifications();
+    ensureClearNotificationsModal()?.hide();
+  }
+
   async function saveSettings() {
     const settings = getCurrentSettings();
     persistSettingsToLocalStorage(settings);
@@ -432,12 +453,7 @@ export function createNotificationController(ctx) {
     }
   }
 
-  function openSettingsModal() {
-    hidePanel();
-    const mobileOverlay = document.getElementById('mobileNotifOverlay');
-    if (mobileOverlay) {
-      mobileOverlay.style.display = 'none';
-    }
+  function resetPanelInlineStyle() {
     Object.assign(ctx.elements.notifPanel.style, {
       position: '',
       top: '',
@@ -451,15 +467,38 @@ export function createNotificationController(ctx) {
       overflowY: '',
       zIndex: '',
     });
-    if (ctx.state.notifSettingsModal) {
-      ctx.state.notifSettingsModal.show();
+  }
+
+  function openSettingsModal(event) {
+    event?.preventDefault();
+    event?.stopPropagation();
+    hidePanel();
+    const mobileOverlay = document.getElementById('mobileNotifOverlay');
+    if (mobileOverlay) {
+      mobileOverlay.style.display = 'none';
     }
+    resetPanelInlineStyle();
+    requestAnimationFrame(() => ensureNotifSettingsModal()?.show());
+  }
+
+  function openClearNotificationsModal(event) {
+    event?.preventDefault();
+    event?.stopPropagation();
+    if (ctx.state.notifications.length === 0) {
+      return;
+    }
+    hidePanel();
+    const mobileOverlay = document.getElementById('mobileNotifOverlay');
+    if (mobileOverlay) {
+      mobileOverlay.style.display = 'none';
+    }
+    resetPanelInlineStyle();
+    requestAnimationFrame(() => ensureClearNotificationsModal()?.show());
   }
 
   function initBootstrapWidgets() {
-    if (ctx.elements.notifSettingsModalEl && !ctx.state.notifSettingsModal) {
-      ctx.state.notifSettingsModal = new bootstrap.Modal(ctx.elements.notifSettingsModalEl);
-    }
+    ensureNotifSettingsModal();
+    ensureClearNotificationsModal();
 
     tooltipInstances.forEach((instance) => instance.dispose());
     tooltipInstances = Array.from(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
@@ -486,7 +525,8 @@ export function createNotificationController(ctx) {
     });
 
     ctx.elements.notifSettingsBtn?.addEventListener('click', openSettingsModal);
-    ctx.elements.clearNotifsBtn?.addEventListener('click', clearNotifications);
+    ctx.elements.clearNotifsBtn?.addEventListener('click', openClearNotificationsModal);
+    ctx.elements.confirmClearNotifsBtn?.addEventListener('click', confirmClearNotifications);
     ctx.elements.saveNotifSettingsBtn?.addEventListener('click', saveSettings);
     ctx.elements.testNotifBtn?.addEventListener('click', triggerNotificationTest);
     ctx.elements.notifSilenceEnabled?.addEventListener('change', () => {

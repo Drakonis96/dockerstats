@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- Split the main dashboard into properly tabbed `Compose Stacks` and `Containers` views so only one view is displayed at a time.
+- Moved update manager history into its own modal tab and switched the update inventory from block cards to a clearer list layout with columns for name, type, versions, state, last check, and action.
+- Aligned the clear-notifications flow with the notification settings UX by using a dedicated confirmation modal and matching icon-button styling.
+
+### Fixed
+- Disabled security advisory notifications by default across backend defaults, frontend defaults, and test fixtures to stop noisy startup alerts.
+- Hardened notification settings modal opening so it opens reliably on the first interaction.
+- Hardened update manager modal opening and removed duplicate first-load work so the first interaction is responsive.
+- Reduced false `blocked` update candidates by reusing sampler-cached update details when building the update manager inventory.
+- Improved mobile overlay cleanup when opening notification actions from the pending notifications panel.
+
+### Testing
+- Added and updated route, sampler, update manager, and end-to-end tests for tab exclusivity, notification default states, clear-notification confirmation flow, update manager tabbed history, and cached update candidate rendering.
+
 ## v0.9.1
 
 ### Fixed

@@ -116,6 +116,34 @@ def _container_version_info(container, client):
     }
 
 
+def _container_version_info_for_list(container, client):
+    cached_details = getattr(sampler, 'update_check_details_cache', {}).get(container.id)
+    if not cached_details:
+        return _container_version_info(container, client)
+
+    image_ref = cached_details.get('image_ref') or _container_image_ref(container)
+    current_image = getattr(container, 'image', None)
+    current_token = cached_details.get('current_token') or _local_digest_for_image(current_image, image_ref)
+    latest_token = cached_details.get('latest_token')
+    update_available = sampler.update_check_cache.get(container.id)
+    latest_version = cached_details.get('latest_version')
+    if not latest_version:
+        latest_version = _format_version(
+            image_ref,
+            latest_token or ('update-available' if update_available is True else current_token),
+        )
+
+    return {
+        'image_ref': image_ref,
+        'current_token': current_token,
+        'latest_token': latest_token,
+        'current_version': cached_details.get('current_version') or _format_version(image_ref, current_token),
+        'latest_version': latest_version,
+        'current_image_id': cached_details.get('current_image_id') or getattr(current_image, 'id', None),
+        'error': cached_details.get('error'),
+    }
+
+
 def _serialize_mount(mount):
     mount_type = str(mount.get('Type') or 'volume').strip().lower()
     if mount_type == 'tmpfs':
@@ -508,8 +536,10 @@ def _recreate_single_container(container, target_image, actor_username=None, his
 
 
 def _container_candidate(container, client):
-    version_info = _container_version_info(container, client)
+    version_info = _container_version_info_for_list(container, client)
     checked_at = sampler.update_check_time.get(container.id)
+    supported, support_reason = _container_support_check(container)
+    ready = supported and sampler.update_check_cache.get(container.id) is True
     return {
         'id': f'container:{container.id}',
         'target_id': container.id,
@@ -517,8 +547,8 @@ def _container_candidate(container, client):
         'type': 'container',
         'current_version': version_info['current_version'],
         'latest_version': version_info['latest_version'],
-        'update_state': 'ready' if version_info['latest_token'] else 'blocked',
-        'state_reason': None if version_info['latest_token'] else 'Latest registry digest could not be resolved safely.',
+        'update_state': 'ready' if ready else 'blocked',
+        'state_reason': None if ready else support_reason or 'This container cannot be updated safely with the current metadata.',
         'last_checked_at': checked_at,
         'entries': [],
         'meta': {
@@ -594,7 +624,7 @@ def _project_candidate(project_name, containers, client):
     checked_at = None
 
     for container in containers:
-        version_info = _container_version_info(container, client)
+        version_info = _container_version_info_for_list(container, client)
         labels = container.attrs.get('Config', {}).get('Labels', {}) or {}
         service_name = labels.get('com.docker.compose.service') or container.name
         checked_value = sampler.update_check_time.get(container.id)

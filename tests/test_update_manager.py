@@ -119,6 +119,34 @@ def test_list_update_targets_groups_projects_and_standalone_containers(temp_db, 
     assert payload['history'][0]['can_rollback'] is True
 
 
+def test_list_update_targets_uses_cached_details_without_marking_ready_updates_blocked(temp_db, monkeypatch):
+    container = FakeContainer('cid-cache', 'cache', 'redis:7')
+    client = FakeDockerClient(FakeContainersManager(list_sequences=[[container]]))
+
+    monkeypatch.setattr(update_manager, 'get_docker_client', lambda: client)
+    monkeypatch.setattr(sampler, 'update_check_cache', {'cid-cache': True})
+    monkeypatch.setattr(sampler, 'update_check_time', {'cid-cache': 150.0})
+    monkeypatch.setattr(sampler, 'update_check_details_cache', {
+        'cid-cache': {
+            'image_ref': 'redis:7',
+            'current_token': 'cache-old',
+            'latest_token': None,
+            'current_version': 'redis:7 @ cache-old',
+            'latest_version': None,
+            'current_image_id': 'sha256:cache-old',
+        },
+    })
+
+    payload = update_manager.list_update_targets(history_limit=5)
+
+    assert len(payload['containers']) == 1
+    candidate = payload['containers'][0]
+    assert candidate['name'] == 'cache'
+    assert candidate['update_state'] == 'ready'
+    assert candidate['state_reason'] is None
+    assert candidate['latest_version'].startswith('redis:7 @ ')
+
+
 def test_update_container_target_records_previous_version_and_history(temp_db, monkeypatch):
     container = FakeContainer('cid-cache', 'cache', 'redis:7', image_id='sha256:cache-old')
     images = FakeImagesManager(get_map={'redis:7': FakeImage('sha256:cache-new', ['redis:7'])})

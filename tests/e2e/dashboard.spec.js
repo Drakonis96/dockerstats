@@ -19,6 +19,16 @@ test('renders table, summaries and filters', async ({ page }) => {
   await expect(page.locator('[data-project-summary="demo"]')).toContainText('2 containers');
   await expect(page.locator('[data-project-summary="demo"]')).toContainText('2 running');
   await expect(page.locator('[data-project-summary="jobs"]')).toContainText('Stopped');
+  await expect(page.locator('#dashboardContainersPane')).toBeVisible();
+  await expect(page.locator('#dashboardComposePane')).not.toBeVisible();
+
+  await page.locator('#dashboardComposeTab').click();
+  await expect(page.locator('#dashboardComposePane')).toBeVisible();
+  await expect(page.locator('#dashboardContainersPane')).not.toBeVisible();
+
+  await page.locator('#dashboardContainersTab').click();
+  await expect(page.locator('#dashboardContainersPane')).toBeVisible();
+  await expect(page.locator('#dashboardComposePane')).not.toBeVisible();
 
   await page.getByRole('button', { name: 'Exited' }).click();
   await expect(page.locator('#metricsTable tbody tr')).toHaveCount(1);
@@ -106,6 +116,9 @@ test('opens pending notifications panel and edits advanced notification settings
 
   await page.locator('#notifSettingsBtn').click();
   await expect(page.locator('#notifSettingsModal')).toHaveClass(/show/);
+  await expect(page.locator('#notifEnableSecurity')).not.toBeChecked();
+  await expect(page.locator('#notifSecurityPrivilegedEnabled')).toBeDisabled();
+  await expect(page.locator('#notifSecurityPublicPortsEnabled')).toBeDisabled();
 
   await page.selectOption('#notifProjectRuleMode', 'include');
   await page.locator('#notifProjectRules').fill('demo\njobs-*');
@@ -141,6 +154,11 @@ test('opens pending notifications panel and edits advanced notification settings
   await page.locator('#notifSettingsModal .btn-close').click();
   await page.locator('#notifToggle').click();
   await page.locator('#clearNotifsBtn').click();
+  await expect(page.locator('#clearNotificationsModal')).toHaveClass(/show/);
+  await expect(page.locator('#clearNotificationsModal')).toContainText('Clear notifications');
+  await page.locator('#confirmClearNotifsBtn').click();
+  await expect(page.locator('#clearNotificationsModal')).not.toHaveClass(/show/);
+  await page.locator('#notifToggle').click();
   await expect(page.locator('#notifList')).toContainText('No notifications');
 });
 
@@ -150,21 +168,30 @@ test('opens the update manager, runs update and rollback, and shows load errors'
   await page.locator('#updateManagerToggle').click();
   await expect(page.locator('#updateManagerModal')).toHaveClass(/show/);
   await expect(page.locator('#updateManagerModal')).toContainText('Experimental');
+  await expect(page.locator('#updateManagerProjectList .update-target-list-head')).toContainText('Current version');
+  await expect(page.locator('#updateManagerProjectList .update-target-list-head')).toContainText('Latest version');
   await expect(page.locator('#updateManagerProjectList')).toContainText('demo');
+  await expect(page.locator('#updateManagerProjectList')).not.toContainText('Blocked');
   await expect(page.locator('#updateManagerContainerList')).toContainText('No standalone containers');
 
   const updateButton = page.locator('#updateManagerProjectList .update-target-btn').first();
   await updateButton.click();
   await expect(page.locator('#appDialogModal')).toHaveClass(/show/);
   await page.locator('#appDialogConfirm').click();
+  await expect(page.locator('#appDialogModal')).not.toHaveClass(/show/);
   await expect(updateButton).toContainText('Updating...');
   await expect(page.locator('#updateManagerStatus')).toContainText('Project demo updated with a safe compose workflow.');
+
+  await page.locator('#updateManagerHistoryTab').click();
+  await expect(page.locator('#updateManagerHistoryPane')).toBeVisible();
+  await expect(page.locator('#updateManagerHistoryList .update-target-list-head')).toContainText('Current version');
   await expect(page.locator('#updateManagerHistoryList')).toContainText('Rollback');
 
   const rollbackButton = page.locator('#updateManagerHistoryList .update-rollback-btn').first();
   await rollbackButton.click();
   await expect(page.locator('#appDialogModal')).toHaveClass(/show/);
   await page.locator('#appDialogConfirm').click();
+  await expect(page.locator('#appDialogModal')).not.toHaveClass(/show/);
   await expect(rollbackButton).toContainText('Rolling back...');
   await expect(page.locator('#updateManagerStatus')).toContainText('Rollback completed.');
 

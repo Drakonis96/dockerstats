@@ -1,5 +1,11 @@
 import { escapeHtml, setStatusMessage } from './helpers.js';
 
+const UPDATE_MANAGER_TAB_IDS = {
+  projects: 'updateManagerProjectsTab',
+  containers: 'updateManagerContainersTab',
+  history: 'updateManagerHistoryTab',
+};
+
 function formatTimestamp(value) {
   if (!value) {
     return 'Not checked yet';
@@ -27,7 +33,7 @@ function formatStateLabel(value) {
 }
 
 function formatTargetType(value) {
-  return String(value || '').toLowerCase() === 'project' ? 'Compose project' : 'Container';
+  return String(value || '').toLowerCase() === 'project' ? 'Compose stack' : 'Container';
 }
 
 function renderVersion(value) {
@@ -35,128 +41,109 @@ function renderVersion(value) {
   return `<code class="update-version-code">${safe}</code>`;
 }
 
-function renderEntries(entries = []) {
-  if (!Array.isArray(entries) || entries.length === 0) {
-    return '';
-  }
-  const items = entries.map((entry) => `
-    <div class="update-entry-row">
-      <div class="update-entry-service">${escapeHtml(entry.service || entry.container_id || 'service')}</div>
-      <div class="update-entry-versions">
-        <span>${renderVersion(entry.current_version)}</span>
-        <span class="update-entry-arrow"><i class="bi bi-arrow-right" aria-hidden="true"></i></span>
-        <span>${renderVersion(entry.latest_version || entry.new_version)}</span>
-      </div>
-    </div>
-  `).join('');
-  return `<div class="update-entry-list">${items}</div>`;
-}
-
-function renderTargetCard(item) {
-  const state = String(item.update_state || '').toLowerCase();
-  const buttonDisabled = state !== 'ready' ? 'disabled' : '';
-  const reason = item.state_reason
-    ? `<p class="update-target-reason mb-0">${escapeHtml(item.state_reason)}</p>`
-    : '';
-  const lastChecked = formatTimestamp(item.last_checked_at);
-
+function renderListHead(includeActions = true) {
   return `
-    <article class="update-target-card" data-target-type="${escapeHtml(item.type)}" data-update-state="${escapeHtml(state || 'pending')}">
-      <div class="update-target-head">
-        <div>
-          <p class="update-target-eyebrow">${escapeHtml(formatTargetType(item.type))}</p>
-          <h6 class="update-target-title">${escapeHtml(item.name)}</h6>
-        </div>
-        <span class="update-target-state" data-state="${escapeHtml(state || 'pending')}">${escapeHtml(formatStateLabel(state))}</span>
-      </div>
-      <div class="update-target-grid">
-        <div>
-          <span class="update-target-label">Name</span>
-          <strong>${escapeHtml(item.name)}</strong>
-        </div>
-        <div>
-          <span class="update-target-label">Type</span>
-          <strong>${escapeHtml(item.type)}</strong>
-        </div>
-        <div>
-          <span class="update-target-label">Current version</span>
-          ${renderVersion(item.current_version)}
-        </div>
-        <div>
-          <span class="update-target-label">Latest version</span>
-          ${renderVersion(item.latest_version)}
-        </div>
-        <div>
-          <span class="update-target-label">Update status</span>
-          <strong>${escapeHtml(formatStateLabel(state))}</strong>
-        </div>
-        <div>
-          <span class="update-target-label">Last check</span>
-          <strong>${escapeHtml(lastChecked)}</strong>
-        </div>
-      </div>
-      ${renderEntries(item.entries)}
-      <div class="update-target-actions">
-        <button type="button" class="btn btn-primary btn-sm update-target-btn" data-update-target-type="${escapeHtml(item.type)}" data-update-target-id="${escapeHtml(item.target_id)}" ${buttonDisabled}>
-          <i class="bi bi-arrow-repeat" aria-hidden="true"></i>
-          <span>Update now</span>
-        </button>
-        ${reason}
-      </div>
-    </article>
+    <div class="update-target-list-head">
+      <div>Name</div>
+      <div>Type</div>
+      <div>Current version</div>
+      <div>Latest version</div>
+      <div>Status</div>
+      <div>Last check</div>
+      ${includeActions ? '<div>Action</div>' : '<div>Result</div>'}
+    </div>
   `;
 }
 
-function renderHistoryCard(entry) {
+function renderEntryDetails(entries = []) {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return '';
+  }
+
+  return `
+    <div class="update-target-row-details">
+      ${entries.map((entry) => `
+        <div class="update-target-row-detail">
+          <span class="update-target-row-detail-service">${escapeHtml(entry.service || entry.container_id || 'service')}</span>
+          <span class="update-target-row-detail-versions">
+            ${renderVersion(entry.current_version)}
+            <span class="update-entry-arrow"><i class="bi bi-arrow-right" aria-hidden="true"></i></span>
+            ${renderVersion(entry.latest_version || entry.new_version)}
+          </span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderTargetRow(item) {
+  const state = String(item.update_state || '').toLowerCase();
+  const buttonDisabled = state !== 'ready' ? 'disabled' : '';
+  const serviceSummary = Array.isArray(item.entries) && item.entries.length > 0
+    ? `<div class="update-target-row-meta">${escapeHtml(item.entries.map((entry) => entry.service || entry.container_id || 'service').join(', '))}</div>`
+    : '';
+  const reason = item.state_reason
+    ? `<div class="update-target-row-note">${escapeHtml(item.state_reason)}</div>`
+    : '';
+
+  return `
+    <div class="update-target-list-row" data-target-type="${escapeHtml(item.type)}" data-update-state="${escapeHtml(state || 'pending')}">
+      <div class="update-target-list-cell update-target-list-cell--name">
+        <strong>${escapeHtml(item.name)}</strong>
+        ${serviceSummary}
+        ${reason}
+      </div>
+      <div class="update-target-list-cell">${escapeHtml(formatTargetType(item.type))}</div>
+      <div class="update-target-list-cell">${renderVersion(item.current_version)}</div>
+      <div class="update-target-list-cell">${renderVersion(item.latest_version)}</div>
+      <div class="update-target-list-cell">
+        <span class="update-target-state" data-state="${escapeHtml(state || 'pending')}">${escapeHtml(formatStateLabel(state))}</span>
+      </div>
+      <div class="update-target-list-cell">${escapeHtml(formatTimestamp(item.last_checked_at))}</div>
+      <div class="update-target-list-cell update-target-list-cell--actions">
+        <button type="button" class="btn btn-primary btn-sm update-target-btn" data-update-target-type="${escapeHtml(item.type)}" data-update-target-id="${escapeHtml(item.target_id)}" ${buttonDisabled}>
+          <i class="bi bi-arrow-repeat" aria-hidden="true"></i>
+          <span>Update</span>
+        </button>
+      </div>
+    </div>
+    ${renderEntryDetails(item.entries)}
+  `;
+}
+
+function renderHistoryRow(entry) {
   const action = String(entry.action || '').toLowerCase();
   const result = String(entry.result || '').toLowerCase();
-  const actionLabel = action === 'rollback' ? 'Rollback' : 'Update';
-  const notes = entry.notes ? `<p class="update-history-notes">${escapeHtml(entry.notes)}</p>` : '';
   const rollbackButton = entry.can_rollback
     ? `
-      <button
-        type="button"
-        class="btn btn-outline-secondary btn-sm update-rollback-btn"
-        data-rollback-history-id="${escapeHtml(entry.id)}"
-      >
+      <button type="button" class="btn btn-outline-secondary btn-sm update-rollback-btn" data-rollback-history-id="${escapeHtml(entry.id)}">
         <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i>
         <span>Rollback</span>
       </button>
     `
+    : '<span class="update-target-row-meta">No rollback available</span>';
+  const notes = entry.notes
+    ? `<div class="update-target-row-note">${escapeHtml(entry.notes)}</div>`
     : '';
 
   return `
-    <article class="update-history-card" data-result="${escapeHtml(result || 'pending')}">
-      <div class="update-history-head">
-        <div>
-          <p class="update-target-eyebrow">${escapeHtml(actionLabel)} • ${escapeHtml(formatTargetType(entry.target_type))}</p>
-          <h6 class="update-target-title">${escapeHtml(entry.target_name)}</h6>
-        </div>
+    <div class="update-target-list-row" data-target-type="${escapeHtml(entry.target_type)}" data-update-state="${escapeHtml(result || 'pending')}">
+      <div class="update-target-list-cell update-target-list-cell--name">
+        <strong>${escapeHtml(entry.target_name)}</strong>
+        <div class="update-target-row-meta">${escapeHtml(action === 'rollback' ? 'Rollback' : 'Update')}</div>
+        ${notes}
+      </div>
+      <div class="update-target-list-cell">${escapeHtml(formatTargetType(entry.target_type))}</div>
+      <div class="update-target-list-cell">${renderVersion(entry.previous_version)}</div>
+      <div class="update-target-list-cell">${renderVersion(entry.new_version)}</div>
+      <div class="update-target-list-cell">
         <span class="update-target-state" data-state="${escapeHtml(result || 'pending')}">${escapeHtml(formatStateLabel(result))}</span>
       </div>
-      <div class="update-history-grid">
-        <div>
-          <span class="update-target-label">Previous version</span>
-          ${renderVersion(entry.previous_version)}
-        </div>
-        <div>
-          <span class="update-target-label">New version</span>
-          ${renderVersion(entry.new_version)}
-        </div>
-        <div>
-          <span class="update-target-label">Updated at</span>
-          <strong>${escapeHtml(formatTimestamp(entry.created_at))}</strong>
-        </div>
-        <div>
-          <span class="update-target-label">Result</span>
-          <strong>${escapeHtml(formatStateLabel(result))}</strong>
-        </div>
-      </div>
-      ${notes}
-      <div class="update-target-actions">
+      <div class="update-target-list-cell">${escapeHtml(formatTimestamp(entry.created_at))}</div>
+      <div class="update-target-list-cell update-target-list-cell--actions">
         ${rollbackButton}
       </div>
-    </article>
+    </div>
   `;
 }
 
@@ -164,8 +151,53 @@ function renderPlaceholder(message) {
   return `<div class="update-manager-empty">${escapeHtml(message)}</div>`;
 }
 
+function renderTargetList(items = [], emptyMessage) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return renderPlaceholder(emptyMessage);
+  }
+  return `
+    <div class="update-target-list-shell">
+      ${renderListHead(true)}
+      <div class="update-target-list-body">
+        ${items.map(renderTargetRow).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderHistoryList(items = [], emptyMessage) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return renderPlaceholder(emptyMessage);
+  }
+  return `
+    <div class="update-target-list-shell">
+      ${renderListHead(true)}
+      <div class="update-target-list-body">
+        ${items.map(renderHistoryRow).join('')}
+      </div>
+    </div>
+  `;
+}
+
 export function createUpdateManagerController(ctx, deps) {
   let requestToken = 0;
+
+  function ensureModal() {
+    if (!ctx.elements.updateManagerModalEl) {
+      return null;
+    }
+    ctx.state.updateManagerModal = bootstrap.Modal.getOrCreateInstance(ctx.elements.updateManagerModalEl);
+    return ctx.state.updateManagerModal;
+  }
+
+  function showTab(tabKey) {
+    const elementName = UPDATE_MANAGER_TAB_IDS[tabKey];
+    const tabButton = elementName ? ctx.elements[elementName] : null;
+    if (!tabButton) {
+      return;
+    }
+    bootstrap.Tab.getOrCreateInstance(tabButton).show();
+  }
 
   function updateBadgeFromMetrics(items = []) {
     const count = (Array.isArray(items) ? items : []).filter((item) => Boolean(item.update_available)).length;
@@ -200,7 +232,10 @@ export function createUpdateManagerController(ctx, deps) {
     target.textContent = message;
   }
 
-  function setListsLoading(message) {
+  function setListsLoading(message, { keepExisting = false } = {}) {
+    if (keepExisting && ctx.state.updateManagerPayload) {
+      return;
+    }
     ctx.elements.updateManagerProjectList.innerHTML = renderPlaceholder(message);
     ctx.elements.updateManagerContainerList.innerHTML = renderPlaceholder(message);
     ctx.elements.updateManagerHistoryList.innerHTML = renderPlaceholder('Loading update history...');
@@ -212,16 +247,10 @@ export function createUpdateManagerController(ctx, deps) {
     const containers = Array.isArray(payload.containers) ? payload.containers : [];
     const history = Array.isArray(payload.history) ? payload.history : [];
 
-    ctx.elements.updateManagerMeta.textContent = `${projects.length} project(s), ${containers.length} standalone container(s), ${history.length} history entr${history.length === 1 ? 'y' : 'ies'}`;
-    ctx.elements.updateManagerProjectList.innerHTML = projects.length > 0
-      ? projects.map(renderTargetCard).join('')
-      : renderPlaceholder('No Compose stacks currently have a confirmed update available.');
-    ctx.elements.updateManagerContainerList.innerHTML = containers.length > 0
-      ? containers.map(renderTargetCard).join('')
-      : renderPlaceholder('No standalone containers currently have a confirmed update available.');
-    ctx.elements.updateManagerHistoryList.innerHTML = history.length > 0
-      ? history.map(renderHistoryCard).join('')
-      : renderPlaceholder('No updates or rollbacks have been recorded yet.');
+    ctx.elements.updateManagerMeta.textContent = `${projects.length} Compose stack(s), ${containers.length} standalone container(s), ${history.length} history entr${history.length === 1 ? 'y' : 'ies'}`;
+    ctx.elements.updateManagerProjectList.innerHTML = renderTargetList(projects, 'No Compose stacks currently have a confirmed update available.');
+    ctx.elements.updateManagerContainerList.innerHTML = renderTargetList(containers, 'No standalone containers currently have a confirmed update available.');
+    ctx.elements.updateManagerHistoryList.innerHTML = renderHistoryList(history, 'No updates or rollbacks have been recorded yet.');
   }
 
   async function loadTargets(options = {}) {
@@ -231,8 +260,10 @@ export function createUpdateManagerController(ctx, deps) {
     ctx.elements.refreshUpdateManagerBtn.disabled = true;
     ctx.elements.refreshUpdateManagerBtn.textContent = refresh ? 'Refreshing...' : 'Refresh list';
     ctx.elements.updateManagerMeta.textContent = refresh ? 'Refreshing update inventory...' : 'Loading update inventory...';
-    setManagerStatus('');
-    setListsLoading(refresh ? 'Refreshing available updates...' : 'Loading available updates...');
+    setManagerStatus(refresh ? 'Refreshing update inventory…' : '');
+    setListsLoading(refresh ? 'Refreshing available updates...' : 'Loading available updates...', {
+      keepExisting: refresh,
+    });
 
     try {
       const response = await fetch(`/api/update-manager?history_limit=25${refresh ? '&refresh=1' : ''}`, { credentials: 'include' });
@@ -244,6 +275,7 @@ export function createUpdateManagerController(ctx, deps) {
         return;
       }
       renderPayload(payload);
+      setManagerStatus('');
     } catch (error) {
       if (token !== requestToken) {
         return;
@@ -345,12 +377,19 @@ export function createUpdateManagerController(ctx, deps) {
     }
   }
 
-  function openModal() {
+  function openModal(event) {
+    event?.preventDefault();
+    event?.stopPropagation();
     if (ctx.elements.notifPanel) {
       ctx.elements.notifPanel.style.display = 'none';
     }
-    ctx.state.updateManagerModal.show();
-    loadTargets();
+    requestAnimationFrame(() => {
+      ensureModal()?.show();
+      showTab('projects');
+      if (!ctx.state.updateManagerPayload && !ctx.state.updateManagerLoading) {
+        loadTargets();
+      }
+    });
   }
 
   function handleModalClick(event) {
@@ -367,21 +406,16 @@ export function createUpdateManagerController(ctx, deps) {
   }
 
   function init() {
-    if (ctx.elements.updateManagerModalEl && !ctx.state.updateManagerModal) {
-      ctx.state.updateManagerModal = new bootstrap.Modal(ctx.elements.updateManagerModalEl);
-    }
-
+    ensureModal();
     ctx.elements.updateManagerToggle?.addEventListener('click', openModal);
-    ctx.elements.sidebarUpdateManagerToggle?.addEventListener('click', () => {
+    ctx.elements.sidebarUpdateManagerToggle?.addEventListener('click', (event) => {
       deps.closeMobileMenu?.();
-      openModal();
+      openModal(event);
     });
     ctx.elements.refreshUpdateManagerBtn?.addEventListener('click', () => loadTargets({ refresh: true }));
     ctx.elements.updateManagerModalEl?.addEventListener('click', handleModalClick);
-    ctx.elements.updateManagerModalEl?.addEventListener('shown.bs.modal', () => {
-      if (!ctx.state.updateManagerPayload) {
-        loadTargets();
-      }
+    ctx.elements.updateManagerModalEl?.addEventListener('hidden.bs.modal', () => {
+      setManagerStatus('');
     });
   }
 
