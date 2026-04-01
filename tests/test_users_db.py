@@ -70,3 +70,27 @@ def test_audit_events_are_persisted(temp_db):
     assert event_id > 0
     assert events[0]["action"] == "user.create"
     assert events[0]["details"]["columns"] == ["cpu", "ram"]
+
+
+def test_update_history_is_persisted_across_reopen(temp_db):
+    entry_id = users_db.record_update_history(
+        action="update",
+        target_type="project",
+        target_id="demo",
+        target_name="demo",
+        previous_version="db=postgres:16",
+        new_version="db=postgres:17",
+        result="success",
+        notes="compose pull/up completed",
+        metadata={"rollback_ready": True, "services": [{"service": "db", "previous_image_id": "sha256:old"}]},
+        actor_username="admin",
+    )
+
+    users_db.migrate_add_columns_and_role_and_settings()
+    entry = users_db.get_update_history_entry(entry_id)
+    rows = users_db.list_update_history(limit=5)
+
+    assert entry["target_name"] == "demo"
+    assert entry["metadata"]["rollback_ready"] is True
+    assert rows[0]["id"] == entry_id
+    assert rows[0]["previous_version"] == "db=postgres:16"

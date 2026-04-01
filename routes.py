@@ -13,8 +13,9 @@ from functools import wraps
 from users_db import (
     validate_user, change_password, create_user_with_columns, list_users_with_columns,
     update_user_columns, delete_user, get_user_columns, get_user_role, user_exists,
-    get_notification_settings, list_audit_events, record_audit_event, set_notification_settings
+    list_audit_events, record_audit_event
 )
+import update_manager
 errors = docker.errors
 
 # Importar estado compartido y clientes/utilidades necesarias
@@ -634,13 +635,122 @@ def collect_metrics_rows(query):
     return rows
 
 
+def build_project_summaries(rows):
+    projects = {}
+
+    for row in rows:
+        project = row.get('compose_project')
+        if not project:
+            continue
+
+        bucket = projects.setdefault(project, {
+            'project': project,
+            'container_count': 0,
+            'running_count': 0,
+            'exited_count': 0,
+            'other_count': 0,
+            'update_count': 0,
+            'restart_count': 0,
+            'cpu_total': 0.0,
+            'mem_usage_total': 0.0,
+            'mem_limit_total': 0.0,
+            'mem_avg_percent': 0.0,
+            '_mem_samples': 0,
+        })
+
+        bucket['container_count'] += 1
+        status = str(row.get('status') or '').lower()
+        if status == 'running':
+            bucket['running_count'] += 1
+        elif status == 'exited':
+            bucket['exited_count'] += 1
+        else:
+            bucket['other_count'] += 1
+
+        if row.get('update_available') is True:
+            bucket['update_count'] += 1
+
+        try:
+            bucket['restart_count'] += int(row.get('restarts') or 0)
+        except (TypeError, ValueError):
+            pass
+
+        try:
+            cpu_value = float(row.get('cpu'))
+            bucket['cpu_total'] += cpu_value
+        except (TypeError, ValueError):
+            pass
+
+        try:
+            mem_usage = float(row.get('mem_usage'))
+            bucket['mem_usage_total'] += mem_usage
+        except (TypeError, ValueError):
+            pass
+
+        try:
+            mem_limit = float(row.get('mem_limit'))
+            if mem_limit > 0:
+                bucket['mem_limit_total'] += mem_limit
+        except (TypeError, ValueError):
+            pass
+
+        try:
+            mem_percent = float(row.get('mem'))
+            bucket['mem_avg_percent'] += mem_percent
+            bucket['_mem_samples'] += 1
+        except (TypeError, ValueError):
+            pass
+
+    summaries = []
+    for project, bucket in sorted(projects.items()):
+        mem_samples = bucket.pop('_mem_samples', 0)
+        mem_avg_percent = (bucket['mem_avg_percent'] / mem_samples) if mem_samples else 0.0
+        if bucket['container_count'] and bucket['running_count'] == bucket['container_count'] and bucket['other_count'] == 0:
+            status = 'healthy'
+        elif bucket['running_count'] == 0 and bucket['exited_count'] == bucket['container_count']:
+            status = 'stopped'
+        else:
+            status = 'degraded'
+
+        mem_pressure_percent = None
+        if bucket['mem_limit_total'] > 0:
+            mem_pressure_percent = (bucket['mem_usage_total'] / bucket['mem_limit_total']) * 100
+
+        summaries.append({
+            **bucket,
+            'status': status,
+            'cpu_total': round(bucket['cpu_total'], 2),
+            'mem_usage_total': round(bucket['mem_usage_total'], 2),
+            'mem_limit_total': round(bucket['mem_limit_total'], 2),
+            'mem_avg_percent': round(mem_avg_percent, 2),
+            'mem_pressure_percent': round(mem_pressure_percent, 2) if mem_pressure_percent is not None else None,
+        })
+
+    return summaries
+
+
+def build_metrics_payload(query):
+    full_query = dict(query)
+    full_query['max_items'] = 0
+    full_rows = collect_metrics_rows(full_query)
+    max_items = query.get('max_items', 0)
+    rows = full_rows[:max_items] if max_items and max_items > 0 else full_rows
+    return {
+        'rows': rows,
+        'project_summaries': build_project_summaries(full_rows),
+    }
+
+
 # --- Ruta API Metrics ---
 @main_routes.route('/api/metrics')
 def api_metrics():
     """Endpoint API para obtener métricas de contenedores filtradas y ordenadas."""
     print("DEBUG: Request received at /api/metrics")
     try:
-        rows = collect_metrics_rows(parse_metrics_request_args(request.args))
+        query = parse_metrics_request_args(request.args)
+        if request.args.get('summary', '0') == '1':
+            return jsonify(build_metrics_payload(query))
+        rows = collect_metrics_rows(query)
     except RuntimeError as exc:
         print(f"ERROR API: /api/metrics called before the Docker client was initialized: {exc}")
         return jsonify({"error": "Docker client not initialized"}), 500
@@ -666,9 +776,9 @@ def api_stream():
         last_metrics_emit_at = 0.0
 
         try:
-            rows = collect_metrics_rows(query)
+            payload = build_metrics_payload(query)
             yield sse_event('connected', {'transport': 'sse', 'version': current_app.config.get('APP_VERSION', 'dev')})
-            yield sse_event('metrics', {'rows': rows, 'timestamp': time.time()})
+            yield sse_event('metrics', {**payload, 'timestamp': time.time()})
             last_metrics_emit_at = time.time()
             backlog = sampler.get_notifications(since_ts=last_notif_ts, max_items=200)
             if backlog:
@@ -694,8 +804,8 @@ def api_stream():
                 min_emit_seconds = query['stream_interval_ms'] / 1000.0
                 if (now - last_metrics_emit_at) >= min_emit_seconds:
                     try:
-                        rows = collect_metrics_rows(query)
-                        yield sse_event('metrics', {'rows': rows, 'timestamp': now})
+                        payload = build_metrics_payload(query)
+                        yield sse_event('metrics', {**payload, 'timestamp': now})
                         last_metrics_emit_at = now
                     except RuntimeError as exc:
                         yield sse_event('error', {'message': f'Docker client not initialized: {exc}'})
@@ -1140,62 +1250,26 @@ def container_action(container_id, action):
             audit_event('container.restart', 'container', 'success', target_id=container_id, details={'name': str(container_name)})
             return jsonify({'status': f'Container {container_name} restarted'})
         elif action == 'update':
-            def generate_update_logs():
-                try:
-                    yield f"Starting update for {container_name} ({container_id[:12]})...\n"
-                    if container.image and container.image.tags:
-                        latest_tag = container.image.tags[0]
-                        yield f"Pulling latest image: {latest_tag}...\n"
-                        try:
-                            pull_stream = client.api.pull(latest_tag, stream=True, decode=True)
-                            for chunk in pull_stream:
-                                status = chunk.get('status', '')
-                                progress = chunk.get('progress', '')
-                                line = f"{status} {progress}\n" if progress else f"{status}\n"
-                                yield escape(line)
-                            yield f"Image {latest_tag} pulled successfully.\n"
-                        except errors.APIError as pull_err:
-                            yield f"ERROR pulling image {latest_tag}: {escape(str(pull_err))}\n"
-                            yield "Update aborted due to pull error.\n"
-                            return
-                        except Exception as pull_ex:
-                            yield f"UNEXPECTED ERROR during pull: {escape(str(pull_ex))}\n"
-                            yield "Update aborted due to unexpected pull error.\n"
-                            return
-                    else:
-                        yield "No image tag found. Cannot pull/update image from registry. Skipping pull.\n"
-
-                    yield f"Restarting container {container_name}...\n"
-                    try:
-                        container.restart()
-                        audit_event('container.update', 'container', 'success', target_id=container_id, details={'name': str(container_name)})
-                        yield f"Container {container_name} restarted successfully.\n"
-                        yield "Update process completed.\n"
-                    except errors.APIError as restart_err:
-                        audit_event('container.update', 'container', 'failure', target_id=container_id, details={'name': str(container_name), 'error': str(restart_err)})
-                        yield f"ERROR restarting container: {escape(str(restart_err))}\n"
-                        yield "Update failed during restart.\n"
-                    except Exception as restart_ex:
-                        audit_event('container.update', 'container', 'failure', target_id=container_id, details={'name': str(container_name), 'error': str(restart_ex)})
-                        yield f"UNEXPECTED ERROR during restart: {escape(str(restart_ex))}\n"
-                        yield "Update failed due to unexpected restart error.\n"
-
-                    # Al finalizar el update, forzar chequeo inmediato de update_available para este contenedor
-                    try:
-                        from sampler import force_update_check_ids
-                        force_update_check_ids.add(container_id)
-                    except Exception as e:
-                        print(f"ERROR: Unable to force an update check after pull: {e}")
-
-                except errors.NotFound:
-                    audit_event('container.update', 'container', 'failure', target_id=container_id, details={'error': 'not_found'})
-                    yield f"ERROR: Container {container_id[:12]} not found during update.\n"
-                except Exception as e:
-                    audit_event('container.update', 'container', 'failure', target_id=container_id, details={'error': str(e)})
-                    yield f"FATAL ERROR during update process: {escape(str(e))}\n"
-
-            # Return a streaming response
-            return Response(stream_with_context(generate_update_logs()), mimetype='text/plain')
+            result = update_manager.update_container_target(container_id, actor_username=get_request_username())
+            audit_event(
+                'container.update',
+                'container',
+                'success' if result.get('ok') else 'failure',
+                target_id=container_id,
+                details={
+                    'name': str(container_name),
+                    'message': result.get('message'),
+                    'history_entry_id': (result.get('history_entry') or {}).get('id'),
+                },
+            )
+            return (
+                jsonify({
+                    'ok': bool(result.get('ok')),
+                    'status': result.get('message'),
+                    'history_entry': result.get('history_entry'),
+                }),
+                200 if result.get('ok') else 409,
+            )
         else:
             audit_event(f'container.{action}', 'container', 'failure', target_id=container_id, details={'error': 'invalid_action'})
             return jsonify({'error': 'Invalid action'}), 400
@@ -1228,21 +1302,26 @@ def api_notifications():
 @admin_required
 def api_notification_settings():
     """Obtiene o guarda la configuración de notificaciones."""
-    from sampler import notification_settings
+    from sampler import apply_notification_settings, notification_settings
     if request.method == 'GET':
-        settings = get_notification_settings(notification_settings)
-        return jsonify(settings)
+        return jsonify(notification_settings)
     # POST
     result = validate_csrf()
     if result is not None:
         return result
     data = request.get_json(force=True)
-    allowed = {'cpu_enabled', 'ram_enabled', 'status_enabled', 'update_enabled', 'cpu_threshold', 'ram_threshold', 'window_seconds'}
-    for k, v in data.items():
-        if k in allowed:
-            notification_settings[k] = v
-    set_notification_settings(notification_settings)
-    return jsonify({'ok': True, 'settings': notification_settings})
+    allowed = {
+        'cpu_enabled', 'ram_enabled', 'status_enabled', 'update_enabled', 'security_enabled',
+        'security_privileged_enabled', 'security_public_ports_enabled',
+        'security_latest_enabled', 'security_docker_socket_enabled',
+        'cpu_threshold', 'ram_threshold', 'window_seconds', 'cooldown_seconds',
+        'project_rule_mode', 'project_rules', 'container_rule_mode', 'container_rules',
+        'silence_enabled', 'silence_start', 'silence_end',
+        'dedupe_enabled', 'dedupe_window_seconds',
+    }
+    filtered = {key: value for key, value in data.items() if key in allowed}
+    settings = apply_notification_settings({**notification_settings, **filtered})
+    return jsonify({'ok': True, 'settings': settings})
 
 
 @main_routes.route('/api/notification-test', methods=['POST'])
@@ -1270,6 +1349,69 @@ def api_notification_test():
         status_code = 400
 
     return jsonify(result), status_code
+
+
+@main_routes.route('/api/update-manager')
+@admin_required
+def api_update_manager():
+    """Return update-ready projects/containers and persistent update history."""
+    refresh = request.args.get('refresh', '0') == '1'
+    try:
+        history_limit = max(1, min(int(request.args.get('history_limit', 20) or 20), 100))
+    except (TypeError, ValueError):
+        history_limit = 20
+    payload = update_manager.list_update_targets(history_limit=history_limit, force_refresh=refresh)
+    return jsonify(payload)
+
+
+@main_routes.route('/api/update-manager/update', methods=['POST'])
+@admin_required
+@csrf_protect
+def api_update_manager_update():
+    """Execute a safe update for a container or Compose project."""
+    data = request.get_json(force=True) or {}
+    target_type = str(data.get('target_type') or '').strip().lower()
+    target_id = str(data.get('target_id') or '').strip()
+    if target_type not in {'container', 'project'} or not target_id:
+        return jsonify({'ok': False, 'message': 'target_type and target_id are required.'}), 400
+
+    result = update_manager.update_target(target_type, target_id, actor_username=get_request_username())
+    audit_event(
+        'update-manager.update',
+        target_type,
+        'success' if result.get('ok') else 'failure',
+        target_id=target_id,
+        details={
+            'message': result.get('message'),
+            'history_entry_id': (result.get('history_entry') or {}).get('id'),
+        },
+    )
+    return jsonify(result), 200 if result.get('ok') else 409
+
+
+@main_routes.route('/api/update-manager/rollback', methods=['POST'])
+@admin_required
+@csrf_protect
+def api_update_manager_rollback():
+    """Rollback a recent successful update using persistent history metadata."""
+    data = request.get_json(force=True) or {}
+    try:
+        history_id = int(data.get('history_id'))
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'message': 'history_id is required.'}), 400
+
+    result = update_manager.rollback_update(history_id, actor_username=get_request_username())
+    audit_event(
+        'update-manager.rollback',
+        'update-history',
+        'success' if result.get('ok') else 'failure',
+        target_id=str(history_id),
+        details={
+            'message': result.get('message'),
+            'history_entry_id': (result.get('history_entry') or {}).get('id'),
+        },
+    )
+    return jsonify(result), 200 if result.get('ok') else 409
 
 # --- Cambiar contraseña desde ajustes ---
 @main_routes.route('/api/change-password', methods=['POST'])

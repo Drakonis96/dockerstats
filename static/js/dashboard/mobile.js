@@ -35,7 +35,12 @@ export function createMobileController(ctx, deps) {
       mobileNotifClose.textContent = 'Close';
       mobileNotifClose.className = 'btn btn-sm btn-outline-secondary mb-2';
       mobileNotifClose.addEventListener('click', closeMobileNotifications);
-      ctx.elements.notifPanel.prepend(mobileNotifClose);
+      if (ctx.elements.notifPanelActions) {
+        ctx.elements.notifPanelActions.appendChild(mobileNotifClose);
+        mobileNotifClose.classList.remove('mb-2');
+      } else {
+        ctx.elements.notifPanel.prepend(mobileNotifClose);
+      }
     }
   }
 

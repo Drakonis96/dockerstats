@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.9.0
+
+### Added
+- Notification delivery via `ntfy.sh` and generic HTTP webhooks, including authentication, tags, Markdown support, and structured event payloads.
+- Step-by-step README documentation for `ntfy` and generic webhook notification setup.
+- Notification management modal from the top bar, with advanced rules for project/container targeting, cooldowns, silencing windows, and deduplication.
+- Basic security advisories that can be toggled from the UI for privileged containers, publicly exposed ports, `latest` image usage, and `/var/run/docker.sock` mounts.
+- Compose project dashboard cards with per-stack CPU, RAM, status, updates, and restart totals.
+- Experimental update manager with dedicated top-bar entry, separate views for standalone containers and Compose projects, safe update planning, persisted update history, and rollback support.
+- Persistent update history storage and backend safety checks for update/rollback flows.
+- Expanded automated coverage for notifications, security advisories, update manager flows, persistence, and end-to-end UI behavior.
+
+### Changed
+- Notifications entry in the top bar now opens the pending list and exposes gear/broom actions instead of in-panel settings controls.
+- Notification configuration moved into a centered modal and the clear action now uses an icon-first interaction with tooltip text.
+- Dashboard layout simplified by removing the overview visibility controls so the top panels keep matching heights.
+- Container update endpoints now delegate to the new guarded update manager logic instead of performing a direct image refresh.
+- Release version defaults updated to `v0.9.0`.
+
+### Fixed
+- Rollback targeting now resolves the correct container by stable container name instead of transient container IDs.
+- Update manager refresh behavior now forces synchronous availability checks so the UI reflects newly detected updates reliably.
+- Update status messaging persists correctly after refresh, and the E2E mock server returns consistent notification/update responses.
+
 ## v0.8.2
 
 - Fixed database path resolution on fresh Docker installs and legacy bind mounts.

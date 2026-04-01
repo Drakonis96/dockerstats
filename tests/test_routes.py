@@ -121,9 +121,24 @@ def test_notification_settings_roundtrip_for_admin(client, monkeypatch):
             "ram_enabled": True,
             "status_enabled": True,
             "update_enabled": False,
+            "security_enabled": True,
+            "security_privileged_enabled": True,
+            "security_public_ports_enabled": False,
+            "security_latest_enabled": False,
+            "security_docker_socket_enabled": True,
             "cpu_threshold": 55,
             "ram_threshold": 65,
             "window_seconds": 25,
+            "cooldown_seconds": 90,
+            "project_rule_mode": "include",
+            "project_rules": "demo\njobs-*",
+            "container_rule_mode": "exclude",
+            "container_rules": "db\nworker-*",
+            "silence_enabled": True,
+            "silence_start": "23:00",
+            "silence_end": "06:30",
+            "dedupe_enabled": True,
+            "dedupe_window_seconds": 300,
         },
         headers={"X-CSRFToken": csrf_token},
     )
@@ -132,10 +147,19 @@ def test_notification_settings_roundtrip_for_admin(client, monkeypatch):
     payload = response.get_json()
     assert payload["ok"] is True
     assert payload["settings"]["cpu_threshold"] == 55
+    assert payload["settings"]["cooldown_seconds"] == 90
+    assert payload["settings"]["project_rule_mode"] == "include"
+    assert payload["settings"]["container_rule_mode"] == "exclude"
+    assert payload["settings"]["security_public_ports_enabled"] is False
+    assert payload["settings"]["security_latest_enabled"] is False
+    assert payload["settings"]["silence_enabled"] is True
+    assert payload["settings"]["dedupe_window_seconds"] == 300
 
     get_response = client.get("/api/notification-settings")
     assert get_response.status_code == 200
     assert get_response.get_json()["window_seconds"] == 25
+    assert get_response.get_json()["project_rules"] == "demo\njobs-*"
+    assert get_response.get_json()["security_public_ports_enabled"] is False
 
 
 def test_notification_test_reports_missing_configuration(client, monkeypatch):
@@ -146,6 +170,8 @@ def test_notification_test_reports_missing_configuration(client, monkeypatch):
         "successful_channels": [],
         "channels": {
             "pushover": {"configured": False, "ok": False, "skipped": "missing env vars"},
+            "ntfy": {"configured": False, "ok": False, "skipped": "missing env vars"},
+            "webhook": {"configured": False, "ok": False, "skipped": "missing env vars"},
         },
     })
     csrf_token = set_page_session(client)
@@ -161,6 +187,72 @@ def test_notification_test_reports_missing_configuration(client, monkeypatch):
     assert payload["configured_any"] is False
 
 
+def test_update_manager_list_endpoint_returns_inventory_for_admin(client, monkeypatch):
+    set_auth_mode(client, "page")
+    set_page_session(client)
+
+    monkeypatch.setattr(routes.update_manager, "list_update_targets", lambda history_limit=20, force_refresh=False: {
+        "experimental_notice": "Experimental feature.",
+        "projects": [{"target_id": "demo", "name": "demo", "type": "project"}],
+        "containers": [{"target_id": "cache", "name": "cache", "type": "container"}],
+        "history": [],
+        "history_limit": history_limit,
+        "force_refresh": force_refresh,
+    })
+
+    response = client.get("/api/update-manager?history_limit=15&refresh=1")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["projects"][0]["name"] == "demo"
+    assert payload["containers"][0]["name"] == "cache"
+    assert payload["force_refresh"] is True
+
+
+def test_update_manager_update_endpoint_executes_target(client, monkeypatch):
+    set_auth_mode(client, "page")
+    csrf_token = set_page_session(client)
+
+    monkeypatch.setattr(routes.update_manager, "update_target", lambda target_type, target_id, actor_username=None: {
+        "ok": True,
+        "message": f"{target_type}:{target_id} updated",
+        "history_entry": {"id": 7, "target_type": target_type, "target_id": target_id},
+    })
+
+    response = client.post(
+        "/api/update-manager/update",
+        json={"target_type": "project", "target_id": "demo"},
+        headers={"X-CSRFToken": csrf_token},
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["ok"] is True
+    assert payload["history_entry"]["id"] == 7
+
+
+def test_update_manager_rollback_endpoint_reports_failure_state(client, monkeypatch):
+    set_auth_mode(client, "page")
+    csrf_token = set_page_session(client)
+
+    monkeypatch.setattr(routes.update_manager, "rollback_update", lambda history_id, actor_username=None: {
+        "ok": False,
+        "message": f"Rollback {history_id} failed",
+        "history_entry": {"id": 9, "result": "failure"},
+    })
+
+    response = client.post(
+        "/api/update-manager/rollback",
+        json={"history_id": 9},
+        headers={"X-CSRFToken": csrf_token},
+    )
+
+    assert response.status_code == 409
+    payload = response.get_json()
+    assert payload["ok"] is False
+    assert payload["message"] == "Rollback 9 failed"
+
+
 def test_system_status_exposes_backend_diagnostics(client, monkeypatch):
     set_auth_mode(client, "page")
     set_page_session(client, username="admin")
@@ -169,6 +261,8 @@ def test_system_status_exposes_backend_diagnostics(client, monkeypatch):
         "slack": {"configured": False},
         "telegram": {"configured": False},
         "discord": {"configured": False},
+        "ntfy": {"configured": False},
+        "webhook": {"configured": False},
     })
     monkeypatch.setattr(routes, "get_docker_status", lambda: {
         "connected": False,
@@ -217,6 +311,71 @@ def test_projects_endpoint_returns_sorted_unique_compose_projects(client, monkey
 
     assert response.status_code == 200
     assert response.get_json() == ["demo", "jobs"]
+
+
+def test_metrics_summary_mode_returns_project_dashboard_payload(client, monkeypatch):
+    set_auth_mode(client, "page")
+    set_page_session(client)
+
+    rows = [
+        {
+            "id": "web123",
+            "name": "web",
+            "status": "running",
+            "cpu": 72.5,
+            "mem": 64.2,
+            "mem_usage": 657.4,
+            "mem_limit": 1024.0,
+            "restarts": 1,
+            "update_available": False,
+            "compose_project": "demo",
+        },
+        {
+            "id": "db123",
+            "name": "db",
+            "status": "running",
+            "cpu": 24.0,
+            "mem": 52.0,
+            "mem_usage": 1102.2,
+            "mem_limit": 2048.0,
+            "restarts": 0,
+            "update_available": True,
+            "compose_project": "demo",
+        },
+        {
+            "id": "worker123",
+            "name": "worker",
+            "status": "exited",
+            "cpu": 0.0,
+            "mem": 0.0,
+            "mem_usage": 0.0,
+            "mem_limit": 512.0,
+            "restarts": 2,
+            "update_available": False,
+            "compose_project": "jobs",
+        },
+    ]
+
+    def fake_collect_metrics_rows(query):
+        assert query["max_items"] == 0
+        return rows
+
+    monkeypatch.setattr(routes, "collect_metrics_rows", fake_collect_metrics_rows)
+
+    response = client.get("/api/metrics?summary=1&max=1")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert len(payload["rows"]) == 1
+    assert payload["rows"][0]["id"] == "web123"
+    assert len(payload["project_summaries"]) == 2
+    assert payload["project_summaries"][0]["project"] == "demo"
+    assert payload["project_summaries"][0]["container_count"] == 2
+    assert payload["project_summaries"][0]["running_count"] == 2
+    assert payload["project_summaries"][0]["update_count"] == 1
+    assert payload["project_summaries"][0]["status"] == "healthy"
+    assert payload["project_summaries"][1]["project"] == "jobs"
+    assert payload["project_summaries"][1]["status"] == "stopped"
 
 
 def test_notifications_endpoint_supports_since_and_limit(client, monkeypatch):

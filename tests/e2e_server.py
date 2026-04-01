@@ -22,9 +22,24 @@ NOTIFICATION_SETTINGS = {
     'ram_enabled': True,
     'status_enabled': True,
     'update_enabled': True,
+    'security_enabled': True,
+    'security_privileged_enabled': True,
+    'security_public_ports_enabled': True,
+    'security_latest_enabled': True,
+    'security_docker_socket_enabled': True,
     'cpu_threshold': 80.0,
     'ram_threshold': 80.0,
     'window_seconds': 10,
+    'cooldown_seconds': 0,
+    'project_rule_mode': 'all',
+    'project_rules': '',
+    'container_rule_mode': 'all',
+    'container_rules': '',
+    'silence_enabled': False,
+    'silence_start': '22:00',
+    'silence_end': '07:00',
+    'dedupe_enabled': True,
+    'dedupe_window_seconds': 120,
 }
 USERS = [
     {'username': 'admin', 'columns': [], 'role': 'admin'},
@@ -35,6 +50,14 @@ BASE_TS = int(time.time())
 STREAM_CONDITION = threading.Condition()
 METRICS_SEQUENCE = 0
 NOTIFICATION_SEQUENCE = 0
+UPDATE_HISTORY = []
+UPDATE_HISTORY_COUNTER = 0
+UPDATE_MANAGER_ERROR_MODE = False
+EXPERIMENTAL_UPDATE_NOTICE = (
+    'Experimental feature. It is designed to preserve user data, volumes, '
+    'configuration, networks and environment, but every update should still '
+    'be reviewed carefully before applying it.'
+)
 
 
 def initial_containers():
@@ -58,6 +81,9 @@ def initial_containers():
             'mem_limit': 1024.0,
             'mem_usage': 657.4,
             'update_available': False,
+            'current_version': 'nginx:1.25 @ web-current',
+            'latest_version': 'nginx:1.25 @ web-current',
+            'last_checked_at': BASE_TS - 90,
             'compose_project': 'demo',
             'compose_service': 'web',
             'gpu_max': None,
@@ -81,6 +107,9 @@ def initial_containers():
             'mem_limit': 2048.0,
             'mem_usage': 1102.2,
             'update_available': True,
+            'current_version': 'postgres:16 @ db-old',
+            'latest_version': 'postgres:17 @ db-new',
+            'last_checked_at': BASE_TS - 45,
             'compose_project': 'demo',
             'compose_service': 'db',
             'gpu_max': None,
@@ -104,6 +133,9 @@ def initial_containers():
             'mem_limit': 512.0,
             'mem_usage': 0.0,
             'update_available': False,
+            'current_version': 'python:3.12 @ worker-current',
+            'latest_version': 'python:3.12 @ worker-current',
+            'last_checked_at': BASE_TS - 120,
             'compose_project': 'jobs',
             'compose_service': 'worker',
             'gpu_max': None,
@@ -131,6 +163,86 @@ def publish_notification(event):
     with STREAM_CONDITION:
         NOTIFICATION_SEQUENCE += 1
         STREAM_CONDITION.notify_all()
+
+
+def next_update_history_id():
+    global UPDATE_HISTORY_COUNTER
+    UPDATE_HISTORY_COUNTER += 1
+    return UPDATE_HISTORY_COUNTER
+
+
+def append_update_history(entry):
+    UPDATE_HISTORY.insert(0, entry)
+    return entry
+
+
+def build_update_manager_payload():
+    rollback_sources = {entry['rollback_of'] for entry in UPDATE_HISTORY if entry.get('rollback_of')}
+    projects = []
+    standalone = []
+    grouped = {}
+
+    for container in list_containers():
+        if not container.get('update_available'):
+            continue
+        project = container.get('compose_project')
+        if project:
+            grouped.setdefault(project, []).append(container)
+        else:
+            standalone.append({
+                'id': f"container:{container['id']}",
+                'target_id': container['id'],
+                'name': container['name'],
+                'type': 'container',
+                'current_version': container.get('current_version') or container.get('image'),
+                'latest_version': container.get('latest_version') or container.get('image'),
+                'update_state': 'ready',
+                'state_reason': None,
+                'last_checked_at': container.get('last_checked_at') or BASE_TS,
+                'entries': [],
+            })
+
+    for project_name in sorted(grouped):
+        containers = grouped[project_name]
+        entries = sorted([
+            {
+                'service': container.get('compose_service') or container['name'],
+                'container_id': container['id'],
+                'current_version': container.get('current_version') or container.get('image'),
+                'latest_version': container.get('latest_version') or container.get('image'),
+            }
+            for container in containers
+        ], key=lambda item: item['service'])
+        projects.append({
+            'id': f'project:{project_name}',
+            'target_id': project_name,
+            'name': project_name,
+            'type': 'project',
+            'current_version': '; '.join(f"{entry['service']}={entry['current_version']}" for entry in entries),
+            'latest_version': '; '.join(f"{entry['service']}={entry['latest_version']}" for entry in entries),
+            'update_state': 'ready',
+            'state_reason': None,
+            'last_checked_at': max(container.get('last_checked_at') or BASE_TS for container in containers),
+            'entries': entries,
+        })
+
+    history = []
+    for entry in UPDATE_HISTORY:
+        payload = dict(entry)
+        payload['can_rollback'] = (
+            payload.get('action') == 'update'
+            and payload.get('result') == 'success'
+            and payload.get('metadata', {}).get('rollback_ready')
+            and payload['id'] not in rollback_sources
+        )
+        history.append(payload)
+
+    return {
+        'experimental_notice': EXPERIMENTAL_UPDATE_NOTICE,
+        'projects': projects,
+        'containers': standalone,
+        'history': history,
+    }
 
 
 def sort_rows(rows, sort_by, sort_dir):
@@ -162,6 +274,80 @@ def sort_rows(rows, sort_by, sort_dir):
 
     rows.sort(key=key, reverse=reverse)
     return rows
+
+
+def build_project_summaries(rows):
+    buckets = {}
+    for row in rows:
+        project = row.get('compose_project')
+        if not project:
+            continue
+        bucket = buckets.setdefault(project, {
+            'project': project,
+            'container_count': 0,
+            'running_count': 0,
+            'exited_count': 0,
+            'other_count': 0,
+            'update_count': 0,
+            'restart_count': 0,
+            'cpu_total': 0.0,
+            'mem_usage_total': 0.0,
+            'mem_limit_total': 0.0,
+            'mem_avg_percent': 0.0,
+            '_mem_samples': 0,
+        })
+        bucket['container_count'] += 1
+        status = str(row.get('status') or '').lower()
+        if status == 'running':
+            bucket['running_count'] += 1
+        elif status == 'exited':
+            bucket['exited_count'] += 1
+        else:
+            bucket['other_count'] += 1
+        if row.get('update_available') is True:
+            bucket['update_count'] += 1
+        bucket['restart_count'] += int(row.get('restarts') or 0)
+        bucket['cpu_total'] += float(row.get('cpu') or 0)
+        bucket['mem_usage_total'] += float(row.get('mem_usage') or 0)
+        mem_limit = float(row.get('mem_limit') or 0)
+        if mem_limit > 0:
+            bucket['mem_limit_total'] += mem_limit
+        mem_percent = row.get('mem')
+        if mem_percent is not None:
+            bucket['mem_avg_percent'] += float(mem_percent)
+            bucket['_mem_samples'] += 1
+
+    summaries = []
+    for project in sorted(buckets):
+        bucket = buckets[project]
+        mem_avg_percent = (bucket['mem_avg_percent'] / bucket['_mem_samples']) if bucket['_mem_samples'] else 0.0
+        mem_pressure_percent = (
+            (bucket['mem_usage_total'] / bucket['mem_limit_total']) * 100
+            if bucket['mem_limit_total'] > 0
+            else None
+        )
+        if bucket['container_count'] and bucket['running_count'] == bucket['container_count'] and bucket['other_count'] == 0:
+            status = 'healthy'
+        elif bucket['running_count'] == 0 and bucket['exited_count'] == bucket['container_count']:
+            status = 'stopped'
+        else:
+            status = 'degraded'
+        summaries.append({
+            'project': project,
+            'container_count': bucket['container_count'],
+            'running_count': bucket['running_count'],
+            'exited_count': bucket['exited_count'],
+            'other_count': bucket['other_count'],
+            'update_count': bucket['update_count'],
+            'restart_count': bucket['restart_count'],
+            'cpu_total': round(bucket['cpu_total'], 2),
+            'mem_usage_total': round(bucket['mem_usage_total'], 2),
+            'mem_limit_total': round(bucket['mem_limit_total'], 2),
+            'mem_avg_percent': round(mem_avg_percent, 2),
+            'mem_pressure_percent': round(mem_pressure_percent, 2) if mem_pressure_percent is not None else None,
+            'status': status,
+        })
+    return summaries
 
 
 @app.route('/')
@@ -200,6 +386,8 @@ def system_status():
             'slack': {'configured': False},
             'telegram': {'configured': False},
             'discord': {'configured': False},
+            'ntfy': {'configured': False},
+            'webhook': {'configured': False},
         },
         'auth': {'mode': 'page', 'username': 'admin', 'role': 'admin'},
     })
@@ -219,6 +407,7 @@ def metrics():
     sort_by = request.args.get('sort', 'combined')
     sort_dir = request.args.get('dir', 'desc')
     max_items = int(request.args.get('max', 0) or 0)
+    include_summary = request.args.get('summary', '0') == '1'
 
     for row in rows:
         row['combined'] = (row.get('cpu') or 0) + (row.get('mem') or 0)
@@ -231,8 +420,11 @@ def metrics():
         rows = [row for row in rows if row.get('status') == status]
 
     rows = sort_rows(rows, sort_by, sort_dir)
+    project_summaries = build_project_summaries(rows)
     if max_items > 0:
         rows = rows[:max_items]
+    if include_summary:
+        return jsonify({'rows': rows, 'project_summaries': project_summaries})
     return jsonify(rows)
 
 
@@ -248,8 +440,10 @@ def stream():
 
     def snapshot_payload():
         with app.test_request_context(f"/api/metrics?{query_string}"):
-            rows = metrics().get_json()
-        return {'rows': rows, 'timestamp': time.time()}
+            payload = metrics().get_json()
+        if isinstance(payload, list):
+            payload = {'rows': payload, 'project_summaries': build_project_summaries(payload)}
+        return {**payload, 'timestamp': time.time()}
 
     def generate():
         nonlocal last_metrics_seq, last_notification_seq
@@ -382,6 +576,118 @@ def notification_test():
         'successful_channels': ['pushover'],
         'channels': {
             'pushover': {'configured': True, 'ok': True, 'status_code': 200},
+            'ntfy': {'configured': False, 'ok': False, 'skipped': 'missing env vars'},
+            'webhook': {'configured': False, 'ok': False, 'skipped': 'missing env vars'},
+        },
+    })
+
+
+@app.route('/api/update-manager')
+def update_manager_inventory():
+    if UPDATE_MANAGER_ERROR_MODE:
+        return jsonify({'message': 'Unable to load update manager.'}), 500
+    return jsonify(build_update_manager_payload())
+
+
+@app.route('/api/update-manager/update', methods=['POST'])
+def update_manager_update():
+    payload = request.get_json(silent=True) or {}
+    target_type = payload.get('target_type')
+    target_id = payload.get('target_id')
+    time.sleep(0.15)
+
+    if target_type == 'project' and target_id == 'demo':
+        matching = [container for container in list_containers() if container.get('compose_project') == 'demo']
+        previous_version = '; '.join(
+            f"{container['compose_service']}={container.get('current_version') or container.get('image')}"
+            for container in matching
+        )
+        new_version = '; '.join(
+            f"{container['compose_service']}={container.get('latest_version') or container.get('image')}"
+            for container in matching
+        )
+        for container in matching:
+            container['current_version'] = container.get('latest_version') or container.get('current_version')
+            container['update_available'] = False
+            container['last_checked_at'] = time.time()
+        history_entry = append_update_history({
+            'id': next_update_history_id(),
+            'created_at': time.time(),
+            'actor_username': 'admin',
+            'action': 'update',
+            'target_type': 'project',
+            'target_id': 'demo',
+            'target_name': 'demo',
+            'previous_version': previous_version,
+            'new_version': new_version,
+            'result': 'success',
+            'notes': 'docker compose pull && docker compose up -d completed safely.',
+            'metadata': {'rollback_ready': True},
+            'rollback_of': None,
+        })
+        publish_metrics()
+        return jsonify({
+            'ok': True,
+            'message': 'Project demo updated with a safe compose workflow.',
+            'history_entry': history_entry,
+        })
+
+    return jsonify({'ok': False, 'message': 'Update target not supported in the E2E mock.'}), 409
+
+
+@app.route('/api/update-manager/rollback', methods=['POST'])
+def update_manager_rollback():
+    payload = request.get_json(silent=True) or {}
+    history_id = int(payload.get('history_id', 0) or 0)
+    source = next((entry for entry in UPDATE_HISTORY if entry['id'] == history_id), None)
+    time.sleep(0.15)
+
+    if not source:
+        return jsonify({'ok': False, 'message': 'Update history entry not found.'}), 404
+
+    if source.get('target_type') == 'project' and source.get('target_name') == 'demo':
+        matching = [container for container in list_containers() if container.get('compose_project') == 'demo']
+        for container in matching:
+            service = container.get('compose_service')
+            if service == 'db':
+                container['current_version'] = 'postgres:16 @ db-old'
+                container['latest_version'] = 'postgres:17 @ db-new'
+            else:
+                container['current_version'] = 'nginx:1.25 @ web-old'
+                container['latest_version'] = 'nginx:1.25 @ web-new'
+            container['update_available'] = True
+            container['last_checked_at'] = time.time()
+        history_entry = append_update_history({
+            'id': next_update_history_id(),
+            'created_at': time.time(),
+            'actor_username': 'admin',
+            'action': 'rollback',
+            'target_type': 'project',
+            'target_id': 'demo',
+            'target_name': 'demo',
+            'previous_version': source.get('new_version'),
+            'new_version': source.get('previous_version'),
+            'result': 'success',
+            'notes': 'Rollback completed using the recorded previous image versions.',
+            'metadata': {'rollback_ready': False},
+            'rollback_of': history_id,
+        })
+        publish_metrics()
+        return jsonify({
+            'ok': True,
+            'message': 'Rollback completed.',
+            'history_entry': history_entry,
+        })
+
+    return jsonify({'ok': False, 'message': 'Rollback target not supported in the E2E mock.'}), 409
+    return jsonify({
+        'ok': True,
+        'configured_any': True,
+        'successful_channels': ['pushover'],
+        'channels': {
+            'pushover': {'configured': True, 'ok': True, 'status_code': 200},
+            'ntfy': {'configured': False, 'ok': False, 'skipped': 'missing env vars'},
+            'webhook': {'configured': False, 'ok': False, 'skipped': 'missing env vars'},
         },
     })
 
@@ -430,7 +736,7 @@ def user_detail(username):
 
 @app.route('/api/test/reset', methods=['POST'])
 def test_reset():
-    global CURRENT_PASSWORD, METRICS_SEQUENCE, NOTIFICATION_SEQUENCE
+    global CURRENT_PASSWORD, METRICS_SEQUENCE, NOTIFICATION_SEQUENCE, UPDATE_HISTORY_COUNTER, UPDATE_MANAGER_ERROR_MODE
     CURRENT_PASSWORD = DEFAULT_PASSWORD
     NOTIFICATION_SETTINGS.clear()
     NOTIFICATION_SETTINGS.update({
@@ -438,11 +744,29 @@ def test_reset():
         'ram_enabled': True,
         'status_enabled': True,
         'update_enabled': True,
+        'security_enabled': True,
+        'security_privileged_enabled': True,
+        'security_public_ports_enabled': True,
+        'security_latest_enabled': True,
+        'security_docker_socket_enabled': True,
         'cpu_threshold': 80.0,
         'ram_threshold': 80.0,
         'window_seconds': 10,
+        'cooldown_seconds': 0,
+        'project_rule_mode': 'all',
+        'project_rules': '',
+        'container_rule_mode': 'all',
+        'container_rules': '',
+        'silence_enabled': False,
+        'silence_start': '22:00',
+        'silence_end': '07:00',
+        'dedupe_enabled': True,
+        'dedupe_window_seconds': 120,
     })
     NOTIFICATION_EVENTS.clear()
+    UPDATE_HISTORY.clear()
+    UPDATE_HISTORY_COUNTER = 0
+    UPDATE_MANAGER_ERROR_MODE = False
     USERS.clear()
     USERS.extend([
         {'username': 'admin', 'columns': [], 'role': 'admin'},
@@ -455,6 +779,14 @@ def test_reset():
         NOTIFICATION_SEQUENCE = 0
         STREAM_CONDITION.notify_all()
     return jsonify({'ok': True})
+
+
+@app.route('/api/test/update-manager/error-mode', methods=['POST'])
+def test_update_manager_error_mode():
+    global UPDATE_MANAGER_ERROR_MODE
+    payload = request.get_json(silent=True) or {}
+    UPDATE_MANAGER_ERROR_MODE = bool(payload.get('enabled'))
+    return jsonify({'ok': True, 'enabled': UPDATE_MANAGER_ERROR_MODE})
 
 
 @app.route('/api/test/containers/<container_id>/mutate', methods=['POST'])

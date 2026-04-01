@@ -3,7 +3,9 @@ import { createDashboardContext } from './context.js';
 import { createDialogController } from './dialogs.js';
 import {
   applyTheme,
+  buildProjectSummaries,
   countActiveFilters,
+  escapeHtml,
   getInitialTheme,
   matchesQuickFilter,
   setStatusMessage,
@@ -14,6 +16,7 @@ import {
 import { createMobileController } from './mobile.js';
 import { createNotificationController } from './notifications.js';
 import { createTableController } from './table.js';
+import { createUpdateManagerController } from './updates.js';
 import { createUserController } from './users.js';
 
 const ctx = createDashboardContext(window.DOCKERSTATS_CONFIG || {});
@@ -44,7 +47,13 @@ const users = createUserController(ctx, {
   confirmAction: (options) => dialogs.confirm(options),
   showNotice: (options) => dialogs.alert(options),
 });
-const mobile = createMobileController(ctx, {
+let mobile = null;
+const updates = createUpdateManagerController(ctx, {
+  confirmAction: (options) => dialogs.confirm(options),
+  fetchMetrics,
+  closeMobileMenu: () => mobile?.closeSidebarMenu(),
+});
+mobile = createMobileController(ctx, {
   openSettings: () => users.openSettings(),
   logout: () => logout(),
   toggleTheme: () => toggleTheme(),
@@ -87,21 +96,6 @@ function toggleTheme() {
   applyTheme(ctx, ctx.state.currentTheme);
 }
 
-function setOverviewVisibility(hidden) {
-  if (!ctx.elements.overviewShell || !ctx.elements.heroShell || !ctx.elements.heroToggleBtn) {
-    return;
-  }
-
-  ctx.state.heroHidden = hidden === true;
-  ctx.elements.overviewShell.classList.toggle('is-collapsed', ctx.state.heroHidden);
-  ctx.elements.heroShell.hidden = ctx.state.heroHidden;
-  ctx.elements.heroToggleBtn.textContent = ctx.state.heroHidden ? 'Show overview' : 'Hide overview';
-  ctx.elements.heroToggleBtn.setAttribute('aria-expanded', String(!ctx.state.heroHidden));
-  if (ctx.elements.heroToggleState) {
-    ctx.elements.heroToggleState.textContent = ctx.state.heroHidden ? 'Hidden' : 'Visible';
-  }
-}
-
 function buildMetricsQuery(extraParams = {}) {
   const query = new URLSearchParams({
     sort: ctx.elements.sortBy.value,
@@ -122,6 +116,79 @@ function buildMetricsQuery(extraParams = {}) {
   return query;
 }
 
+function formatProjectStatusLabel(status) {
+  switch (String(status || '').toLowerCase()) {
+    case 'healthy':
+      return 'Healthy';
+    case 'stopped':
+      return 'Stopped';
+    default:
+      return 'Degraded';
+  }
+}
+
+function formatProjectMemory(summary) {
+  const usage = Number(summary.mem_usage_total) || 0;
+  const limit = Number(summary.mem_limit_total) || 0;
+  if (limit > 0) {
+    const pressure = summary.mem_pressure_percent !== null && summary.mem_pressure_percent !== undefined
+      ? ` (${Number(summary.mem_pressure_percent).toFixed(1)}%)`
+      : '';
+    return `${usage.toFixed(0)} / ${limit.toFixed(0)} MB${pressure}`;
+  }
+  if (usage > 0) {
+    return `${usage.toFixed(0)} MB in use`;
+  }
+  return 'No RAM limit data';
+}
+
+function renderProjectDashboard(projectSummaries) {
+  const summaries = Array.isArray(projectSummaries) ? projectSummaries : [];
+  ctx.state.projectSummaries = summaries;
+
+  if (!ctx.elements.projectDashboardGrid || !ctx.elements.projectDashboardMeta) {
+    return;
+  }
+
+  if (summaries.length === 0) {
+    ctx.elements.projectDashboardMeta.textContent = 'No Compose stacks detected in the current snapshot.';
+    ctx.elements.projectDashboardGrid.innerHTML = '<div class="project-dashboard-empty">No Compose projects match the current metrics scope.</div>';
+    return;
+  }
+
+  ctx.elements.projectDashboardMeta.textContent = `${summaries.length} Compose stack${summaries.length === 1 ? '' : 's'} in the current snapshot`;
+  ctx.elements.projectDashboardGrid.innerHTML = summaries.map((summary) => `
+    <article class="project-summary-card" data-project-summary="${escapeHtml(summary.project)}" data-state="${escapeHtml(summary.status)}">
+      <div class="project-summary-top">
+        <div>
+          <p class="project-summary-eyebrow">Compose stack</p>
+          <h3 class="project-summary-title">${escapeHtml(summary.project)}</h3>
+        </div>
+        <span class="project-summary-status" data-state="${escapeHtml(summary.status)}">${formatProjectStatusLabel(summary.status)}</span>
+      </div>
+      <p class="project-summary-meta">${summary.container_count} container${summary.container_count === 1 ? '' : 's'} • ${summary.running_count} running • ${summary.exited_count} exited</p>
+      <div class="project-summary-stats">
+        <div class="project-summary-stat">
+          <span class="project-summary-label">CPU total</span>
+          <strong>${Number(summary.cpu_total || 0).toFixed(1)}%</strong>
+        </div>
+        <div class="project-summary-stat">
+          <span class="project-summary-label">RAM total</span>
+          <strong>${escapeHtml(formatProjectMemory(summary))}</strong>
+        </div>
+        <div class="project-summary-stat">
+          <span class="project-summary-label">Updates</span>
+          <strong>${summary.update_count}</strong>
+        </div>
+        <div class="project-summary-stat">
+          <span class="project-summary-label">Restarts</span>
+          <strong>${summary.restart_count}</strong>
+        </div>
+      </div>
+    </article>
+  `).join('');
+}
+
 function applyMetricsData(data) {
   if (data?.error === 'auth') {
     redirectToLogin();
@@ -129,6 +196,7 @@ function applyMetricsData(data) {
   }
 
   ctx.state.allMetricsData = Array.isArray(data) ? data : (Array.isArray(data?.rows) ? data.rows : []);
+  renderProjectDashboard(Array.isArray(data?.project_summaries) ? data.project_summaries : buildProjectSummaries(ctx.state.allMetricsData));
   const userAllowedColumns = ctx.state.allMetricsData.length > 0 && ctx.state.allMetricsData[0]._allowed_columns
     ? ctx.state.allMetricsData[0]._allowed_columns
     : null;
@@ -138,6 +206,7 @@ function applyMetricsData(data) {
 
   updateSummaryCards(ctx, ctx.state.allMetricsData);
   table.populateTable(ctx.state.allMetricsData);
+  updates.updateBadgeFromMetrics(ctx.state.allMetricsData);
   ctx.elements.lastRefreshMeta.textContent = `${ctx.state.allMetricsData.length} containers in latest snapshot`;
   ctx.elements.metricsSourceValue.textContent = ctx.elements.metricsSource.selectedOptions[0].textContent;
   ctx.elements.activeFiltersValue.textContent = `${countActiveFilters(ctx)} active filters`;
@@ -172,7 +241,7 @@ function connectMetricsStream() {
     return;
   }
 
-  const source = new EventSource(`/api/stream?${buildMetricsQuery({ since: ctx.state.lastNotifTimestamp || 0 }).toString()}`);
+  const source = new EventSource(`/api/stream?${buildMetricsQuery({ since: ctx.state.lastNotifTimestamp || 0, summary: 1 }).toString()}`);
   ctx.state.streamSource = source;
   ctx.state.streamConnected = false;
   updateRefreshUi(ctx);
@@ -290,7 +359,7 @@ async function fetchMetrics() {
   ctx.elements.tableStatusDiv.textContent = '...';
 
   try {
-    const response = await fetch(`/api/metrics?${buildMetricsQuery().toString()}`, {
+    const response = await fetch(`/api/metrics?${buildMetricsQuery({ summary: 1 }).toString()}`, {
       credentials: 'include',
       headers: {
         'Cache-Control': 'no-cache',
@@ -394,7 +463,7 @@ function loadPersistedControls() {
   ctx.elements.serverIP.value = localStorage.getItem('serverIP') || '';
   ctx.elements.useCustomIP.checked = localStorage.getItem('useCustomIP') === 'true';
   ctx.elements.metricsSource.value = localStorage.getItem('metricsSource') || 'cadvisor';
-  setOverviewVisibility(localStorage.getItem('heroOverviewHidden') === 'true');
+  localStorage.removeItem('heroOverviewHidden');
 
   const savedInterval = localStorage.getItem('refreshInterval');
   ctx.state.refreshIntervalMs = savedInterval ? parseInt(savedInterval, 10) : parseInt(ctx.elements.refreshInterval.value, 10);
@@ -426,13 +495,6 @@ function bindControls() {
   ctx.elements.themeToggleButton.onclick = toggleTheme;
   ctx.elements.scrollTopButton.onclick = () => window.scrollTo({ top: 0, behavior: 'smooth' });
   ctx.elements.logoutBtn.onclick = logout;
-  if (ctx.elements.heroToggleBtn) {
-    ctx.elements.heroToggleBtn.addEventListener('click', () => {
-      const nextHidden = !ctx.state.heroHidden;
-      setOverviewVisibility(nextHidden);
-      localStorage.setItem('heroOverviewHidden', nextHidden);
-    });
-  }
   ctx.elements.resetFiltersBtn.addEventListener('click', resetFilters);
   ctx.elements.toggleRefreshBtn.addEventListener('click', () => {
     ctx.state.autoRefreshPaused = !ctx.state.autoRefreshPaused;
@@ -519,6 +581,7 @@ async function init() {
   users.init();
   mobile.init();
   notifications.init();
+  updates.init();
   await notifications.loadSettings();
   await initProjects();
   initHeaderSorting();

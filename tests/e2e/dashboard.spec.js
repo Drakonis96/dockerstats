@@ -12,13 +12,13 @@ test('renders table, summaries and filters', async ({ page }) => {
   await expect(page.locator('#summaryExited')).toHaveText('1');
   await expect(page.locator('#summaryUpdates')).toHaveText('1');
 
-  await expect(page.locator('#heroShell')).toBeVisible();
-  await expect(page.locator('#heroToggleBtn')).toBeVisible();
-  await page.locator('#heroToggleBtn').click();
-  await expect(page.locator('#heroShell')).toBeHidden();
-  await expect(page.locator('#heroToggleBtn')).toHaveText('Show overview');
-  await page.locator('#heroToggleBtn').click();
-  await expect(page.locator('#heroShell')).toBeVisible();
+  await expect(page.locator('.hero-shell')).toBeVisible();
+  await expect(page.locator('.hero-shell')).toContainText('One cockpit for containers, updates and alerts.');
+  await expect(page.locator('#projectDashboardGrid')).toContainText('demo');
+  await expect(page.locator('#projectDashboardGrid')).toContainText('jobs');
+  await expect(page.locator('[data-project-summary="demo"]')).toContainText('2 containers');
+  await expect(page.locator('[data-project-summary="demo"]')).toContainText('2 running');
+  await expect(page.locator('[data-project-summary="jobs"]')).toContainText('Stopped');
 
   await page.getByRole('button', { name: 'Exited' }).click();
   await expect(page.locator('#metricsTable tbody tr')).toHaveCount(1);
@@ -89,4 +89,88 @@ test('handles password change and user creation from settings modal', async ({ p
   await page.locator('#createUserForm button[type="submit"]').click();
 
   await expect(page.locator('#usersList')).toContainText('analyst');
+});
+
+test('opens pending notifications panel and edits advanced notification settings in modal', async ({ page, request }) => {
+  await request.post('http://127.0.0.1:5100/api/notification-test', { data: {} });
+
+  await page.goto('/');
+
+  await page.locator('#notifToggle').click();
+  await expect(page.locator('#notifPanel')).toBeVisible();
+  await expect(page.locator('#notifPanel')).toContainText('Pending notifications');
+  await expect(page.locator('#notifList')).toContainText('Test notification delivered');
+
+  await page.locator('#clearNotifsBtn').hover();
+  await expect(page.locator('.tooltip.show')).toContainText('Clear Notifications');
+
+  await page.locator('#notifSettingsBtn').click();
+  await expect(page.locator('#notifSettingsModal')).toHaveClass(/show/);
+
+  await page.selectOption('#notifProjectRuleMode', 'include');
+  await page.locator('#notifProjectRules').fill('demo\njobs-*');
+  await page.selectOption('#notifContainerRuleMode', 'exclude');
+  await page.locator('#notifContainerRules').fill('db');
+  await page.locator('#notifCooldownSeconds').fill('45');
+  await page.locator('#notifSilenceEnabled').check();
+  await page.locator('#notifSilenceStart').fill('23:00');
+  await page.locator('#notifSilenceEnd').fill('06:30');
+  await page.locator('#notifDedupeWindowSeconds').fill('240');
+  await page.locator('#notifEnableSecurity').check();
+  await page.locator('#notifSecurityPublicPortsEnabled').uncheck();
+  await page.locator('#notifSecurityLatestEnabled').uncheck();
+  await page.locator('#saveNotifSettingsBtn').click();
+
+  await expect(page.locator('#statusMessageArea')).toContainText('Notification settings saved.');
+
+  const settingsResponse = await request.get('http://127.0.0.1:5100/api/notification-settings');
+  const settingsPayload = await settingsResponse.json();
+  expect(settingsPayload.project_rule_mode).toBe('include');
+  expect(settingsPayload.project_rules).toBe('demo\njobs-*');
+  expect(settingsPayload.container_rule_mode).toBe('exclude');
+  expect(settingsPayload.container_rules).toBe('db');
+  expect(settingsPayload.cooldown_seconds).toBe(45);
+  expect(settingsPayload.silence_enabled).toBe(true);
+  expect(settingsPayload.silence_start).toBe('23:00');
+  expect(settingsPayload.silence_end).toBe('06:30');
+  expect(settingsPayload.dedupe_window_seconds).toBe(240);
+  expect(settingsPayload.security_enabled).toBe(true);
+  expect(settingsPayload.security_public_ports_enabled).toBe(false);
+  expect(settingsPayload.security_latest_enabled).toBe(false);
+
+  await page.locator('#notifSettingsModal .btn-close').click();
+  await page.locator('#notifToggle').click();
+  await page.locator('#clearNotifsBtn').click();
+  await expect(page.locator('#notifList')).toContainText('No notifications');
+});
+
+test('opens the update manager, runs update and rollback, and shows load errors', async ({ page, request }) => {
+  await page.goto('/');
+
+  await page.locator('#updateManagerToggle').click();
+  await expect(page.locator('#updateManagerModal')).toHaveClass(/show/);
+  await expect(page.locator('#updateManagerModal')).toContainText('Experimental');
+  await expect(page.locator('#updateManagerProjectList')).toContainText('demo');
+  await expect(page.locator('#updateManagerContainerList')).toContainText('No standalone containers');
+
+  const updateButton = page.locator('#updateManagerProjectList .update-target-btn').first();
+  await updateButton.click();
+  await expect(page.locator('#appDialogModal')).toHaveClass(/show/);
+  await page.locator('#appDialogConfirm').click();
+  await expect(updateButton).toContainText('Updating...');
+  await expect(page.locator('#updateManagerStatus')).toContainText('Project demo updated with a safe compose workflow.');
+  await expect(page.locator('#updateManagerHistoryList')).toContainText('Rollback');
+
+  const rollbackButton = page.locator('#updateManagerHistoryList .update-rollback-btn').first();
+  await rollbackButton.click();
+  await expect(page.locator('#appDialogModal')).toHaveClass(/show/);
+  await page.locator('#appDialogConfirm').click();
+  await expect(rollbackButton).toContainText('Rolling back...');
+  await expect(page.locator('#updateManagerStatus')).toContainText('Rollback completed.');
+
+  await request.post('http://127.0.0.1:5100/api/test/update-manager/error-mode', {
+    data: { enabled: true },
+  });
+  await page.locator('#refreshUpdateManagerBtn').click();
+  await expect(page.locator('#updateManagerStatus')).toContainText('Unable to load update manager.');
 });

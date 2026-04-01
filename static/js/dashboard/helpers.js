@@ -112,6 +112,99 @@ export function updateRefreshUi(ctx) {
       : 'Realtime: reconnecting';
 }
 
+export function buildProjectSummaries(items) {
+  const rows = Array.isArray(items) ? items : [];
+  const buckets = new Map();
+
+  rows.forEach((item) => {
+    const project = String(item.compose_project || '').trim();
+    if (!project) {
+      return;
+    }
+
+    if (!buckets.has(project)) {
+      buckets.set(project, {
+        project,
+        container_count: 0,
+        running_count: 0,
+        exited_count: 0,
+        other_count: 0,
+        update_count: 0,
+        restart_count: 0,
+        cpu_total: 0,
+        mem_usage_total: 0,
+        mem_limit_total: 0,
+        mem_avg_percent: 0,
+        mem_pressure_percent: null,
+        _mem_samples: 0,
+      });
+    }
+
+    const bucket = buckets.get(project);
+    bucket.container_count += 1;
+
+    const status = String(item.status || '').toLowerCase();
+    if (status === 'running') {
+      bucket.running_count += 1;
+    } else if (status === 'exited') {
+      bucket.exited_count += 1;
+    } else {
+      bucket.other_count += 1;
+    }
+
+    if (item.update_available) {
+      bucket.update_count += 1;
+    }
+
+    bucket.restart_count += Number(item.restarts) || 0;
+    bucket.cpu_total += Number(item.cpu) || 0;
+    bucket.mem_usage_total += Number(item.mem_usage) || 0;
+
+    const memLimit = Number(item.mem_limit) || 0;
+    if (memLimit > 0) {
+      bucket.mem_limit_total += memLimit;
+    }
+
+    const memPercent = Number(item.mem);
+    if (!Number.isNaN(memPercent)) {
+      bucket.mem_avg_percent += memPercent;
+      bucket._mem_samples += 1;
+    }
+  });
+
+  return Array.from(buckets.values())
+    .sort((left, right) => left.project.localeCompare(right.project, undefined, { sensitivity: 'base' }))
+    .map((bucket) => {
+      const memAvgPercent = bucket._mem_samples > 0 ? bucket.mem_avg_percent / bucket._mem_samples : 0;
+      const memPressurePercent = bucket.mem_limit_total > 0
+        ? (bucket.mem_usage_total / bucket.mem_limit_total) * 100
+        : null;
+
+      let status = 'degraded';
+      if (bucket.container_count > 0 && bucket.running_count === bucket.container_count && bucket.other_count === 0) {
+        status = 'healthy';
+      } else if (bucket.running_count === 0 && bucket.exited_count === bucket.container_count) {
+        status = 'stopped';
+      }
+
+      return {
+        project: bucket.project,
+        container_count: bucket.container_count,
+        running_count: bucket.running_count,
+        exited_count: bucket.exited_count,
+        other_count: bucket.other_count,
+        update_count: bucket.update_count,
+        restart_count: bucket.restart_count,
+        cpu_total: Number(bucket.cpu_total.toFixed(2)),
+        mem_usage_total: Number(bucket.mem_usage_total.toFixed(2)),
+        mem_limit_total: Number(bucket.mem_limit_total.toFixed(2)),
+        mem_avg_percent: Number(memAvgPercent.toFixed(2)),
+        mem_pressure_percent: memPressurePercent === null ? null : Number(memPressurePercent.toFixed(2)),
+        status,
+      };
+    });
+}
+
 function getThemeToggleMarkup(theme, withLabel = false) {
   const icon = theme === 'dark' ? 'bi-sun' : 'bi-moon-stars';
   if (withLabel) {

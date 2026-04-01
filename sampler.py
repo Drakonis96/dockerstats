@@ -5,7 +5,7 @@ import time
 import collections
 import docker.errors
 import logging
-import subprocess, json, os
+import subprocess, json, os, fnmatch
 
 try:
     from pynvml import (
@@ -54,19 +54,135 @@ force_update_check_all = False
 force_update_check_ids = set()
 
 # --- Notification System ---
-notifications = collections.deque(maxlen=500)  # Store recent notification events
-notification_settings = get_notification_settings({
+NOTIFICATION_SETTINGS_DEFAULTS = {
     'cpu_enabled': True,
     'ram_enabled': True,
     'status_enabled': True,
     'update_enabled': True,
+    'security_enabled': True,
+    'security_privileged_enabled': True,
+    'security_public_ports_enabled': True,
+    'security_latest_enabled': True,
+    'security_docker_socket_enabled': True,
     'cpu_threshold': 80.0,
     'ram_threshold': 80.0,
     'window_seconds': 10,
-})
+    'cooldown_seconds': 0,
+    'project_rule_mode': 'all',
+    'project_rules': '',
+    'container_rule_mode': 'all',
+    'container_rules': '',
+    'silence_enabled': False,
+    'silence_start': '22:00',
+    'silence_end': '07:00',
+    'dedupe_enabled': True,
+    'dedupe_window_seconds': 120,
+}
+
+notifications = collections.deque(maxlen=500)  # Store recent notification events
+
+
+def _to_bool(value, default=False):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value.strip().lower() in {'1', 'true', 'yes', 'on'}
+    return bool(value)
+
+
+def _to_int(value, default=0, minimum=None):
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    if minimum is not None:
+        parsed = max(minimum, parsed)
+    return parsed
+
+
+def _to_float(value, default=0.0, minimum=None, maximum=None):
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = default
+    if minimum is not None:
+        parsed = max(minimum, parsed)
+    if maximum is not None:
+        parsed = min(maximum, parsed)
+    return parsed
+
+
+def _normalize_rule_mode(value):
+    normalized = str(value or '').strip().lower()
+    if normalized in {'all', 'include', 'exclude'}:
+        return normalized
+    return 'all'
+
+
+def _normalize_time_value(value, default):
+    raw = str(value or '').strip()
+    try:
+        hour_text, minute_text = raw.split(':', 1)
+        hour = int(hour_text)
+        minute = int(minute_text)
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            return f'{hour:02d}:{minute:02d}'
+    except (ValueError, AttributeError):
+        pass
+    return default
+
+
+def _normalize_rule_text(value):
+    if value is None:
+        return ''
+    if isinstance(value, (list, tuple, set)):
+        tokens = []
+        for entry in value:
+            tokens.extend(str(entry).replace(',', '\n').splitlines())
+    else:
+        tokens = str(value).replace(',', '\n').splitlines()
+    cleaned = [token.strip() for token in tokens if token.strip()]
+    return '\n'.join(cleaned)
+
+
+def normalize_notification_settings(settings=None):
+    raw = settings or {}
+    normalized = dict(NOTIFICATION_SETTINGS_DEFAULTS)
+    normalized['cpu_enabled'] = _to_bool(raw.get('cpu_enabled'), normalized['cpu_enabled'])
+    normalized['ram_enabled'] = _to_bool(raw.get('ram_enabled'), normalized['ram_enabled'])
+    normalized['status_enabled'] = _to_bool(raw.get('status_enabled'), normalized['status_enabled'])
+    normalized['update_enabled'] = _to_bool(raw.get('update_enabled'), normalized['update_enabled'])
+    normalized['security_enabled'] = _to_bool(raw.get('security_enabled'), normalized['security_enabled'])
+    normalized['security_privileged_enabled'] = _to_bool(raw.get('security_privileged_enabled'), normalized['security_privileged_enabled'])
+    normalized['security_public_ports_enabled'] = _to_bool(raw.get('security_public_ports_enabled'), normalized['security_public_ports_enabled'])
+    normalized['security_latest_enabled'] = _to_bool(raw.get('security_latest_enabled'), normalized['security_latest_enabled'])
+    normalized['security_docker_socket_enabled'] = _to_bool(raw.get('security_docker_socket_enabled'), normalized['security_docker_socket_enabled'])
+    normalized['cpu_threshold'] = _to_float(raw.get('cpu_threshold'), normalized['cpu_threshold'], minimum=0.0, maximum=100.0)
+    normalized['ram_threshold'] = _to_float(raw.get('ram_threshold'), normalized['ram_threshold'], minimum=0.0, maximum=100.0)
+    normalized['window_seconds'] = _to_int(raw.get('window_seconds'), normalized['window_seconds'], minimum=1)
+    normalized['cooldown_seconds'] = _to_int(raw.get('cooldown_seconds'), normalized['cooldown_seconds'], minimum=0)
+    normalized['project_rule_mode'] = _normalize_rule_mode(raw.get('project_rule_mode'))
+    normalized['project_rules'] = _normalize_rule_text(raw.get('project_rules'))
+    normalized['container_rule_mode'] = _normalize_rule_mode(raw.get('container_rule_mode'))
+    normalized['container_rules'] = _normalize_rule_text(raw.get('container_rules'))
+    normalized['silence_enabled'] = _to_bool(raw.get('silence_enabled'), normalized['silence_enabled'])
+    normalized['silence_start'] = _normalize_time_value(raw.get('silence_start'), normalized['silence_start'])
+    normalized['silence_end'] = _normalize_time_value(raw.get('silence_end'), normalized['silence_end'])
+    normalized['dedupe_enabled'] = _to_bool(raw.get('dedupe_enabled'), normalized['dedupe_enabled'])
+    normalized['dedupe_window_seconds'] = _to_int(raw.get('dedupe_window_seconds'), normalized['dedupe_window_seconds'], minimum=0)
+    return normalized
+
+
+notification_settings = normalize_notification_settings(get_notification_settings(NOTIFICATION_SETTINGS_DEFAULTS))
+
 # Track when each container last exceeded threshold
 cpu_exceed_start = {}
 ram_exceed_start = {}
+recent_notification_cooldowns = {}
+recent_notification_dedupes = {}
+previous_security_findings = {}
 
 stream_condition = threading.Condition()
 metrics_sequence = 0
@@ -75,6 +191,291 @@ notification_sequence = 0
 # Asegura que los clientes se obtienen después de la inicialización
 client = None
 api_client = None
+
+
+def apply_notification_settings(new_settings):
+    normalized = normalize_notification_settings(new_settings)
+    notification_settings.clear()
+    notification_settings.update(normalized)
+    recent_notification_cooldowns.clear()
+    recent_notification_dedupes.clear()
+    previous_security_findings.clear()
+    set_notification_settings(notification_settings)
+    return dict(notification_settings)
+
+
+def _rule_patterns(raw_value):
+    return [token.strip().lower() for token in _normalize_rule_text(raw_value).splitlines() if token.strip()]
+
+
+def _matches_patterns(value, patterns):
+    normalized_value = str(value or '').strip().lower()
+    if not normalized_value:
+        return False
+    return any(fnmatch.fnmatch(normalized_value, pattern) for pattern in patterns)
+
+
+def _is_silence_window_active(settings, timestamp):
+    if not settings.get('silence_enabled'):
+        return False
+
+    start_text = settings.get('silence_start', NOTIFICATION_SETTINGS_DEFAULTS['silence_start'])
+    end_text = settings.get('silence_end', NOTIFICATION_SETTINGS_DEFAULTS['silence_end'])
+    start_hour, start_minute = map(int, start_text.split(':'))
+    end_hour, end_minute = map(int, end_text.split(':'))
+    start_minutes = start_hour * 60 + start_minute
+    end_minutes = end_hour * 60 + end_minute
+
+    if start_minutes == end_minutes:
+        return False
+
+    local_time = time.localtime(timestamp)
+    current_minutes = local_time.tm_hour * 60 + local_time.tm_min
+    if start_minutes < end_minutes:
+        return start_minutes <= current_minutes < end_minutes
+    return current_minutes >= start_minutes or current_minutes < end_minutes
+
+
+def _passes_notification_scope_rules(event, settings):
+    project_patterns = _rule_patterns(settings.get('project_rules'))
+    project_mode = settings.get('project_rule_mode', 'all')
+    project_value = event.get('project')
+    if project_mode == 'include' and project_patterns and not _matches_patterns(project_value, project_patterns):
+        return False
+    if project_mode == 'exclude' and project_patterns and _matches_patterns(project_value, project_patterns):
+        return False
+
+    container_patterns = _rule_patterns(settings.get('container_rules'))
+    container_mode = settings.get('container_rule_mode', 'all')
+    container_value = event.get('container')
+    if container_mode == 'include' and container_patterns and not _matches_patterns(container_value, container_patterns):
+        return False
+    if container_mode == 'exclude' and container_patterns and _matches_patterns(container_value, container_patterns):
+        return False
+    return True
+
+
+def _cleanup_notification_runtime(now_ts, max_age):
+    expiry_cutoff = now_ts - max(max_age, 0) - 60
+    for state_map in (recent_notification_cooldowns, recent_notification_dedupes):
+        for key, ts in list(state_map.items()):
+            if ts < expiry_cutoff:
+                state_map.pop(key, None)
+
+
+def should_emit_notification(event, settings=None):
+    effective_settings = normalize_notification_settings(settings or notification_settings)
+    event_timestamp = float(event.get('timestamp') or time.time())
+
+    if not _passes_notification_scope_rules(event, effective_settings):
+        return False
+    if _is_silence_window_active(effective_settings, event_timestamp):
+        return False
+
+    event_type = str(event.get('type') or '').lower()
+    event_container_id = str(event.get('cid') or event.get('container') or '')
+    scope_suffix = str(event.get('scope') or event.get('finding') or '').strip().lower()
+    base_signature = f'{event_type}:{event_container_id}:{scope_suffix}'
+    cooldown_seconds = int(effective_settings.get('cooldown_seconds', 0) or 0)
+    if cooldown_seconds > 0:
+        last_cooldown_ts = recent_notification_cooldowns.get(base_signature)
+        if last_cooldown_ts and (event_timestamp - last_cooldown_ts) < cooldown_seconds:
+            return False
+
+    dedupe_window_seconds = int(effective_settings.get('dedupe_window_seconds', 0) or 0)
+    dedupe_signature = f"{base_signature}:{event.get('msg', '')}"
+    if effective_settings.get('dedupe_enabled') and dedupe_window_seconds > 0:
+        last_dedupe_ts = recent_notification_dedupes.get(dedupe_signature)
+        if last_dedupe_ts and (event_timestamp - last_dedupe_ts) < dedupe_window_seconds:
+            return False
+
+    if cooldown_seconds > 0:
+        recent_notification_cooldowns[base_signature] = event_timestamp
+    if effective_settings.get('dedupe_enabled') and dedupe_window_seconds > 0:
+        recent_notification_dedupes[dedupe_signature] = event_timestamp
+    _cleanup_notification_runtime(event_timestamp, max(cooldown_seconds, dedupe_window_seconds))
+    return True
+
+
+def emit_notification(event):
+    if not should_emit_notification(event):
+        return False
+    publish_notification(event)
+    dispatch_external_notification(event)
+    return True
+
+
+def extract_compose_project(container):
+    try:
+        labels = container.attrs.get('Config', {}).get('Labels', {}) or {}
+    except Exception:
+        labels = {}
+    return labels.get('com.docker.compose.project')
+
+
+def _container_image_ref(container):
+    try:
+        config = container.attrs.get('Config', {}) or {}
+    except Exception:
+        config = {}
+    image_ref = str(config.get('Image') or '').strip()
+    if image_ref:
+        return image_ref
+    tags = getattr(getattr(container, 'image', None), 'tags', None) or []
+    return str(tags[0]).strip() if tags else ''
+
+
+def _uses_latest_image_tag(image_ref):
+    normalized = str(image_ref or '').strip()
+    if not normalized or '@sha256:' in normalized:
+        return False
+    image_name = normalized.rsplit('/', 1)[-1]
+    if ':' not in image_name:
+        return True
+    return image_name.rsplit(':', 1)[1].strip().lower() == 'latest'
+
+
+def _collect_public_port_bindings(container):
+    try:
+        ports = container.attrs.get('NetworkSettings', {}).get('Ports', {}) or {}
+    except Exception:
+        ports = {}
+
+    bindings = []
+    for container_port, host_bindings in ports.items():
+        if not host_bindings:
+            continue
+        if isinstance(host_bindings, dict):
+            host_bindings = [host_bindings]
+        for binding in host_bindings:
+            if not isinstance(binding, dict):
+                continue
+            host_ip = str(binding.get('HostIp') or '').strip()
+            host_port = str(binding.get('HostPort') or '').strip()
+            if host_ip in {'', '0.0.0.0', '::', '[::]'}:
+                public_host = host_ip or '0.0.0.0'
+                bindings.append(f'{public_host}:{host_port}->{container_port}')
+    return bindings
+
+
+def _has_docker_socket_mount(container):
+    try:
+        mounts = container.attrs.get('Mounts', []) or []
+    except Exception:
+        mounts = []
+    for mount in mounts:
+        if not isinstance(mount, dict):
+            continue
+        source = str(mount.get('Source') or '').strip()
+        destination = str(mount.get('Destination') or mount.get('Target') or '').strip()
+        if source == '/var/run/docker.sock' or destination == '/var/run/docker.sock':
+            return True
+    return False
+
+
+def collect_security_findings(container, settings=None):
+    effective_settings = normalize_notification_settings(settings or notification_settings)
+    if not effective_settings.get('security_enabled', True):
+        return []
+
+    try:
+        container_id = container.id
+        container_name = container.name
+    except Exception:
+        return []
+
+    try:
+        state = container.attrs.get('State', {}) or {}
+    except Exception:
+        state = {}
+    runtime_status = str(
+        getattr(container, 'status', None)
+        or state.get('Status')
+        or 'running'
+    ).strip().lower()
+    if runtime_status != 'running':
+        return []
+
+    timestamp = time.time()
+    project = extract_compose_project(container)
+    findings = []
+
+    try:
+        host_config = container.attrs.get('HostConfig', {}) or {}
+    except Exception:
+        host_config = {}
+
+    if effective_settings.get('security_privileged_enabled', True) and host_config.get('Privileged'):
+        findings.append({
+            'type': 'security',
+            'scope': 'privileged',
+            'finding': 'privileged',
+            'cid': container_id,
+            'container': container_name,
+            'project': project,
+            'value': True,
+            'timestamp': timestamp,
+            'msg': f'{container_name}: Security warning - container is running in privileged mode',
+        })
+
+    if effective_settings.get('security_public_ports_enabled', True):
+        public_bindings = _collect_public_port_bindings(container)
+        if public_bindings:
+            findings.append({
+                'type': 'security',
+                'scope': 'public_ports',
+                'finding': 'public_ports',
+                'cid': container_id,
+                'container': container_name,
+                'project': project,
+                'value': public_bindings,
+                'timestamp': timestamp,
+                'msg': f"{container_name}: Security warning - publicly exposes {', '.join(public_bindings)}",
+            })
+
+    if effective_settings.get('security_latest_enabled', True):
+        image_ref = _container_image_ref(container)
+        if _uses_latest_image_tag(image_ref):
+            findings.append({
+                'type': 'security',
+                'scope': 'latest_tag',
+                'finding': 'latest_tag',
+                'cid': container_id,
+                'container': container_name,
+                'project': project,
+                'value': image_ref,
+                'timestamp': timestamp,
+                'msg': f'{container_name}: Security warning - image reference {image_ref} uses latest or an implicit latest tag',
+            })
+
+    if effective_settings.get('security_docker_socket_enabled', True) and _has_docker_socket_mount(container):
+        findings.append({
+            'type': 'security',
+            'scope': 'docker_socket',
+            'finding': 'docker_socket',
+            'cid': container_id,
+            'container': container_name,
+            'project': project,
+            'value': '/var/run/docker.sock',
+            'timestamp': timestamp,
+            'msg': f'{container_name}: Security warning - mounts /var/run/docker.sock inside the container',
+        })
+
+    return findings
+
+
+def get_new_security_notifications(container, settings=None):
+    effective_settings = normalize_notification_settings(settings or notification_settings)
+    container_id = getattr(container, 'id', None)
+    if not container_id:
+        return []
+
+    findings = collect_security_findings(container, settings=effective_settings)
+    current_ids = {finding['finding'] for finding in findings}
+    previous_ids = previous_security_findings.get(container_id, set())
+    previous_security_findings[container_id] = current_ids
+    new_ids = current_ids - previous_ids
+    return [finding for finding in findings if finding['finding'] in new_ids]
 
 def initialize_sampler_clients():
     """Obtiene las instancias del cliente para el sampler."""
@@ -96,6 +497,14 @@ def publish_notification(event):
     with stream_condition:
         notification_sequence += 1
         stream_condition.notify_all()
+
+
+def dispatch_external_notification(event):
+    """Forward a notification event to all configured outbound channels."""
+    event_type = str(event.get('type') or '').lower()
+    priority = 1 if event_type in {'cpu', 'ram', 'status', 'security'} else 0
+    title = f"Docker Stats {event_type.upper()}" if event_type else "Docker Stats"
+    push_notify(event.get('msg', 'Docker Stats notification'), title=title, priority=priority, event=event)
 
 
 def get_metrics_sequence():
@@ -224,11 +633,15 @@ def sample_metrics():
             
             # Add non-running containers to history with appropriate status
             for container in all_containers:
+                for security_event in get_new_security_notifications(container):
+                    emit_notification(security_event)
+
                 if container.id not in current_running_ids:
                     # This is a non-running container, add it to history with its status
                     cid = container.id
                     container_name = container.name
                     current_status = container.status
+                    container_project = extract_compose_project(container)
                     dq = history.setdefault(cid, collections.deque(maxlen=MAX_SECONDS // SAMPLE_INTERVAL))
                     
                     # Check if status has changed
@@ -271,13 +684,13 @@ def sample_metrics():
                                     'type': 'status',
                                     'cid': cid,
                                     'container': container_name,
+                                    'project': container_project,
                                     'value': current_status,
                                     'prev_value': previous_status,
                                     'timestamp': now,
                                     'msg': f"{container_name}: Status changed from {previous_status} to {current_status}"
                                 }
-                                publish_notification(n)
-                                push_notify(n['msg'])
+                                emit_notification(n)
         except docker.errors.DockerException as e:
             logging.error(f"ERROR listing containers in sampler: {e}")
             time.sleep(SAMPLE_INTERVAL * 2)
@@ -300,6 +713,7 @@ def sample_metrics():
 
             try:
                 container = client.containers.get(cid)
+                container_project = extract_compose_project(container)
                 # --- NUEVO: Lógica de chequeo de actualización con cache y forzado ---
                 force_check = force_update_check_all or (cid in force_update_check_ids)
                 last_check = update_check_time.get(cid, 0)
@@ -372,18 +786,16 @@ def sample_metrics():
                         if cid not in cpu_exceed_start:
                             cpu_exceed_start[cid] = now
                         elif now - cpu_exceed_start[cid] >= notification_settings['window_seconds']:
-                            # Only notify once per window
-                            if not any(n for n in notifications if n['type']=='cpu' and n['cid']==cid and now-n['timestamp']<notification_settings['window_seconds']*2):
-                                n = {
-                                    'type': 'cpu',
-                                    'cid': cid,
-                                    'container': container_name,
-                                    'value': cpu,
-                                    'timestamp': now,
-                                    'msg': f"{container_name}: CPU usage {cpu:.1f}% exceeded {notification_settings['cpu_threshold']}% for {notification_settings['window_seconds']}s"
-                                }
-                                publish_notification(n)
-                                push_notify(n['msg'])
+                            n = {
+                                'type': 'cpu',
+                                'cid': cid,
+                                'container': container_name,
+                                'project': container_project,
+                                'value': cpu,
+                                'timestamp': now,
+                                'msg': f"{container_name}: CPU usage {cpu:.1f}% exceeded {notification_settings['cpu_threshold']}% for {notification_settings['window_seconds']}s"
+                            }
+                            emit_notification(n)
                     else:
                         cpu_exceed_start.pop(cid, None)
                 # RAM notification
@@ -392,17 +804,16 @@ def sample_metrics():
                         if cid not in ram_exceed_start:
                             ram_exceed_start[cid] = now
                         elif now - ram_exceed_start[cid] >= notification_settings['window_seconds']:
-                            if not any(n for n in notifications if n['type']=='ram' and n['cid']==cid and now-n['timestamp']<notification_settings['window_seconds']*2):
-                                n = {
-                                    'type': 'ram',
-                                    'cid': cid,
-                                    'container': container_name,
-                                    'value': mem_percent,
-                                    'timestamp': now,
-                                    'msg': f"{container_name}: RAM usage {mem_percent:.1f}% exceeded {notification_settings['ram_threshold']}% for {notification_settings['window_seconds']}s"
-                                }
-                                publish_notification(n)
-                                push_notify(n['msg'])
+                            n = {
+                                'type': 'ram',
+                                'cid': cid,
+                                'container': container_name,
+                                'project': container_project,
+                                'value': mem_percent,
+                                'timestamp': now,
+                                'msg': f"{container_name}: RAM usage {mem_percent:.1f}% exceeded {notification_settings['ram_threshold']}% for {notification_settings['window_seconds']}s"
+                            }
+                            emit_notification(n)
                     else:
                         ram_exceed_start.pop(cid, None)
 
@@ -412,13 +823,13 @@ def sample_metrics():
                         'type': 'status',
                         'cid': cid,
                         'container': container_name,
+                        'project': container_project,
                         'value': status,
                         'prev_value': previous_status,
                         'timestamp': now,
                         'msg': f"{container_name}: Status changed from {previous_status} to {status}"
                     }
-                    publish_notification(n)
-                    push_notify(n['msg'])
+                    emit_notification(n)
                 
                 # Update notification
                 if notification_settings.get('update_enabled', True) and update_available is True:
@@ -437,12 +848,12 @@ def sample_metrics():
                             'type': 'update',
                             'cid': cid,
                             'container': container_name,
+                            'project': container_project,
                             'value': True,
                             'timestamp': now,
                             'msg': f"{container_name}: Update available for this container"
                         }
-                        publish_notification(n)
-                        push_notify(n['msg'])
+                        emit_notification(n)
 
                 time.sleep(0.2)  # Stagger requests to avoid throttling
 
@@ -451,6 +862,7 @@ def sample_metrics():
                 if cid in previous_stats: del previous_stats[cid]
                 if cid in update_check_cache: del update_check_cache[cid]
                 if cid in update_check_time: del update_check_time[cid]
+                previous_security_findings.pop(cid, None)
                 continue
 
             except Exception as e:
@@ -478,6 +890,7 @@ def sample_metrics():
                     del update_check_cache[cid_hist_removed]
                 if cid_hist_removed in update_check_time:
                     del update_check_time[cid_hist_removed]
+                previous_security_findings.pop(cid_hist_removed, None)
 
         except docker.errors.DockerException as e:
             logging.warning(f"Docker error during history cleanup: {e}")

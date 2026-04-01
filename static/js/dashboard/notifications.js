@@ -1,5 +1,30 @@
 import { getHotThresholds, setStatusMessage, updateQuickFilterUI, updateSummaryCards } from './helpers.js';
 
+const DEFAULT_NOTIFICATION_SETTINGS = {
+  cpu_enabled: true,
+  ram_enabled: true,
+  status_enabled: true,
+  update_enabled: true,
+  security_enabled: true,
+  security_privileged_enabled: true,
+  security_public_ports_enabled: true,
+  security_latest_enabled: true,
+  security_docker_socket_enabled: true,
+  cpu_threshold: 80,
+  ram_threshold: 80,
+  window_seconds: 10,
+  cooldown_seconds: 0,
+  project_rule_mode: 'all',
+  project_rules: '',
+  container_rule_mode: 'all',
+  container_rules: '',
+  silence_enabled: false,
+  silence_start: '22:00',
+  silence_end: '07:00',
+  dedupe_enabled: true,
+  dedupe_window_seconds: 120,
+};
+
 function normalizeNotifType(type) {
   return String(type || '').toLowerCase();
 }
@@ -9,7 +34,153 @@ function titleCaseType(type) {
   return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : 'Notification';
 }
 
+function boolFromStorage(key, fallback) {
+  const value = localStorage.getItem(key);
+  if (value === null) {
+    return fallback;
+  }
+  return value === 'true';
+}
+
+function stringFromStorage(key, fallback) {
+  const value = localStorage.getItem(key);
+  return value === null ? fallback : value;
+}
+
 export function createNotificationController(ctx) {
+  let tooltipInstances = [];
+
+  function getCurrentSettings() {
+    return {
+      cpu_enabled: Boolean(ctx.elements.notifEnableCPU?.checked),
+      ram_enabled: Boolean(ctx.elements.notifEnableRAM?.checked),
+      status_enabled: Boolean(ctx.elements.notifEnableStatus?.checked),
+      update_enabled: Boolean(ctx.elements.notifEnableUpdate?.checked),
+      security_enabled: Boolean(ctx.elements.notifEnableSecurity?.checked),
+      security_privileged_enabled: Boolean(ctx.elements.notifSecurityPrivilegedEnabled?.checked),
+      security_public_ports_enabled: Boolean(ctx.elements.notifSecurityPublicPortsEnabled?.checked),
+      security_latest_enabled: Boolean(ctx.elements.notifSecurityLatestEnabled?.checked),
+      security_docker_socket_enabled: Boolean(ctx.elements.notifSecurityDockerSocketEnabled?.checked),
+      cpu_threshold: Number(ctx.elements.notifCpuThreshold?.value || DEFAULT_NOTIFICATION_SETTINGS.cpu_threshold),
+      ram_threshold: Number(ctx.elements.notifRamThreshold?.value || DEFAULT_NOTIFICATION_SETTINGS.ram_threshold),
+      window_seconds: Number(ctx.elements.notifWindowSeconds?.value || DEFAULT_NOTIFICATION_SETTINGS.window_seconds),
+      cooldown_seconds: Number(ctx.elements.notifCooldownSeconds?.value || DEFAULT_NOTIFICATION_SETTINGS.cooldown_seconds),
+      project_rule_mode: ctx.elements.notifProjectRuleMode?.value || DEFAULT_NOTIFICATION_SETTINGS.project_rule_mode,
+      project_rules: ctx.elements.notifProjectRules?.value || '',
+      container_rule_mode: ctx.elements.notifContainerRuleMode?.value || DEFAULT_NOTIFICATION_SETTINGS.container_rule_mode,
+      container_rules: ctx.elements.notifContainerRules?.value || '',
+      silence_enabled: Boolean(ctx.elements.notifSilenceEnabled?.checked),
+      silence_start: ctx.elements.notifSilenceStart?.value || DEFAULT_NOTIFICATION_SETTINGS.silence_start,
+      silence_end: ctx.elements.notifSilenceEnd?.value || DEFAULT_NOTIFICATION_SETTINGS.silence_end,
+      dedupe_enabled: Boolean(ctx.elements.notifDedupeEnabled?.checked),
+      dedupe_window_seconds: Number(ctx.elements.notifDedupeWindowSeconds?.value || DEFAULT_NOTIFICATION_SETTINGS.dedupe_window_seconds),
+    };
+  }
+
+  function syncSilenceInputsState() {
+    const disabled = !ctx.elements.notifSilenceEnabled?.checked;
+    if (ctx.elements.notifSilenceStart) {
+      ctx.elements.notifSilenceStart.disabled = disabled;
+    }
+    if (ctx.elements.notifSilenceEnd) {
+      ctx.elements.notifSilenceEnd.disabled = disabled;
+    }
+  }
+
+  function syncSecurityInputsState() {
+    const disabled = !ctx.elements.notifEnableSecurity?.checked;
+    [
+      ctx.elements.notifSecurityPrivilegedEnabled,
+      ctx.elements.notifSecurityPublicPortsEnabled,
+      ctx.elements.notifSecurityLatestEnabled,
+      ctx.elements.notifSecurityDockerSocketEnabled,
+    ].forEach((element) => {
+      if (element) {
+        element.disabled = disabled;
+      }
+    });
+  }
+
+  function writeSettingsToInputs(settings = {}) {
+    const merged = { ...DEFAULT_NOTIFICATION_SETTINGS, ...settings };
+    ctx.elements.notifCpuThreshold.value = merged.cpu_threshold;
+    ctx.elements.notifRamThreshold.value = merged.ram_threshold;
+    ctx.elements.notifWindowSeconds.value = merged.window_seconds;
+    ctx.elements.notifCooldownSeconds.value = merged.cooldown_seconds;
+    ctx.elements.notifEnableCPU.checked = Boolean(merged.cpu_enabled);
+    ctx.elements.notifEnableRAM.checked = Boolean(merged.ram_enabled);
+    ctx.elements.notifEnableStatus.checked = Boolean(merged.status_enabled);
+    ctx.elements.notifEnableUpdate.checked = Boolean(merged.update_enabled);
+    ctx.elements.notifEnableSecurity.checked = Boolean(merged.security_enabled);
+    ctx.elements.notifSecurityPrivilegedEnabled.checked = Boolean(merged.security_privileged_enabled);
+    ctx.elements.notifSecurityPublicPortsEnabled.checked = Boolean(merged.security_public_ports_enabled);
+    ctx.elements.notifSecurityLatestEnabled.checked = Boolean(merged.security_latest_enabled);
+    ctx.elements.notifSecurityDockerSocketEnabled.checked = Boolean(merged.security_docker_socket_enabled);
+    ctx.elements.notifProjectRuleMode.value = merged.project_rule_mode;
+    ctx.elements.notifProjectRules.value = merged.project_rules || '';
+    ctx.elements.notifContainerRuleMode.value = merged.container_rule_mode;
+    ctx.elements.notifContainerRules.value = merged.container_rules || '';
+    ctx.elements.notifSilenceEnabled.checked = Boolean(merged.silence_enabled);
+    ctx.elements.notifSilenceStart.value = merged.silence_start || DEFAULT_NOTIFICATION_SETTINGS.silence_start;
+    ctx.elements.notifSilenceEnd.value = merged.silence_end || DEFAULT_NOTIFICATION_SETTINGS.silence_end;
+    ctx.elements.notifDedupeEnabled.checked = Boolean(merged.dedupe_enabled);
+    ctx.elements.notifDedupeWindowSeconds.value = merged.dedupe_window_seconds;
+    syncSilenceInputsState();
+    syncSecurityInputsState();
+  }
+
+  function persistSettingsToLocalStorage(settings) {
+    localStorage.setItem('notifCpuThreshold', settings.cpu_threshold);
+    localStorage.setItem('notifRamThreshold', settings.ram_threshold);
+    localStorage.setItem('notifWindowSeconds', settings.window_seconds);
+    localStorage.setItem('notifCooldownSeconds', settings.cooldown_seconds);
+    localStorage.setItem('notifEnableCPU', settings.cpu_enabled);
+    localStorage.setItem('notifEnableRAM', settings.ram_enabled);
+    localStorage.setItem('notifEnableStatus', settings.status_enabled);
+    localStorage.setItem('notifEnableUpdate', settings.update_enabled);
+    localStorage.setItem('notifEnableSecurity', settings.security_enabled);
+    localStorage.setItem('notifSecurityPrivilegedEnabled', settings.security_privileged_enabled);
+    localStorage.setItem('notifSecurityPublicPortsEnabled', settings.security_public_ports_enabled);
+    localStorage.setItem('notifSecurityLatestEnabled', settings.security_latest_enabled);
+    localStorage.setItem('notifSecurityDockerSocketEnabled', settings.security_docker_socket_enabled);
+    localStorage.setItem('notifProjectRuleMode', settings.project_rule_mode);
+    localStorage.setItem('notifProjectRules', settings.project_rules || '');
+    localStorage.setItem('notifContainerRuleMode', settings.container_rule_mode);
+    localStorage.setItem('notifContainerRules', settings.container_rules || '');
+    localStorage.setItem('notifSilenceEnabled', settings.silence_enabled);
+    localStorage.setItem('notifSilenceStart', settings.silence_start || DEFAULT_NOTIFICATION_SETTINGS.silence_start);
+    localStorage.setItem('notifSilenceEnd', settings.silence_end || DEFAULT_NOTIFICATION_SETTINGS.silence_end);
+    localStorage.setItem('notifDedupeEnabled', settings.dedupe_enabled);
+    localStorage.setItem('notifDedupeWindowSeconds', settings.dedupe_window_seconds);
+  }
+
+  function restoreSettingsFromLocalStorage() {
+    writeSettingsToInputs({
+      cpu_threshold: stringFromStorage('notifCpuThreshold', DEFAULT_NOTIFICATION_SETTINGS.cpu_threshold),
+      ram_threshold: stringFromStorage('notifRamThreshold', DEFAULT_NOTIFICATION_SETTINGS.ram_threshold),
+      window_seconds: stringFromStorage('notifWindowSeconds', DEFAULT_NOTIFICATION_SETTINGS.window_seconds),
+      cooldown_seconds: stringFromStorage('notifCooldownSeconds', DEFAULT_NOTIFICATION_SETTINGS.cooldown_seconds),
+      cpu_enabled: boolFromStorage('notifEnableCPU', DEFAULT_NOTIFICATION_SETTINGS.cpu_enabled),
+      ram_enabled: boolFromStorage('notifEnableRAM', DEFAULT_NOTIFICATION_SETTINGS.ram_enabled),
+      status_enabled: boolFromStorage('notifEnableStatus', DEFAULT_NOTIFICATION_SETTINGS.status_enabled),
+      update_enabled: boolFromStorage('notifEnableUpdate', DEFAULT_NOTIFICATION_SETTINGS.update_enabled),
+      security_enabled: boolFromStorage('notifEnableSecurity', DEFAULT_NOTIFICATION_SETTINGS.security_enabled),
+      security_privileged_enabled: boolFromStorage('notifSecurityPrivilegedEnabled', DEFAULT_NOTIFICATION_SETTINGS.security_privileged_enabled),
+      security_public_ports_enabled: boolFromStorage('notifSecurityPublicPortsEnabled', DEFAULT_NOTIFICATION_SETTINGS.security_public_ports_enabled),
+      security_latest_enabled: boolFromStorage('notifSecurityLatestEnabled', DEFAULT_NOTIFICATION_SETTINGS.security_latest_enabled),
+      security_docker_socket_enabled: boolFromStorage('notifSecurityDockerSocketEnabled', DEFAULT_NOTIFICATION_SETTINGS.security_docker_socket_enabled),
+      project_rule_mode: stringFromStorage('notifProjectRuleMode', DEFAULT_NOTIFICATION_SETTINGS.project_rule_mode),
+      project_rules: stringFromStorage('notifProjectRules', DEFAULT_NOTIFICATION_SETTINGS.project_rules),
+      container_rule_mode: stringFromStorage('notifContainerRuleMode', DEFAULT_NOTIFICATION_SETTINGS.container_rule_mode),
+      container_rules: stringFromStorage('notifContainerRules', DEFAULT_NOTIFICATION_SETTINGS.container_rules),
+      silence_enabled: boolFromStorage('notifSilenceEnabled', DEFAULT_NOTIFICATION_SETTINGS.silence_enabled),
+      silence_start: stringFromStorage('notifSilenceStart', DEFAULT_NOTIFICATION_SETTINGS.silence_start),
+      silence_end: stringFromStorage('notifSilenceEnd', DEFAULT_NOTIFICATION_SETTINGS.silence_end),
+      dedupe_enabled: boolFromStorage('notifDedupeEnabled', DEFAULT_NOTIFICATION_SETTINGS.dedupe_enabled),
+      dedupe_window_seconds: stringFromStorage('notifDedupeWindowSeconds', DEFAULT_NOTIFICATION_SETTINGS.dedupe_window_seconds),
+    });
+  }
+
   function updateNotifBadge() {
     const count = ctx.state.notifications.length;
     if (count > 0) {
@@ -24,6 +195,10 @@ export function createNotificationController(ctx) {
       if (ctx.elements.sidebarNotifBadge) {
         ctx.elements.sidebarNotifBadge.style.display = 'none';
       }
+    }
+
+    if (ctx.elements.clearNotifsBtn) {
+      ctx.elements.clearNotifsBtn.disabled = count === 0;
     }
   }
 
@@ -40,6 +215,12 @@ export function createNotificationController(ctx) {
       const message = notification.message || notification.containerName || '';
       return `<div class="notif-item mb-2"><strong>${label}</strong> ${message} <span class="text-muted small">at ${timestamp}</span></div>`;
     }).join('');
+  }
+
+  function removeNotificationsByType(type) {
+    ctx.state.notifications = ctx.state.notifications.filter((notification) => notification.type !== type);
+    updateNotifBadge();
+    renderNotifList();
   }
 
   function addNotification(type, message, containerId) {
@@ -92,6 +273,7 @@ export function createNotificationController(ctx) {
       ram: ctx.elements.notifEnableRAM.checked,
       status: ctx.elements.notifEnableStatus.checked,
       update: ctx.elements.notifEnableUpdate.checked,
+      security: ctx.elements.notifEnableSecurity.checked,
     };
 
     if (!Array.isArray(items) || items.length === 0) {
@@ -128,7 +310,6 @@ export function createNotificationController(ctx) {
     const configuredChannels = Object.entries(notificationStatus)
       .filter(([, details]) => details && details.configured)
       .map(([channel]) => channel);
-    const pushoverReady = Boolean(notificationStatus.pushover?.configured);
 
     ctx.elements.dockerStatusChip.dataset.state = dockerStatus.connected ? 'healthy' : 'danger';
     ctx.elements.dockerStatusChip.textContent = dockerStatus.connected
@@ -136,12 +317,11 @@ export function createNotificationController(ctx) {
       : `Docker status: ${dockerStatus.error ? 'degraded' : 'offline'}`;
     ctx.elements.dockerStatusChip.title = dockerStatus.error || dockerStatus.base_url || '';
 
-    if (pushoverReady) {
+    if (configuredChannels.length > 0) {
       ctx.elements.notifyStatusChip.dataset.state = 'healthy';
-      ctx.elements.notifyStatusChip.textContent = 'Pushover: configured';
-    } else if (configuredChannels.length > 0) {
-      ctx.elements.notifyStatusChip.dataset.state = 'warning';
-      ctx.elements.notifyStatusChip.textContent = `Notifications: ${configuredChannels.join(', ')}`;
+      ctx.elements.notifyStatusChip.textContent = configuredChannels.length === 1
+        ? `Notifications: ${configuredChannels[0]} ready`
+        : `Notifications: ${configuredChannels.length} channels ready`;
     } else {
       ctx.elements.notifyStatusChip.dataset.state = 'danger';
       ctx.elements.notifyStatusChip.textContent = 'Notifications: not configured';
@@ -149,7 +329,7 @@ export function createNotificationController(ctx) {
 
     ctx.elements.notifChannelStatus.textContent = configuredChannels.length > 0
       ? `Configured channels: ${configuredChannels.join(', ')}`
-      : 'No notification channels configured. Pushover requires PUSHOVER_TOKEN and PUSHOVER_USER.';
+      : 'No notification channels configured. Supported env vars include PUSHOVER_*, SLACK_WEBHOOK_URL, TELEGRAM_*, DISCORD_WEBHOOK_URL, NTFY_TOPIC, and GENERIC_WEBHOOK_URL.';
   }
 
   async function fetchSystemStatus() {
@@ -175,7 +355,7 @@ export function createNotificationController(ctx) {
       if (response.ok && payload.ok) {
         setStatusMessage(ctx, `Test notification sent through ${payload.successful_channels.join(', ')}.`, 'success');
       } else if (!payload.configured_any) {
-        setStatusMessage(ctx, 'No notification channels are configured. Pushover is disabled until env vars are set.', 'warning');
+        setStatusMessage(ctx, 'No notification channels are configured. Add any supported provider env vars and try again.', 'warning');
       } else {
         setStatusMessage(ctx, 'Notification test failed on configured channels. Check server logs for provider errors.', 'danger');
       }
@@ -193,31 +373,26 @@ export function createNotificationController(ctx) {
   }
 
   async function saveSettings() {
-    localStorage.setItem('notifCpuThreshold', ctx.elements.notifCpuThreshold.value);
-    localStorage.setItem('notifRamThreshold', ctx.elements.notifRamThreshold.value);
-    localStorage.setItem('notifEnableCPU', ctx.elements.notifEnableCPU.checked);
-    localStorage.setItem('notifEnableRAM', ctx.elements.notifEnableRAM.checked);
-    localStorage.setItem('notifEnableStatus', ctx.elements.notifEnableStatus.checked);
-    localStorage.setItem('notifEnableUpdate', ctx.elements.notifEnableUpdate.checked);
-    localStorage.setItem('notifWindowSeconds', ctx.elements.notifWindowSeconds.value);
-
+    const settings = getCurrentSettings();
+    persistSettingsToLocalStorage(settings);
     ctx.state.prevMetricsData = [];
-    setStatusMessage(ctx, 'Notification settings saved.', 'success');
 
     try {
-      await fetch('/api/notification-settings', {
+      const response = await fetch('/api/notification-settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cpu_enabled: ctx.elements.notifEnableCPU.checked,
-          ram_enabled: ctx.elements.notifEnableRAM.checked,
-          status_enabled: ctx.elements.notifEnableStatus.checked,
-          update_enabled: ctx.elements.notifEnableUpdate.checked,
-          cpu_threshold: +ctx.elements.notifCpuThreshold.value,
-          ram_threshold: +ctx.elements.notifRamThreshold.value,
-          window_seconds: +ctx.elements.notifWindowSeconds.value,
-        }),
+        body: JSON.stringify(settings),
       });
+      if (!response.ok) {
+        throw new Error(`Unable to save notification settings: ${response.status}`);
+      }
+      const payload = await response.json();
+      writeSettingsToInputs(payload.settings || settings);
+      persistSettingsToLocalStorage(payload.settings || settings);
+      setStatusMessage(ctx, 'Notification settings saved.', 'success');
+    } catch (error) {
+      console.error('Unable to save notification settings:', error);
+      setStatusMessage(ctx, 'Unable to save notification settings.', 'danger');
     } finally {
       updateSummaryCards(ctx, ctx.state.allMetricsData);
       updateQuickFilterUI(ctx);
@@ -225,13 +400,7 @@ export function createNotificationController(ctx) {
   }
 
   async function loadSettings() {
-    ctx.elements.notifCpuThreshold.value = localStorage.getItem('notifCpuThreshold') || 80;
-    ctx.elements.notifRamThreshold.value = localStorage.getItem('notifRamThreshold') || 80;
-    ctx.elements.notifEnableCPU.checked = localStorage.getItem('notifEnableCPU') === 'true';
-    ctx.elements.notifEnableRAM.checked = localStorage.getItem('notifEnableRAM') === 'true';
-    ctx.elements.notifEnableStatus.checked = localStorage.getItem('notifEnableStatus') === 'true';
-    ctx.elements.notifEnableUpdate.checked = localStorage.getItem('notifEnableUpdate') === 'true';
-    ctx.elements.notifWindowSeconds.value = localStorage.getItem('notifWindowSeconds') || 10;
+    restoreSettingsFromLocalStorage();
 
     try {
       const response = await fetch('/api/notification-settings');
@@ -243,29 +412,15 @@ export function createNotificationController(ctx) {
         return;
       }
 
-      if (settings.cpu_threshold !== undefined) {
-        ctx.elements.notifCpuThreshold.value = settings.cpu_threshold;
-        localStorage.setItem('notifCpuThreshold', settings.cpu_threshold);
-      }
-      if (settings.ram_threshold !== undefined) {
-        ctx.elements.notifRamThreshold.value = settings.ram_threshold;
-        localStorage.setItem('notifRamThreshold', settings.ram_threshold);
-      }
-      if (settings.window_seconds !== undefined) {
-        ctx.elements.notifWindowSeconds.value = settings.window_seconds;
-        localStorage.setItem('notifWindowSeconds', settings.window_seconds);
-      }
-      ctx.elements.notifEnableCPU.checked = settings.cpu_enabled;
-      ctx.elements.notifEnableRAM.checked = settings.ram_enabled;
-      ctx.elements.notifEnableStatus.checked = settings.status_enabled;
-      ctx.elements.notifEnableUpdate.checked = settings.update_enabled;
-      localStorage.setItem('notifEnableCPU', settings.cpu_enabled);
-      localStorage.setItem('notifEnableRAM', settings.ram_enabled);
-      localStorage.setItem('notifEnableStatus', settings.status_enabled);
-      localStorage.setItem('notifEnableUpdate', settings.update_enabled);
+      writeSettingsToInputs(settings);
+      persistSettingsToLocalStorage({ ...DEFAULT_NOTIFICATION_SETTINGS, ...settings });
     } catch (error) {
       console.error('Unable to load notification settings:', error);
     }
+  }
+
+  function hidePanel() {
+    ctx.elements.notifPanel.style.display = 'none';
   }
 
   function openPanel() {
@@ -273,12 +428,47 @@ export function createNotificationController(ctx) {
     ctx.elements.notifPanel.style.display = isVisible ? 'none' : 'block';
     if (!isVisible) {
       renderNotifList();
-      ctx.state.notifications.length = 0;
       updateNotifBadge();
     }
   }
 
+  function openSettingsModal() {
+    hidePanel();
+    const mobileOverlay = document.getElementById('mobileNotifOverlay');
+    if (mobileOverlay) {
+      mobileOverlay.style.display = 'none';
+    }
+    Object.assign(ctx.elements.notifPanel.style, {
+      position: '',
+      top: '',
+      left: '',
+      right: '',
+      marginTop: '',
+      transform: '',
+      width: '',
+      maxWidth: '',
+      maxHeight: '',
+      overflowY: '',
+      zIndex: '',
+    });
+    if (ctx.state.notifSettingsModal) {
+      ctx.state.notifSettingsModal.show();
+    }
+  }
+
+  function initBootstrapWidgets() {
+    if (ctx.elements.notifSettingsModalEl && !ctx.state.notifSettingsModal) {
+      ctx.state.notifSettingsModal = new bootstrap.Modal(ctx.elements.notifSettingsModalEl);
+    }
+
+    tooltipInstances.forEach((instance) => instance.dispose());
+    tooltipInstances = Array.from(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+      .map((element) => new bootstrap.Tooltip(element));
+  }
+
   function init() {
+    initBootstrapWidgets();
+
     ctx.elements.notifToggle?.addEventListener('click', (event) => {
       event.stopPropagation();
       openPanel();
@@ -291,13 +481,18 @@ export function createNotificationController(ctx) {
         && !ctx.elements.notifPanel.contains(event.target)
         && !ctx.elements.notifToggle.contains(event.target)
       ) {
-        ctx.elements.notifPanel.style.display = 'none';
+        hidePanel();
       }
     });
 
+    ctx.elements.notifSettingsBtn?.addEventListener('click', openSettingsModal);
     ctx.elements.clearNotifsBtn?.addEventListener('click', clearNotifications);
     ctx.elements.saveNotifSettingsBtn?.addEventListener('click', saveSettings);
     ctx.elements.testNotifBtn?.addEventListener('click', triggerNotificationTest);
+    ctx.elements.notifSilenceEnabled?.addEventListener('change', () => {
+      localStorage.setItem('notifSilenceEnabled', ctx.elements.notifSilenceEnabled.checked);
+      syncSilenceInputsState();
+    });
 
     ctx.elements.notifEnableCPU?.addEventListener('change', (event) => {
       localStorage.setItem('notifEnableCPU', event.target.checked);
@@ -326,15 +521,39 @@ export function createNotificationController(ctx) {
     ctx.elements.notifEnableUpdate?.addEventListener('change', (event) => {
       localStorage.setItem('notifEnableUpdate', event.target.checked);
       if (!event.target.checked) {
-        ctx.state.notifications = ctx.state.notifications.filter((notification) => notification.type !== 'update');
-        updateNotifBadge();
-        renderNotifList();
+        removeNotificationsByType('update');
       }
     });
-    ctx.elements.notifWindowSeconds?.addEventListener('change', (event) => {
-      localStorage.setItem('notifWindowSeconds', event.target.value);
+    ctx.elements.notifEnableSecurity?.addEventListener('change', (event) => {
+      localStorage.setItem('notifEnableSecurity', event.target.checked);
+      syncSecurityInputsState();
+      if (!event.target.checked) {
+        removeNotificationsByType('security');
+      }
     });
 
+    [
+      ctx.elements.notifEnableSecurity,
+      ctx.elements.notifSecurityPrivilegedEnabled,
+      ctx.elements.notifSecurityPublicPortsEnabled,
+      ctx.elements.notifSecurityLatestEnabled,
+      ctx.elements.notifSecurityDockerSocketEnabled,
+      ctx.elements.notifWindowSeconds,
+      ctx.elements.notifCpuThreshold,
+      ctx.elements.notifRamThreshold,
+      ctx.elements.notifCooldownSeconds,
+      ctx.elements.notifProjectRuleMode,
+      ctx.elements.notifProjectRules,
+      ctx.elements.notifContainerRuleMode,
+      ctx.elements.notifContainerRules,
+      ctx.elements.notifSilenceStart,
+      ctx.elements.notifSilenceEnd,
+      ctx.elements.notifDedupeEnabled,
+      ctx.elements.notifDedupeWindowSeconds,
+    ].forEach((element) => {
+      element?.addEventListener('change', () => persistSettingsToLocalStorage(getCurrentSettings()));
+      element?.addEventListener('input', () => persistSettingsToLocalStorage(getCurrentSettings()));
+    });
   }
 
   return {
@@ -347,5 +566,6 @@ export function createNotificationController(ctx) {
     updateNotifBadge,
     openPanel,
     clearNotifications,
+    openSettingsModal,
   };
 }

@@ -83,6 +83,28 @@ def migrate_add_columns_and_role_and_settings():
         )
     except sqlite3.OperationalError:
         pass
+    try:
+        c.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS update_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at REAL NOT NULL,
+                actor_username TEXT,
+                action TEXT NOT NULL,
+                target_type TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                target_name TEXT NOT NULL,
+                previous_version TEXT,
+                new_version TEXT,
+                result TEXT NOT NULL,
+                notes TEXT,
+                metadata TEXT,
+                rollback_of INTEGER
+            )
+            '''
+        )
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 
@@ -284,3 +306,121 @@ def get_notification_settings(default=None):
 
 def set_notification_settings(settings):
     set_global_setting('notification_settings', settings)
+
+
+def record_update_history(
+    action,
+    target_type,
+    target_id,
+    target_name,
+    previous_version=None,
+    new_version=None,
+    result='success',
+    notes=None,
+    metadata=None,
+    rollback_of=None,
+    actor_username=None,
+):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute(
+        '''
+        INSERT INTO update_history (
+            created_at, actor_username, action, target_type, target_id, target_name,
+            previous_version, new_version, result, notes, metadata, rollback_of
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''',
+        (
+            time.time(),
+            actor_username,
+            action,
+            target_type,
+            target_id,
+            target_name,
+            previous_version,
+            new_version,
+            result,
+            notes,
+            json.dumps(metadata or {}, sort_keys=True),
+            rollback_of,
+        ),
+    )
+    conn.commit()
+    event_id = c.lastrowid
+    conn.close()
+    return event_id
+
+
+def get_update_history_entry(entry_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute(
+        '''
+        SELECT id, created_at, actor_username, action, target_type, target_id, target_name,
+               previous_version, new_version, result, notes, metadata, rollback_of
+        FROM update_history
+        WHERE id=?
+        ''',
+        (int(entry_id),),
+    )
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return None
+    try:
+        metadata = json.loads(row['metadata']) if row['metadata'] else {}
+    except Exception:
+        metadata = {}
+    return {
+        'id': row['id'],
+        'created_at': row['created_at'],
+        'actor_username': row['actor_username'],
+        'action': row['action'],
+        'target_type': row['target_type'],
+        'target_id': row['target_id'],
+        'target_name': row['target_name'],
+        'previous_version': row['previous_version'],
+        'new_version': row['new_version'],
+        'result': row['result'],
+        'notes': row['notes'],
+        'metadata': metadata,
+        'rollback_of': row['rollback_of'],
+    }
+
+
+def list_update_history(limit=100):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute(
+        '''
+        SELECT id, created_at, actor_username, action, target_type, target_id, target_name,
+               previous_version, new_version, result, notes, metadata, rollback_of
+        FROM update_history
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+        ''',
+        (int(limit),),
+    )
+    rows = []
+    for row in c.fetchall():
+        try:
+            metadata = json.loads(row['metadata']) if row['metadata'] else {}
+        except Exception:
+            metadata = {}
+        rows.append({
+            'id': row['id'],
+            'created_at': row['created_at'],
+            'actor_username': row['actor_username'],
+            'action': row['action'],
+            'target_type': row['target_type'],
+            'target_id': row['target_id'],
+            'target_name': row['target_name'],
+            'previous_version': row['previous_version'],
+            'new_version': row['new_version'],
+            'result': row['result'],
+            'notes': row['notes'],
+            'metadata': metadata,
+            'rollback_of': row['rollback_of'],
+        })
+    conn.close()
+    return rows

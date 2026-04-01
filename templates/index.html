@@ -339,7 +339,7 @@
       position: absolute; /* Position relative to nearest positioned ancestor (navbar) */
       top: 100%; /* Position below the navbar */
       right: 0; /* Align with the right edge of the button's container */
-      width: 300px;
+      width: 360px;
       max-height: 400px;
       overflow-y: auto;
       background: var(--bs-body-bg);
@@ -712,25 +712,47 @@
             </button>
             <!-- Notification Panel moved inside relative container -->
             <div id="notifPanel">
-                <h5>Notifications</h5>
-                <div id="notifConfig" class="mb-2">
-                  <h6>Settings</h6>
-                  <div class="mb-1"><label class="form-label">CPU Threshold (%): <input type="number" id="notifCpuThreshold" class="form-control form-control-sm" min="0" max="100"></label></div>
-                  <div class="mb-1"><label class="form-label">RAM Threshold (%): <input type="number" id="notifRamThreshold" class="form-control form-control-sm" min="0" max="100"></label></div>
-                  <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="notifEnableCPU"><label class="form-check-label" for="notifEnableCPU">Enable CPU Notifications</label></div>
-                  <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="notifEnableRAM"><label class="form-check-label" for="notifEnableRAM">Enable RAM Notifications</label></div>
-                  <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="notifEnableStatus"><label class="form-check-label" for="notifEnableStatus">Enable Status Notifications</label></div>
-                  <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="notifEnableUpdate"><label class="form-check-label" for="notifEnableUpdate">Enable Update Notifications</label></div>
-                  <div class="mb-1"><label class="form-label">Notification Window (seconds): <input type="number" id="notifWindowSeconds" class="form-control form-control-sm" min="1"></label></div>
-                  <div class="d-flex flex-wrap gap-2">
-                    <button type="button" id="saveNotifSettingsBtn" class="btn btn-sm btn-primary">Save</button>
-                    <button type="button" id="testNotifBtn" class="btn btn-sm btn-outline-secondary">Send test</button>
+                <div class="notif-panel-head">
+                  <div class="notif-panel-copy">
+                    <h5>Pending notifications</h5>
+                    <p class="notif-panel-subtitle">Review active alerts and manage the notification queue.</p>
                   </div>
+                  <div class="notif-panel-actions" id="notifPanelActions">
+                    <button
+                      type="button"
+                      id="notifSettingsBtn"
+                      class="btn btn-sm btn-outline-secondary icon-btn icon-btn-only"
+                      aria-label="Notification settings"
+                      data-bs-toggle="tooltip"
+                      data-bs-placement="bottom"
+                      title="Notification settings"
+                    >
+                      <i class="bi bi-gear" aria-hidden="true"></i>
+                    </button>
+                    <button
+                      type="button"
+                      id="clearNotifsBtn"
+                      class="btn btn-sm btn-outline-secondary icon-btn icon-btn-only"
+                      aria-label="Clear notifications"
+                      data-bs-toggle="tooltip"
+                      data-bs-placement="bottom"
+                      title="Clear Notifications"
+                    >
+                      <i class="bi bi-broom" aria-hidden="true"></i>
+                    </button>
+                  </div>
+                </div>
+                <div id="notifConfig" class="mb-2">
                   <div id="notifChannelStatus"></div>
                 </div>
                 <div id="notifList" class="mb-2"><p class="small text-muted">No notifications</p></div>
-                <button type="button" id="clearNotifsBtn" class="btn btn-sm btn-secondary">Clear Notifications</button>
             </div>
+        </div>
+        <div class="position-relative ms-2">
+          <button type="button" id="updateManagerToggle" class="btn btn-outline-secondary icon-btn icon-btn-only" aria-label="Update manager">
+            <i class="bi bi-arrow-repeat" aria-hidden="true"></i>
+            <span id="updateManagerBadge" class="badge bg-warning text-dark position-absolute top-0 start-100 translate-middle" style="display:none; font-size:0.6rem; padding: 0.2em 0.4em;"></span>
+          </button>
         </div>
         <button type="button" id="themeToggle" class="btn btn-outline-secondary icon-btn icon-btn-only" aria-label="Toggle theme"><i class="bi bi-moon-stars" aria-hidden="true"></i></button>
         <button type="button" id="userInfoBtn" class="btn btn-outline-secondary ms-2" aria-label="User info"><img src="{{ url_for('static', filename='icons/header_user.svg') }}" alt="User" width="16" height="16" style="vertical-align: middle;"></button>
@@ -756,6 +778,7 @@
           <span id="sidebarNotifBadge" class="badge bg-danger position-absolute top-50 end-0 translate-middle-y me-2" style="display:none; font-size:0.6rem; padding: 0.2em 0.4em;"></span>
         </button>
       </div>
+      <button type="button" id="sidebarUpdateManagerToggle" class="btn btn-outline-secondary mb-2 text-start icon-btn" aria-label="Update manager"><i class="bi bi-arrow-repeat" aria-hidden="true"></i><span>Update manager</span></button>
       <button type="button" id="sidebarThemeToggle" class="btn btn-outline-secondary mb-2 text-start icon-btn" aria-label="Toggle theme"><i class="bi bi-moon-stars" aria-hidden="true"></i><span>Toggle Theme</span></button>
       <button type="button" id="sidebarUserInfoBtn" class="btn btn-outline-secondary mb-2 text-start d-flex align-items-center gap-2" aria-label="User info"><img src="{{ url_for('static', filename='icons/header_user.svg') }}" alt="User" width="16" height="16" style="vertical-align: middle;"> <span id="sidebarUserLabel">User Info</span></button>
       <button type="button" id="sidebarSettingsBtn" class="btn btn-outline-secondary mb-2 text-start icon-btn" aria-label="Settings"><i class="bi bi-sliders2" aria-hidden="true"></i><span>Settings</span></button>
@@ -841,9 +864,202 @@
                 </div>
               </div>
             </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="notifSettingsModal" tabindex="-1" aria-labelledby="notifSettingsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg settings-dialog notif-settings-dialog">
+      <div class="modal-content settings-modal notif-settings-modal">
+        <div class="modal-header">
+          <div>
+            <h5 class="modal-title settings-title" id="notifSettingsModalLabel"><i class="bi bi-bell" aria-hidden="true"></i><span>Notification settings</span></h5>
+            <p class="settings-subtitle">Configure thresholds, routing rules, security warnings, cooldowns, silencing windows, and deduplication from a centered control panel.</p>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="notif-settings-grid">
+            <section class="settings-pane notif-settings-pane">
+              <h6>Signal selection</h6>
+              <div class="row g-3">
+                <div class="col-sm-6">
+                  <label class="form-label" for="notifCpuThreshold">CPU threshold (%)</label>
+                  <input type="number" id="notifCpuThreshold" class="form-control form-control-sm" min="0" max="100">
+                </div>
+                <div class="col-sm-6">
+                  <label class="form-label" for="notifRamThreshold">RAM threshold (%)</label>
+                  <input type="number" id="notifRamThreshold" class="form-control form-control-sm" min="0" max="100">
+                </div>
+                <div class="col-sm-6">
+                  <label class="form-label" for="notifWindowSeconds">Threshold window (seconds)</label>
+                  <input type="number" id="notifWindowSeconds" class="form-control form-control-sm" min="1">
+                </div>
+                <div class="col-sm-6">
+                  <label class="form-label" for="notifCooldownSeconds">Cooldown between sends (seconds)</label>
+                  <input type="number" id="notifCooldownSeconds" class="form-control form-control-sm" min="0">
+                </div>
+              </div>
+              <div class="row g-2 mt-1">
+                <div class="col-sm-6">
+                  <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="notifEnableCPU"><label class="form-check-label" for="notifEnableCPU">Enable CPU notifications</label></div>
+                  <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="notifEnableRAM"><label class="form-check-label" for="notifEnableRAM">Enable RAM notifications</label></div>
+                </div>
+                <div class="col-sm-6">
+                  <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="notifEnableStatus"><label class="form-check-label" for="notifEnableStatus">Enable status notifications</label></div>
+                  <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="notifEnableUpdate"><label class="form-check-label" for="notifEnableUpdate">Enable update notifications</label></div>
+                  <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="notifEnableSecurity"><label class="form-check-label" for="notifEnableSecurity">Enable security notifications</label></div>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-pane notif-settings-pane">
+              <h6>Rules by project and container</h6>
+              <p class="notif-settings-note">Use exact names or wildcard patterns such as <code>demo*</code>. One entry per line or separated by commas.</p>
+              <div class="row g-3">
+                <div class="col-sm-6">
+                  <label class="form-label" for="notifProjectRuleMode">Project rules</label>
+                  <select id="notifProjectRuleMode" class="form-select form-select-sm">
+                    <option value="all">All projects</option>
+                    <option value="include">Only listed projects</option>
+                    <option value="exclude">Mute listed projects</option>
+                  </select>
+                </div>
+                <div class="col-sm-6">
+                  <label class="form-label" for="notifContainerRuleMode">Container rules</label>
+                  <select id="notifContainerRuleMode" class="form-select form-select-sm">
+                    <option value="all">All containers</option>
+                    <option value="include">Only listed containers</option>
+                    <option value="exclude">Mute listed containers</option>
+                  </select>
+                </div>
+                <div class="col-sm-6">
+                  <label class="form-label" for="notifProjectRules">Project rule patterns</label>
+                  <textarea id="notifProjectRules" class="form-control form-control-sm notif-rules-textarea" rows="5" placeholder="demo&#10;jobs-*"></textarea>
+                </div>
+                <div class="col-sm-6">
+                  <label class="form-label" for="notifContainerRules">Container rule patterns</label>
+                  <textarea id="notifContainerRules" class="form-control form-control-sm notif-rules-textarea" rows="5" placeholder="db&#10;worker-*"></textarea>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-pane notif-settings-pane">
+              <h6>Basic security warnings</h6>
+              <p class="notif-settings-note">Toggle baseline checks for privileged containers, public port exposure, latest tags, and Docker socket mounts. New warnings are queued when a risky condition appears.</p>
+              <div class="row g-2">
+                <div class="col-sm-6">
+                  <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="notifSecurityPrivilegedEnabled"><label class="form-check-label" for="notifSecurityPrivilegedEnabled">Warn on privileged containers</label></div>
+                  <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="notifSecurityPublicPortsEnabled"><label class="form-check-label" for="notifSecurityPublicPortsEnabled">Warn on publicly exposed ports</label></div>
+                </div>
+                <div class="col-sm-6">
+                  <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="notifSecurityLatestEnabled"><label class="form-check-label" for="notifSecurityLatestEnabled">Warn on <code>latest</code> or implicit latest images</label></div>
+                  <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="notifSecurityDockerSocketEnabled"><label class="form-check-label" for="notifSecurityDockerSocketEnabled">Warn on <code>/var/run/docker.sock</code> mounts</label></div>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-pane notif-settings-pane">
+              <h6>Silencing and deduplication</h6>
+              <p class="notif-settings-note">Power up notifications with cooldowns, quiet hours, and duplicate suppression so repeated incidents stay readable.</p>
+              <div class="row g-3">
+                <div class="col-sm-6">
+                  <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="notifSilenceEnabled"><label class="form-check-label" for="notifSilenceEnabled">Enable quiet hours</label></div>
+                  <div class="row g-2">
+                    <div class="col-6">
+                      <label class="form-label" for="notifSilenceStart">Start</label>
+                      <input type="time" id="notifSilenceStart" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-6">
+                      <label class="form-label" for="notifSilenceEnd">End</label>
+                      <input type="time" id="notifSilenceEnd" class="form-control form-control-sm">
+                    </div>
+                  </div>
+                </div>
+                <div class="col-sm-6">
+                  <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="notifDedupeEnabled"><label class="form-check-label" for="notifDedupeEnabled">Enable deduplication</label></div>
+                  <label class="form-label" for="notifDedupeWindowSeconds">Deduplication window (seconds)</label>
+                  <input type="number" id="notifDedupeWindowSeconds" class="form-control form-control-sm" min="0">
+                </div>
+              </div>
+            </section>
           </div>
         </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+          <button type="button" id="testNotifBtn" class="btn btn-outline-secondary">Send test</button>
+          <button type="button" id="saveNotifSettingsBtn" class="btn btn-primary">Save settings</button>
+        </div>
       </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="updateManagerModal" tabindex="-1" aria-labelledby="updateManagerModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-xl settings-dialog update-manager-dialog">
+      <div class="modal-content settings-modal update-manager-modal">
+        <div class="modal-header">
+          <div>
+            <h5 class="modal-title settings-title" id="updateManagerModalLabel"><i class="bi bi-arrow-repeat" aria-hidden="true"></i><span>Update manager</span></h5>
+            <p class="settings-subtitle">Review available updates, launch safe updates from the interface, and rollback recent changes using the persistent update history.</p>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-warning update-manager-warning" role="alert">
+            <strong>Experimental:</strong> this feature is currently experimental. It has been designed to preserve user data, volumes, configuration, networks, environment variables, and other persistent state, but every update should still be reviewed carefully before you apply it.
+          </div>
+          <div class="update-manager-toolbar">
+            <div class="update-manager-toolbar-copy">
+              <h6 class="mb-1">Available updates and rollback history</h6>
+              <p class="update-manager-toolbar-meta mb-0" id="updateManagerMeta">Waiting for the first update inventory request.</p>
+            </div>
+            <button type="button" id="refreshUpdateManagerBtn" class="btn btn-outline-secondary btn-sm">Refresh list</button>
+          </div>
+          <div id="updateManagerStatus" class="alert d-none" role="status" aria-live="polite"></div>
+          <div class="update-manager-grid">
+            <section class="settings-pane update-manager-pane">
+              <div class="update-manager-pane-head">
+                <div>
+                  <p class="update-target-eyebrow">Compose stacks</p>
+                  <h6 class="mb-0">Projects with updates available</h6>
+                </div>
+              </div>
+              <div id="updateManagerProjectList" class="update-manager-list">
+                <div class="update-manager-empty">Loading available updates...</div>
+              </div>
+            </section>
+
+            <section class="settings-pane update-manager-pane">
+              <div class="update-manager-pane-head">
+                <div>
+                  <p class="update-target-eyebrow">Standalone containers</p>
+                  <h6 class="mb-0">Containers with updates available</h6>
+                </div>
+              </div>
+              <div id="updateManagerContainerList" class="update-manager-list">
+                <div class="update-manager-empty">Loading available updates...</div>
+              </div>
+            </section>
+
+            <section class="settings-pane update-manager-pane update-manager-pane--history">
+              <div class="update-manager-pane-head">
+                <div>
+                  <p class="update-target-eyebrow">History</p>
+                  <h6 class="mb-0">Recent updates and rollbacks</h6>
+                </div>
+              </div>
+              <div id="updateManagerHistoryList" class="update-manager-list">
+                <div class="update-manager-empty">Loading update history...</div>
+              </div>
+            </section>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <div class="modal fade" id="appDialogModal" tabindex="-1" aria-labelledby="appDialogTitle" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered app-dialog-wrap">
@@ -866,14 +1082,7 @@
   <div class="container-fluid px-3">
     <div class="top-panels mb-2">
     <div class="overview-shell" id="overviewShell">
-      <div class="overview-toggle-row">
-        <div class="overview-toggle-copy">
-          <span class="overview-toggle-label">Overview</span>
-          <span class="overview-toggle-state" id="heroToggleState">Visible</span>
-        </div>
-        <button type="button" id="heroToggleBtn" class="btn btn-outline-secondary btn-sm">Hide overview</button>
-      </div>
-      <section class="hero-shell" id="heroShell">
+      <section class="hero-shell">
       <div class="hero-copy">
         <h1>One cockpit for containers, updates and alerts.</h1>
         <p class="hero-subtitle">Track containers, surface pressure quickly, and validate notifications from one clearer operating view.</p>
@@ -1145,6 +1354,19 @@
       </div>
     </section>
     </div>
+
+    <section class="project-dashboard-shell mb-4">
+      <div class="project-dashboard-head">
+        <div>
+          <h2 class="project-dashboard-title">Compose stacks</h2>
+          <p class="project-dashboard-caption">Aggregated CPU, RAM, status and update pressure for each Compose project.</p>
+        </div>
+        <div class="project-dashboard-meta" id="projectDashboardMeta">Waiting for the first metrics snapshot.</div>
+      </div>
+      <div class="project-dashboard-grid" id="projectDashboardGrid">
+        <div class="project-dashboard-empty">Waiting for the first metrics snapshot.</div>
+      </div>
+    </section>
 
     <!-- Add Containers heading -->
     <div class="table-shell mb-4">
