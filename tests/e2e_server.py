@@ -226,6 +226,40 @@ def build_update_manager_payload():
             'entries': entries,
         })
 
+    projects.append({
+        'id': 'project:jobs',
+        'target_id': 'jobs',
+        'name': 'jobs',
+        'type': 'project',
+        'current_version': 'worker=python:3.12 @ worker-current',
+        'latest_version': 'worker=python:3.13 @ worker-new',
+        'update_state': 'blocked',
+        'state_reason': 'This stack appears to be managed by Portainer. Docker labels point to compose files in Portainer\'s data directory, which Docker Stats cannot access directly from this host.',
+        'last_checked_at': BASE_TS - 120,
+        'entries': [
+            {
+                'service': 'worker',
+                'container_id': 'worker12345678',
+                'current_version': 'python:3.12 @ worker-current',
+                'latest_version': 'python:3.13 @ worker-new',
+            },
+        ],
+        'meta': {
+            'management_mode': 'external',
+            'manager_key': 'portainer',
+            'manager_name': 'Portainer',
+            'block_kind': 'missing_compose_files',
+            'missing_files': ['/data/compose/42/docker-compose.yml'],
+            'guidance': [
+                'Docker Stats can only run project updates when it can read the original Compose files from the host filesystem.',
+                'Docker Stats does not reconstruct Compose projects from running containers alone because Docker metadata does not preserve override merge order, env files, build contexts, secrets, configs, or services that are not currently running.',
+            ],
+            'action_hint': 'Project updates are disabled here because Portainer owns the compose definition.',
+            'recovery_hint': 'Export the stack from Portainer or recover it from the original Git repository, then redeploy it from a host path that is mounted into Docker Stats if you want this application to manage updates.',
+            'auto_recovery_supported': False,
+        },
+    })
+
     history = []
     for entry in UPDATE_HISTORY:
         payload = dict(entry)

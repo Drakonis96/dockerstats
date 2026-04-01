@@ -270,7 +270,7 @@ export function createUserController(ctx, deps) {
     blockInteraction(ctx.elements.tabManageUser, 'Only admin has access to this feature');
     if (ctx.elements.testNotifBtn) {
       ctx.elements.testNotifBtn.disabled = true;
-      ctx.elements.testNotifBtn.title = 'Only admin can send notification tests';
+      ctx.elements.testNotifBtn.title = 'Only admin can send notifications';
     }
   }
 

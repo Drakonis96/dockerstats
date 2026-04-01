@@ -1,4 +1,4 @@
-import { getHotThresholds, setStatusMessage, updateQuickFilterUI, updateSummaryCards } from './helpers.js';
+import { flashButtonSuccess, getHotThresholds, setStatusMessage, updateQuickFilterUI, updateSummaryCards } from './helpers.js';
 
 const DEFAULT_NOTIFICATION_SETTINGS = {
   cpu_enabled: true,
@@ -369,6 +369,7 @@ export function createNotificationController(ctx) {
       });
       const payload = await response.json();
       if (response.ok && payload.ok) {
+        flashButtonSuccess(ctx.elements.testNotifBtn, { label: 'Sent' });
         setStatusMessage(ctx, `Test notification sent through ${payload.successful_channels.join(', ')}.`, 'success');
       } else if (!payload.configured_any) {
         setStatusMessage(ctx, 'No notification channels are configured. Add any supported provider env vars and try again.', 'warning');
@@ -422,6 +423,7 @@ export function createNotificationController(ctx) {
       const payload = await response.json();
       writeSettingsToInputs(payload.settings || settings);
       persistSettingsToLocalStorage(payload.settings || settings);
+      flashButtonSuccess(ctx.elements.saveNotifSettingsBtn, { label: 'Saved' });
       setStatusMessage(ctx, 'Notification settings saved.', 'success');
     } catch (error) {
       console.error('Unable to save notification settings:', error);

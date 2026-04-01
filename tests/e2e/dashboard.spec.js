@@ -7,6 +7,9 @@ test.beforeEach(async ({ request }) => {
 test('renders table, summaries and filters', async ({ page }) => {
   await page.goto('/');
 
+  const tabOrder = await page.locator('.dashboard-view-tabs .nav-link').evaluateAll((nodes) => nodes.map((node) => node.id));
+  expect(tabOrder).toEqual(['dashboardContainersTab', 'dashboardComposeTab']);
+
   const layoutMetrics = await page.evaluate(() => {
     const tableView = document.getElementById('tableView');
     return {
@@ -19,6 +22,30 @@ test('renders table, summaries and filters', async ({ page }) => {
 
   expect(layoutMetrics.docScrollWidth).toBe(layoutMetrics.docClientWidth);
   expect(layoutMetrics.tableScrollWidth).toBeGreaterThan(layoutMetrics.tableClientWidth);
+
+  for (const id of ['toggleColNetIO', 'toggleColBlockIO', 'toggleColImage', 'toggleColPorts', 'toggleColRestarts', 'toggleColUI', 'toggleColUpdate']) {
+    await page.locator(`#${id}`).check();
+  }
+
+  const expandedLayoutMetrics = await page.evaluate(() => {
+    const tableView = document.getElementById('tableView');
+    if (tableView) {
+      tableView.scrollLeft = 320;
+    }
+    return {
+      docClientWidth: document.documentElement.clientWidth,
+      docScrollWidth: document.documentElement.scrollWidth,
+      tableClientWidth: tableView?.clientWidth ?? 0,
+      tableScrollWidth: tableView?.scrollWidth ?? 0,
+      tableScrollLeft: tableView?.scrollLeft ?? 0,
+      windowScrollX: window.scrollX,
+    };
+  });
+
+  expect(expandedLayoutMetrics.docScrollWidth).toBe(expandedLayoutMetrics.docClientWidth);
+  expect(expandedLayoutMetrics.tableScrollWidth).toBeGreaterThan(expandedLayoutMetrics.tableClientWidth);
+  expect(expandedLayoutMetrics.tableScrollLeft).toBeGreaterThan(0);
+  expect(expandedLayoutMetrics.windowScrollX).toBe(0);
 
   await expect(page.locator('#summaryTotal')).toHaveText('3');
   await expect(page.locator('#summaryRunning')).toHaveText('2');
@@ -52,6 +79,14 @@ test('renders table, summaries and filters', async ({ page }) => {
   await expect(page.locator('#metricsTable tbody tr')).toHaveCount(1);
   await expect(page.locator('#metricsTable tbody tr')).toContainText('db');
   await expect(page.locator('#activeFiltersValue')).toContainText('1 active filters');
+
+  const saveSettingsButton = page.locator('#saveSettingsBtn');
+  await saveSettingsButton.click();
+  await expect(saveSettingsButton).toHaveAttribute('data-feedback-state', 'success');
+  await expect(saveSettingsButton).toContainText('Saved');
+  await expect(page.locator('#statusMessageArea')).toContainText('Settings saved.');
+  await expect(saveSettingsButton).not.toHaveAttribute('data-feedback-state', 'success');
+  await expect(saveSettingsButton).toContainText('Save Settings');
 });
 
 test('supports container actions and chart loading', async ({ page }) => {
@@ -145,9 +180,14 @@ test('opens pending notifications panel and edits advanced notification settings
   await page.locator('#notifEnableSecurity').check();
   await page.locator('#notifSecurityPublicPortsEnabled').uncheck();
   await page.locator('#notifSecurityLatestEnabled').uncheck();
-  await page.locator('#saveNotifSettingsBtn').click();
+  const saveNotifSettingsButton = page.locator('#saveNotifSettingsBtn');
+  await saveNotifSettingsButton.click();
 
+  await expect(saveNotifSettingsButton).toHaveAttribute('data-feedback-state', 'success');
+  await expect(saveNotifSettingsButton).toContainText('Saved');
   await expect(page.locator('#statusMessageArea')).toContainText('Notification settings saved.');
+  await expect(saveNotifSettingsButton).not.toHaveAttribute('data-feedback-state', 'success');
+  await expect(saveNotifSettingsButton).toContainText('Save settings');
 
   const settingsResponse = await request.get('http://127.0.0.1:5100/api/notification-settings');
   const settingsPayload = await settingsResponse.json();
@@ -163,6 +203,13 @@ test('opens pending notifications panel and edits advanced notification settings
   expect(settingsPayload.security_enabled).toBe(true);
   expect(settingsPayload.security_public_ports_enabled).toBe(false);
   expect(settingsPayload.security_latest_enabled).toBe(false);
+
+  const testNotifButton = page.locator('#testNotifBtn');
+  await testNotifButton.click();
+  await expect(testNotifButton).toHaveAttribute('data-feedback-state', 'success');
+  await expect(testNotifButton).toContainText('Sent');
+  await expect(page.locator('#statusMessageArea')).toContainText('Test notification sent through');
+  await expect(testNotifButton).not.toHaveAttribute('data-feedback-state', 'success');
 
   await page.locator('#notifSettingsModal .btn-close').click();
   await page.locator('#notifToggle').click();
@@ -182,13 +229,26 @@ test('opens the update manager, runs update and rollback, and shows load errors'
   await expect(page.locator('#updateManagerModal')).toHaveClass(/show/);
   await expect(page.locator('#updateManagerModal')).toContainText('Experimental');
   await expect(page.locator('#updateManagerProjectList')).toContainText('demo');
+  await expect(page.locator('#updateManagerProjectList')).toContainText('jobs');
   await expect(page.locator('#updateManagerContainerList')).toContainText('No standalone containers');
+  await page.locator('#updateManagerHideBlocked').check();
+  await expect(page.locator('#updateManagerProjectList')).not.toContainText('jobs');
+  await page.locator('#updateManagerHideBlocked').uncheck();
+
+  const blockedProjectEntry = page.locator('#updateManagerProjectList .update-entry').filter({ hasText: 'jobs' });
+  await blockedProjectEntry.locator('[data-update-entry-toggle]').click();
+  await expect(blockedProjectEntry).toContainText('Portainer');
+  await expect(blockedProjectEntry).toContainText('/data/compose/42/docker-compose.yml');
+  await expect(blockedProjectEntry).toContainText('Project updates are disabled here because Portainer owns the compose definition.');
+  await expect(blockedProjectEntry.locator('.update-target-btn')).toHaveCount(0);
 
   const projectEntry = page.locator('#updateManagerProjectList .update-entry').first();
   const projectToggle = projectEntry.locator('[data-update-entry-toggle]');
   const projectPanel = projectEntry.locator('.update-entry-panel');
+  const quickUpdateButton = projectEntry.locator('.update-target-btn--quick');
   await expect(projectToggle).toContainText('demo');
   await expect(projectToggle).toContainText('New version');
+  await expect(quickUpdateButton).toContainText('Quick Update');
   await expect(projectPanel).toBeHidden();
 
   await projectToggle.click();
@@ -202,8 +262,12 @@ test('opens the update manager, runs update and rollback, and shows load errors'
   await expect(page.locator('#appDialogModal')).toHaveClass(/show/);
   await page.locator('#appDialogConfirm').click();
   await expect(page.locator('#appDialogModal')).not.toHaveClass(/show/);
-  await expect(updateButton).toContainText('Updating...');
+  await expect(page.locator('#updateManagerActionModal')).toHaveClass(/show/);
+  await expect(page.locator('#updateManagerActionState')).toContainText('Success');
+  await expect(page.locator('#updateManagerActionMessage')).toContainText('Update completed');
+  await expect(page.locator('#updateManagerActionDetail')).toContainText('Project demo updated with a safe compose workflow.');
   await expect(page.locator('#updateManagerStatus')).toContainText('Project demo updated with a safe compose workflow.');
+  await expect(page.locator('#updateManagerActionModal')).not.toHaveClass(/show/);
 
   await page.locator('#updateManagerHistoryTab').click();
   await expect(page.locator('#updateManagerHistoryPane')).toBeVisible();
@@ -225,8 +289,11 @@ test('opens the update manager, runs update and rollback, and shows load errors'
   await expect(page.locator('#appDialogModal')).toHaveClass(/show/);
   await page.locator('#appDialogConfirm').click();
   await expect(page.locator('#appDialogModal')).not.toHaveClass(/show/);
-  await expect(rollbackButton).toContainText('Rolling back...');
+  await expect(page.locator('#updateManagerActionModal')).toHaveClass(/show/);
+  await expect(page.locator('#updateManagerActionState')).toContainText('Success');
+  await expect(page.locator('#updateManagerActionMessage')).toContainText('Rollback completed');
   await expect(page.locator('#updateManagerStatus')).toContainText('Rollback completed.');
+  await expect(page.locator('#updateManagerActionModal')).not.toHaveClass(/show/);
 
   await request.post('http://127.0.0.1:5100/api/test/update-manager/error-mode', {
     data: { enabled: true },

@@ -6,6 +6,7 @@ import os
 import subprocess
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import docker.errors
 from docker.types import DeviceRequest, LogConfig, Mount, Ulimit
@@ -23,6 +24,46 @@ EXPERIMENTAL_NOTICE = (
     "Experimental feature. It is designed to preserve user data, volumes, "
     "configuration, networks and environment, but every update should still "
     "be reviewed carefully before applying it."
+)
+UPDATE_REFRESH_MAX_WORKERS = 8
+COMPOSE_RECONSTRUCTION_LIMITATION = (
+    "Docker Stats does not reconstruct Compose projects from running "
+    "containers alone because Docker metadata does not preserve override "
+    "merge order, env files, build contexts, secrets, configs, or services "
+    "that are not currently running."
+)
+KNOWN_EXTERNAL_COMPOSE_MANAGERS = (
+    {
+        'key': 'portainer',
+        'name': 'Portainer',
+        'path_fragments': ('/data/compose/',),
+        'reason': (
+            "This stack appears to be managed by Portainer. Docker labels point "
+            "to compose files in Portainer's data directory, which Docker Stats "
+            "cannot access directly from this host."
+        ),
+        'action_hint': 'Project updates are disabled here because Portainer owns the compose definition.',
+        'recovery_hint': (
+            "Export the stack from Portainer or recover it from the original Git "
+            "repository, then redeploy it from a host path that is mounted into "
+            "Docker Stats if you want this application to manage updates."
+        ),
+    },
+    {
+        'key': 'yacht',
+        'name': 'Yacht',
+        'path_fragments': ('/config/compose/', 'config/compose/'),
+        'reason': (
+            "This stack appears to be managed by Yacht. Docker labels point to "
+            "compose files inside Yacht's COMPOSE_DIR, which Docker Stats "
+            "cannot access directly from this host."
+        ),
+        'action_hint': 'Project updates are disabled here because Yacht owns the compose definition.',
+        'recovery_hint': (
+            "Mount Yacht's COMPOSE_DIR into Docker Stats or export the project "
+            "and redeploy it from a host path accessible to this application."
+        ),
+    },
 )
 
 
@@ -558,19 +599,119 @@ def _container_candidate(container, client):
     }
 
 
+def _build_refresh_details(container, remote_digests):
+    image_ref = _container_image_ref(container)
+    current_image = getattr(container, 'image', None)
+    current_token = _local_digest_for_image(current_image, image_ref)
+    details = {
+        'image_ref': image_ref,
+        'current_token': current_token,
+        'latest_token': None,
+        'current_version': _format_version(image_ref, current_token),
+        'latest_version': _format_version(image_ref, None),
+        'current_image_id': getattr(current_image, 'id', None),
+        'update_available': None,
+        'error': None,
+    }
+
+    if not image_ref:
+        details['error'] = 'missing-image-reference'
+        return details
+    if '@sha256:' in image_ref:
+        details['current_version'] = image_ref
+        details['latest_version'] = image_ref
+        details['error'] = 'pinned-digest-image'
+        return details
+    if not current_token:
+        details['error'] = 'missing-local-digest'
+        return details
+
+    latest_token = remote_digests.get(image_ref)
+    details['latest_token'] = latest_token
+    details['latest_version'] = _format_version(image_ref, latest_token)
+    if not latest_token:
+        details['error'] = 'registry-unavailable'
+        return details
+
+    details['update_available'] = current_token != latest_token
+    return details
+
+
 def _refresh_candidate_checks(containers):
+    if not containers:
+        return []
+
+    client = get_docker_client()
+    image_refs = sorted({
+        image_ref
+        for image_ref in (_container_image_ref(container) for container in containers)
+        if image_ref and '@sha256:' not in image_ref
+    })
+    remote_digests = {}
+
+    if image_refs:
+        max_workers = min(UPDATE_REFRESH_MAX_WORKERS, len(image_refs))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_map = {
+                executor.submit(_remote_digest_for_image, client, image_ref): image_ref
+                for image_ref in image_refs
+            }
+            for future in as_completed(future_map):
+                image_ref = future_map[future]
+                try:
+                    remote_digests[image_ref] = future.result()
+                except Exception as exc:
+                    logging.warning("Unable to refresh registry digest for %s: %s", image_ref, exc)
+                    remote_digests[image_ref] = None
+
     refreshed = []
     now = time.time()
     for container in containers:
-        try:
-            result = sampler.check_image_update(container)
-        except Exception as exc:
-            logging.warning("Unable to refresh update check for %s: %s", getattr(container, 'name', 'unknown'), exc)
-            result = None
+        details = _build_refresh_details(container, remote_digests)
+        result = details.get('update_available')
+        sampler.update_check_details_cache[container.id] = details
         sampler.update_check_cache[container.id] = result
         sampler.update_check_time[container.id] = now
         refreshed.append((container, result))
     return refreshed
+
+
+def _detect_external_compose_manager(paths):
+    normalized = [str(path or '').strip() for path in (paths or []) if str(path or '').strip()]
+    for manager in KNOWN_EXTERNAL_COMPOSE_MANAGERS:
+        for path in normalized:
+            if any(fragment in path for fragment in manager['path_fragments']):
+                return manager
+    return None
+
+
+def _compose_blocked_metadata(
+    reason,
+    *,
+    block_kind,
+    working_dir=None,
+    config_files=None,
+    missing_files=None,
+    manager=None,
+    guidance=None,
+    action_hint=None,
+    recovery_hint=None,
+):
+    return {
+        'ready': False,
+        'reason': reason,
+        'block_kind': block_kind,
+        'management_mode': 'external' if manager else 'unknown',
+        'manager_key': manager.get('key') if manager else None,
+        'manager_name': manager.get('name') if manager else None,
+        'working_dir': working_dir,
+        'config_files': list(config_files or []),
+        'missing_files': list(missing_files or []),
+        'guidance': list(guidance or []),
+        'action_hint': action_hint,
+        'recovery_hint': recovery_hint,
+        'auto_recovery_supported': False,
+    }
 
 
 def _compose_paths_from_labels(project_name, containers):
@@ -589,10 +730,27 @@ def _compose_paths_from_labels(project_name, containers):
             config_files.add(config_label)
 
     if len(working_dirs) != 1 or len(config_files) != 1:
-        return {
-            'ready': False,
-            'reason': 'Compose metadata is incomplete or inconsistent across services.',
-        }
+        return _compose_blocked_metadata(
+            'Compose metadata is incomplete or inconsistent across services.',
+            block_kind='inconsistent_metadata',
+            guidance=[
+                (
+                    "Docker Stats could not resolve one canonical Compose "
+                    "project directory and file set from the running services."
+                ),
+                (
+                    "This usually means the stack was recreated or partially "
+                    "managed outside a single docker compose project."
+                ),
+                COMPOSE_RECONSTRUCTION_LIMITATION,
+            ],
+            action_hint='Project updates are disabled until the stack is relinked to a single Compose project on disk.',
+            recovery_hint=(
+                "Redeploy or import the stack from one canonical Compose project "
+                "directory so every service advertises the same working directory "
+                "and config file set."
+            ),
+        )
 
     working_dir = next(iter(working_dirs))
     raw_files = next(iter(config_files))
@@ -605,16 +763,71 @@ def _compose_paths_from_labels(project_name, containers):
 
     missing = [path for path in files if not os.path.exists(path)]
     if missing:
-        return {
-            'ready': False,
-            'reason': f'Compose files are missing on disk: {", ".join(missing)}',
-        }
+        manager = _detect_external_compose_manager([working_dir, *files, *missing])
+        if manager:
+            guidance = [
+                (
+                    "Docker Stats can only run project updates when it can read "
+                    "the original Compose files from the host filesystem."
+                ),
+                COMPOSE_RECONSTRUCTION_LIMITATION,
+            ]
+            return _compose_blocked_metadata(
+                manager['reason'],
+                block_kind='missing_compose_files',
+                working_dir=working_dir,
+                config_files=files,
+                missing_files=missing,
+                manager=manager,
+                guidance=guidance,
+                action_hint=manager['action_hint'],
+                recovery_hint=manager['recovery_hint'],
+            )
+
+        return _compose_blocked_metadata(
+            'Compose files referenced by Docker labels are missing on this host.',
+            block_kind='missing_compose_files',
+            working_dir=working_dir,
+            config_files=files,
+            missing_files=missing,
+            guidance=[
+                (
+                    "Docker Stats can only run project updates when the compose "
+                    "files advertised by Docker labels still exist on disk."
+                ),
+                (
+                    "This usually means the stack was deployed from another "
+                    "management tool, a temporary checkout, or a path that is no "
+                    "longer mounted here."
+                ),
+                (
+                    "If you use OpenMediaVault Compose, restore or remount the "
+                    "plugin's compose shared folder so the recorded project path "
+                    "exists again before retrying."
+                ),
+                COMPOSE_RECONSTRUCTION_LIMITATION,
+            ],
+            action_hint='Project updates are disabled until the original Compose files are accessible on this host.',
+            recovery_hint=(
+                "Restore the original compose directory, remount the missing "
+                "path, or redeploy/import the stack from its compose files."
+            ),
+        )
 
     return {
         'ready': True,
         'working_dir': working_dir,
         'config_files': files,
         'services': sorted(services),
+        'management_mode': 'host',
+        'manager_key': 'docker-compose',
+        'manager_name': 'Docker Compose',
+        'block_kind': None,
+        'missing_files': [],
+        'guidance': [],
+        'action_hint': None,
+        'recovery_hint': None,
+        'auto_recovery_supported': False,
     }
 
 

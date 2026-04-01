@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.9.5
+
+### Added
+- Added clearer blocked-stack diagnostics in the Update Manager, including external manager detection for Portainer/Yacht-style compose paths, missing-file details, recovery guidance, and explicit externally managed states.
+
+### Changed
+- Added a `Hide blocked` filter and `Quick Update` action to the Update Manager inventory for faster triage of update-ready targets.
+- Added a live update action modal that reports progress, success, and failure in real time while update and rollback operations are running.
+- Reordered the dashboard tabs so `Containers` comes first and refreshed the tab styling to better match the rest of the interface.
+- Added temporary success feedback states for key actions such as `Save Settings`, `Save notification settings`, and `Send test`.
+
+### Fixed
+- Optimized Update Manager refreshes by deduplicating registry lookups per image reference and resolving them in parallel instead of rechecking each container sequentially.
+- Kept blocked externally managed compose stacks visible but non-actionable, so Docker Stats no longer presents them as update candidates it can safely manage.
+- Contained horizontal overflow inside the `Containers` table block so enabling all columns does not push the whole page sideways.
+
+### Testing
+- Expanded backend and end-to-end coverage for blocked external compose stacks, button success feedback, tab order, internal table scrolling, and the new Update Manager action modal.
+
 ## v0.9.4
 
 ### Fixed

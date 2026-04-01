@@ -6,6 +6,7 @@ import {
   buildProjectSummaries,
   countActiveFilters,
   escapeHtml,
+  flashButtonSuccess,
   getInitialTheme,
   matchesQuickFilter,
   setStatusMessage,
@@ -337,6 +338,7 @@ function saveSettings() {
   localStorage.setItem('notifEnableStatus', ctx.elements.notifEnableStatus.checked);
   localStorage.setItem('notifEnableUpdate', ctx.elements.notifEnableUpdate.checked);
   localStorage.setItem('notifWindowSeconds', ctx.elements.notifWindowSeconds.value);
+  flashButtonSuccess(ctx.elements.saveSettingsBtn, { label: 'Saved' });
   setStatusMessage(ctx, 'Settings saved.', 'success');
 }
 
@@ -492,7 +494,7 @@ function loadPersistedControls() {
 }
 
 function initDashboardViewTabs() {
-  const tabs = [ctx.elements.dashboardComposeTab, ctx.elements.dashboardContainersTab].filter(Boolean);
+  const tabs = [ctx.elements.dashboardContainersTab, ctx.elements.dashboardComposeTab].filter(Boolean);
   if (tabs.length === 0) {
     return;
   }
@@ -526,7 +528,7 @@ function bindControls() {
     }
     restartAutoRefresh();
   });
-  document.getElementById('saveSettingsBtn').addEventListener('click', saveSettings);
+  ctx.elements.saveSettingsBtn?.addEventListener('click', saveSettings);
   document.getElementById('toggleColsBtn').addEventListener('click', toggleAllColumns);
   document.getElementById('checkUpdatesBtn').addEventListener('click', async () => {
     setStatusMessage(ctx, 'Checking for updates...', 'info');

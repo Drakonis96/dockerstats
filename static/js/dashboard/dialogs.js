@@ -1,5 +1,6 @@
 export function createDialogController(ctx) {
   let currentResolver = null;
+  let currentResult = false;
   let hiddenHandlerBound = false;
 
   function ensureModal() {
@@ -10,8 +11,11 @@ export function createDialogController(ctx) {
     if (!hiddenHandlerBound && ctx.elements.appDialogModalEl) {
       ctx.elements.appDialogModalEl.addEventListener('hidden.bs.modal', () => {
         if (currentResolver) {
-          currentResolver(false);
+          const resolver = currentResolver;
+          const result = currentResult;
           currentResolver = null;
+          currentResult = false;
+          resolver(result);
         }
       });
       hiddenHandlerBound = true;
@@ -50,14 +54,11 @@ export function createDialogController(ctx) {
     configureDialog(options);
     return new Promise((resolve) => {
       currentResolver = resolve;
+      currentResult = false;
 
       const confirmHandler = () => {
+        currentResult = true;
         ctx.state.appDialogModal.hide();
-        if (currentResolver) {
-          const resolver = currentResolver;
-          currentResolver = null;
-          resolver(true);
-        }
       };
 
       ctx.elements.appDialogConfirm.onclick = confirmHandler;

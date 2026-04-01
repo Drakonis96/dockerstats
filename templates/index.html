@@ -148,26 +148,23 @@
       padding-bottom: 5rem; /* Add space at the bottom */
       padding-left: 1rem;
       padding-right: 1rem;
+      overflow-x: clip;
       transition: background .3s, color .3s;
     }
 
-    /* Desktop: wrap cells and use full width */
+    /* Keep the containers table scrollable inside its own panel */
     @media (min-width: 768px) {
       #metricsTable {
         table-layout: auto;
-        width: 100%;
-      }
-      #metricsTable th,
-      #metricsTable td {
-        white-space: normal;
-        overflow-wrap: anywhere;
+        width: max-content;
+        min-width: 100%;
       }
     }
-    /* Mobile: prevent wrapping and enable horizontal scroll */
     @media (max-width: 767.98px) {
       #metricsTable {
         table-layout: auto;
-        width: auto;
+        width: max-content;
+        min-width: 100%;
       }
       #metricsTable th,
       #metricsTable td {
@@ -499,13 +496,16 @@
      /* Table view scroll */
      #tableView {
          overflow-x: auto;
-     }
-     #tableView {
+         overflow-y: hidden;
+         max-width: 100%;
+         overscroll-behavior-x: contain;
+         -webkit-overflow-scrolling: touch;
          min-height: 400px;
      }
      #metricsTable {
          table-layout: auto;
-         width: auto; /* Allow table to be wider than screen */
+         width: max-content;
+         min-width: 100%;
      }
      #metricsTable th,
      #metricsTable td {
@@ -553,12 +553,6 @@
         border-top: 1px solid var(--bs-border-color-translucent); /* Subtle top border */
      }
 
-     /* Style Save Settings button */
-     #saveSettingsBtn {
-       background-color: #7e3feb !important;
-       border-color: #7e3feb !important;
-     }
-
      /* Status Message Area Styling */
      #statusMessageArea {
         margin-top: 0.5rem; /* Espacio entre botones y status area */
@@ -576,8 +570,9 @@
 
      /* Evitar que las columnas se encojan: layout fijo y ancho según contenido */
      #metricsTable {
-       table-layout: auto; /* Removed !important */
-       width: max-content !important; /* Ancho según el contenido mínimo */
+       table-layout: auto;
+       width: max-content;
+       min-width: 100%;
      }
      #metricsTable th,
      #metricsTable td {
@@ -1037,7 +1032,13 @@
               <h6 class="mb-1">Available updates and rollback history</h6>
               <p class="update-manager-toolbar-meta mb-0" id="updateManagerMeta">Waiting for the first update inventory request.</p>
             </div>
-            <button type="button" id="refreshUpdateManagerBtn" class="btn btn-outline-secondary btn-sm">Refresh list</button>
+            <div class="update-manager-toolbar-actions">
+              <div class="form-check form-switch update-manager-filter">
+                <input class="form-check-input" type="checkbox" id="updateManagerHideBlocked">
+                <label class="form-check-label" for="updateManagerHideBlocked">Hide blocked</label>
+              </div>
+              <button type="button" id="refreshUpdateManagerBtn" class="btn btn-outline-secondary btn-sm">Refresh list</button>
+            </div>
           </div>
           <div id="updateManagerStatus" class="alert d-none" role="status" aria-live="polite"></div>
           <ul class="nav nav-tabs update-manager-tabs" id="updateManagerTabs" role="tablist">
@@ -1095,6 +1096,31 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="updateManagerActionModal" tabindex="-1" aria-labelledby="updateManagerActionModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-sm update-action-dialog">
+      <div class="modal-content update-action-modal">
+        <div class="modal-header">
+          <div>
+            <h5 class="modal-title settings-title" id="updateManagerActionModalLabel">Update in progress</h5>
+            <p class="settings-subtitle mb-0">Docker Stats will keep this window updated while the request is running.</p>
+          </div>
+          <button type="button" id="updateManagerActionCloseIcon" class="btn-close" data-bs-dismiss="modal" aria-label="Close" disabled></button>
+        </div>
+        <div class="modal-body">
+          <div class="update-action-status" id="updateManagerActionState" data-state="pending">
+            <i class="bi bi-arrow-repeat spin-inline" aria-hidden="true"></i>
+            <span>In progress</span>
+          </div>
+          <p class="update-action-message mb-1" id="updateManagerActionMessage">Preparing request…</p>
+          <p class="update-action-detail mb-0" id="updateManagerActionDetail"></p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" id="updateManagerActionCloseBtn" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal" disabled>Close</button>
         </div>
       </div>
     </div>
@@ -1397,27 +1423,19 @@
     <section class="dashboard-view-shell mb-4">
       <ul class="nav nav-tabs dashboard-view-tabs" id="dashboardViewTabs" role="tablist">
         <li class="nav-item" role="presentation">
-          <button class="nav-link" id="dashboardComposeTab" data-dashboard-view="compose" data-bs-toggle="tab" data-bs-target="#dashboardComposePane" type="button" role="tab" aria-controls="dashboardComposePane" aria-selected="false">Compose Stacks</button>
+          <button class="nav-link active" id="dashboardContainersTab" data-dashboard-view="containers" data-bs-toggle="tab" data-bs-target="#dashboardContainersPane" type="button" role="tab" aria-controls="dashboardContainersPane" aria-selected="true">
+            <i class="bi bi-box-seam" aria-hidden="true"></i>
+            <span>Containers</span>
+          </button>
         </li>
         <li class="nav-item" role="presentation">
-          <button class="nav-link active" id="dashboardContainersTab" data-dashboard-view="containers" data-bs-toggle="tab" data-bs-target="#dashboardContainersPane" type="button" role="tab" aria-controls="dashboardContainersPane" aria-selected="true">Containers</button>
+          <button class="nav-link" id="dashboardComposeTab" data-dashboard-view="compose" data-bs-toggle="tab" data-bs-target="#dashboardComposePane" type="button" role="tab" aria-controls="dashboardComposePane" aria-selected="false">
+            <i class="bi bi-grid-1x2" aria-hidden="true"></i>
+            <span>Compose Stacks</span>
+          </button>
         </li>
       </ul>
       <div class="tab-content dashboard-view-content">
-        <div class="tab-pane fade" id="dashboardComposePane" role="tabpanel" aria-labelledby="dashboardComposeTab">
-          <section class="project-dashboard-shell">
-            <div class="project-dashboard-head">
-              <div>
-                <h2 class="project-dashboard-title">Compose stacks</h2>
-                <p class="project-dashboard-caption">Aggregated CPU, RAM, status and update pressure for each Compose project.</p>
-              </div>
-              <div class="project-dashboard-meta" id="projectDashboardMeta">Waiting for the first metrics snapshot.</div>
-            </div>
-            <div class="project-dashboard-grid" id="projectDashboardGrid">
-              <div class="project-dashboard-empty">Waiting for the first metrics snapshot.</div>
-            </div>
-          </section>
-        </div>
         <div class="tab-pane fade show active" id="dashboardContainersPane" role="tabpanel" aria-labelledby="dashboardContainersTab">
           <div class="table-shell mb-4">
             <h2>Containers</h2>
@@ -1468,6 +1486,20 @@
               <canvas id="usageChart"></canvas>
               <div id="chartStatus">Select a container's 'Show Chart' button to view history.</div>
           </div>
+        </div>
+        <div class="tab-pane fade" id="dashboardComposePane" role="tabpanel" aria-labelledby="dashboardComposeTab">
+          <section class="project-dashboard-shell">
+            <div class="project-dashboard-head">
+              <div>
+                <h2 class="project-dashboard-title">Compose stacks</h2>
+                <p class="project-dashboard-caption">Aggregated CPU, RAM, status and update pressure for each Compose project.</p>
+              </div>
+              <div class="project-dashboard-meta" id="projectDashboardMeta">Waiting for the first metrics snapshot.</div>
+            </div>
+            <div class="project-dashboard-grid" id="projectDashboardGrid">
+              <div class="project-dashboard-empty">Waiting for the first metrics snapshot.</div>
+            </div>
+          </section>
         </div>
       </div>
     </section>

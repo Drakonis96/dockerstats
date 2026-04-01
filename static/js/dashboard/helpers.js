@@ -1,3 +1,5 @@
+const actionFeedbackTimers = new WeakMap();
+
 export function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -16,6 +18,42 @@ export function setStatusMessage(ctx, message, tone = 'info') {
   };
   ctx.elements.statusMessageArea.textContent = message;
   ctx.elements.statusMessageArea.style.color = tones[tone] || tones.info;
+}
+
+export function flashButtonSuccess(button, {
+  label = 'Saved',
+  duration = 1100,
+  icon = 'bi-check2',
+} = {}) {
+  if (!button) {
+    return;
+  }
+
+  const existing = actionFeedbackTimers.get(button);
+  if (existing?.timer) {
+    window.clearTimeout(existing.timer);
+  }
+
+  const originalHtml = existing?.originalHtml || button.innerHTML;
+  const originalMinWidth = button.style.minWidth;
+  const width = Math.ceil(button.getBoundingClientRect().width);
+  if (width > 0) {
+    button.style.minWidth = `${width}px`;
+  }
+
+  button.dataset.feedbackState = 'success';
+  button.classList.add('action-feedback-btn', 'is-success');
+  button.innerHTML = `<span class="action-feedback-icon" aria-hidden="true"><i class="bi ${icon}"></i></span><span>${escapeHtml(label)}</span>`;
+
+  const timer = window.setTimeout(() => {
+    button.innerHTML = originalHtml;
+    button.classList.remove('action-feedback-btn', 'is-success');
+    button.style.minWidth = originalMinWidth;
+    delete button.dataset.feedbackState;
+    actionFeedbackTimers.delete(button);
+  }, duration);
+
+  actionFeedbackTimers.set(button, { timer, originalHtml });
 }
 
 export function normalizeStatus(status) {

@@ -147,6 +147,70 @@ def test_list_update_targets_uses_cached_details_without_marking_ready_updates_b
     assert candidate['latest_version'].startswith('redis:7 @ ')
 
 
+def test_list_update_targets_marks_portainer_managed_projects_as_external_when_compose_files_are_missing(temp_db, monkeypatch):
+    labels = {
+        'com.docker.compose.project': 'portainer-demo',
+        'com.docker.compose.project.working_dir': '/data/compose/42',
+        'com.docker.compose.project.config_files': 'docker-compose.yml',
+        'com.docker.compose.service': 'web',
+    }
+    container = FakeContainer('cid-web', 'portainer-demo-web-1', 'nginx:1.25', labels=labels)
+    client = FakeDockerClient(FakeContainersManager(list_sequences=[[container]]))
+
+    monkeypatch.setattr(update_manager, 'get_docker_client', lambda: client)
+    monkeypatch.setattr(sampler, 'update_check_cache', {'cid-web': True})
+    monkeypatch.setattr(sampler, 'update_check_time', {'cid-web': 120.0})
+    monkeypatch.setattr(sampler, 'update_check_details_cache', {
+        'cid-web': {
+            'image_ref': 'nginx:1.25',
+            'current_token': 'web-old',
+            'latest_token': 'web-new',
+            'current_version': 'nginx:1.25 @ web-old',
+            'latest_version': 'nginx:1.25 @ web-new',
+            'current_image_id': 'sha256:web-old',
+        },
+    })
+
+    payload = update_manager.list_update_targets(history_limit=5)
+
+    assert len(payload['projects']) == 1
+    candidate = payload['projects'][0]
+    assert candidate['update_state'] == 'blocked'
+    assert 'Portainer' in candidate['state_reason']
+    assert candidate['meta']['management_mode'] == 'external'
+    assert candidate['meta']['manager_key'] == 'portainer'
+    assert candidate['meta']['missing_files'] == ['/data/compose/42/docker-compose.yml']
+    assert 'Export the stack from Portainer' in candidate['meta']['recovery_hint']
+
+
+def test_refresh_candidate_checks_deduplicates_registry_lookups_by_image_ref(temp_db, monkeypatch):
+    web_a = FakeContainer('cid-web-a', 'web-a', 'nginx:1.25', image_id='sha256:web-old')
+    web_b = FakeContainer('cid-web-b', 'web-b', 'nginx:1.25', image_id='sha256:web-old')
+    db = FakeContainer('cid-db', 'db', 'postgres:16', image_id='sha256:db-old')
+    client = FakeDockerClient(FakeContainersManager(list_sequences=[[web_a, web_b, db]]))
+    remote_calls = []
+
+    def fake_remote_digest(_client, image_ref):
+        remote_calls.append(image_ref)
+        return f'sha256:{image_ref.replace(":", "-")}-new'
+
+    monkeypatch.setattr(update_manager, 'get_docker_client', lambda: client)
+    monkeypatch.setattr(update_manager, '_remote_digest_for_image', fake_remote_digest)
+    monkeypatch.setattr(sampler, 'update_check_cache', {})
+    monkeypatch.setattr(sampler, 'update_check_time', {})
+    monkeypatch.setattr(sampler, 'update_check_details_cache', {})
+
+    refreshed = update_manager._refresh_candidate_checks([web_a, web_b, db])
+
+    assert len(refreshed) == 3
+    assert set(remote_calls) == {'nginx:1.25', 'postgres:16'}
+    assert len(remote_calls) == 2
+    assert sampler.update_check_cache['cid-web-a'] is True
+    assert sampler.update_check_cache['cid-web-b'] is True
+    assert sampler.update_check_cache['cid-db'] is True
+    assert sampler.update_check_details_cache['cid-web-a']['latest_version'].startswith('nginx:1.25 @ ')
+
+
 def test_update_container_target_records_previous_version_and_history(temp_db, monkeypatch):
     container = FakeContainer('cid-cache', 'cache', 'redis:7', image_id='sha256:cache-old')
     images = FakeImagesManager(get_map={'redis:7': FakeImage('sha256:cache-new', ['redis:7'])})
@@ -306,6 +370,37 @@ def test_update_project_target_records_failure_on_compose_up_error(temp_db, monk
     assert result['history_entry']['result'] == 'failure'
     assert 'compose up failed' in result['history_entry']['notes']
     assert 'Automatic rollback attempt' in result['history_entry']['notes']
+
+
+def test_update_project_target_returns_external_manager_reason_when_compose_files_are_missing(temp_db, monkeypatch):
+    labels = {
+        'com.docker.compose.project': 'portainer-demo',
+        'com.docker.compose.project.working_dir': '/data/compose/42',
+        'com.docker.compose.project.config_files': 'docker-compose.yml',
+        'com.docker.compose.service': 'web',
+    }
+    container = FakeContainer('cid-web', 'portainer-demo-web-1', 'nginx:1.25', labels=labels, image_id='sha256:web-old')
+    client = FakeDockerClient(FakeContainersManager(list_sequences=[[container]]))
+
+    monkeypatch.setattr(update_manager, 'get_docker_client', lambda: client)
+    monkeypatch.setattr(sampler, 'update_check_cache', {'cid-web': True})
+    monkeypatch.setattr(sampler, 'update_check_details_cache', {
+        'cid-web': {
+            'image_ref': 'nginx:1.25',
+            'current_token': 'web-old',
+            'latest_token': 'web-new',
+            'current_version': 'nginx:1.25 @ web-old',
+            'latest_version': 'nginx:1.25 @ web-new',
+            'current_image_id': 'sha256:web-old',
+        },
+    })
+
+    result = update_manager.update_project_target('portainer-demo', actor_username='admin')
+
+    assert result['ok'] is False
+    assert 'Portainer' in result['message']
+    assert result['history_entry']['result'] == 'failure'
+    assert 'Portainer' in result['history_entry']['notes']
 
 
 def test_rollback_update_for_container_uses_stable_container_name(temp_db, monkeypatch):

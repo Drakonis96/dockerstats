@@ -36,6 +36,33 @@ function formatTargetType(value) {
   return String(value || '').toLowerCase() === 'project' ? 'Compose stack' : 'Container';
 }
 
+function formatManagementLabel(meta = {}) {
+  const managerName = String(meta.manager_name || '').trim();
+  const managementMode = String(meta.management_mode || '').toLowerCase();
+  if (managementMode === 'external') {
+    return managerName ? `${managerName} (external)` : 'Externally managed';
+  }
+  if (managementMode === 'host') {
+    return managerName || 'Compose files on host';
+  }
+  if (String(meta.block_kind || '').trim()) {
+    return 'Compose files unavailable';
+  }
+  return '';
+}
+
+function renderManagementBadge(meta = {}) {
+  const managementMode = String(meta.management_mode || '').toLowerCase();
+  const managerName = String(meta.manager_name || '').trim();
+  if (managementMode === 'external') {
+    return `<span class="update-entry-summary-badge" data-kind="external">${escapeHtml(managerName || 'Externally managed')}</span>`;
+  }
+  if (managementMode === 'host') {
+    return '<span class="update-entry-summary-badge" data-kind="host">Host compose</span>';
+  }
+  return '';
+}
+
 function renderVersion(value, className = 'update-version-code') {
   const safe = escapeHtml(value || 'Unknown');
   return `<code class="${className}">${safe}</code>`;
@@ -78,6 +105,49 @@ function renderServiceEntries(entries = []) {
   `;
 }
 
+function renderGuidance(meta = {}) {
+  const guidance = Array.isArray(meta.guidance) ? meta.guidance.filter(Boolean) : [];
+  const missingFiles = Array.isArray(meta.missing_files) ? meta.missing_files.filter(Boolean) : [];
+  const recoveryHint = String(meta.recovery_hint || '').trim();
+
+  if (guidance.length === 0 && missingFiles.length === 0 && !recoveryHint) {
+    return '';
+  }
+
+  const missingMarkup = missingFiles.length > 0
+    ? `
+      <div class="update-entry-section">
+        <div class="update-entry-section-title">Missing files</div>
+        <ul class="update-entry-guidance-list update-entry-guidance-list--paths">
+          ${missingFiles.map((path) => `<li>${renderVersion(path)}</li>`).join('')}
+        </ul>
+      </div>
+    `
+    : '';
+
+  const guidanceMarkup = guidance.length > 0
+    ? `
+      <div class="update-entry-section">
+        <div class="update-entry-section-title">Guidance</div>
+        <ul class="update-entry-guidance-list">
+          ${guidance.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
+        </ul>
+      </div>
+    `
+    : '';
+
+  const recoveryMarkup = recoveryHint
+    ? `
+      <div class="update-entry-section">
+        <div class="update-entry-section-title">Recovery</div>
+        <div class="update-entry-note update-entry-note--recovery">${escapeHtml(recoveryHint)}</div>
+      </div>
+    `
+    : '';
+
+  return `${missingMarkup}${guidanceMarkup}${recoveryMarkup}`;
+}
+
 function renderSummaryVersion(value) {
   return `
     <span class="update-entry-summary-version-copy">
@@ -89,31 +159,55 @@ function renderSummaryVersion(value) {
 
 function renderTargetEntry(item, index, groupKey) {
   const state = String(item.update_state || '').toLowerCase() || 'pending';
+  const meta = item.meta || {};
   const panelId = `update-entry-panel-${groupKey}-${index}`;
-  const buttonDisabled = state !== 'ready' ? 'disabled' : '';
+  const quickAction = state === 'ready'
+    ? `
+      <button type="button" class="btn btn-outline-primary btn-sm update-target-btn update-target-btn--quick" data-update-target-type="${escapeHtml(item.type)}" data-update-target-id="${escapeHtml(item.target_id)}">
+        <i class="bi bi-lightning-charge" aria-hidden="true"></i>
+        <span>Quick Update</span>
+      </button>
+    `
+    : '';
   const reason = item.state_reason
     ? `<div class="update-entry-note">${escapeHtml(item.state_reason)}</div>`
     : '';
+  const managementLabel = formatManagementLabel(meta);
+  const managementBadge = renderManagementBadge(meta);
+  const actionMarkup = state === 'ready'
+    ? `
+      <button type="button" class="btn btn-primary btn-sm update-target-btn" data-update-target-type="${escapeHtml(item.type)}" data-update-target-id="${escapeHtml(item.target_id)}">
+        <i class="bi bi-arrow-repeat" aria-hidden="true"></i>
+        <span>Update</span>
+      </button>
+    `
+    : `<span class="update-entry-actions-note update-entry-actions-note--blocked">${escapeHtml(meta.action_hint || 'Update is unavailable for this target.')}</span>`;
 
   return `
     <article class="update-entry" data-target-type="${escapeHtml(item.type)}" data-update-state="${escapeHtml(state)}">
-      <button
-        type="button"
-        class="update-entry-toggle"
-        data-update-entry-toggle
-        aria-expanded="false"
-        aria-controls="${panelId}"
-      >
-        <span class="update-entry-summary">
-          <span class="update-entry-summary-copy">
-            <span class="update-entry-summary-name">${escapeHtml(item.name)}</span>
-            <span class="update-entry-summary-version">${renderSummaryVersion(item.latest_version)}</span>
+      <div class="update-entry-head">
+        <button
+          type="button"
+          class="update-entry-toggle"
+          data-update-entry-toggle
+          aria-expanded="false"
+          aria-controls="${panelId}"
+        >
+          <span class="update-entry-summary">
+            <span class="update-entry-summary-copy">
+              <span class="update-entry-summary-name-row">
+                <span class="update-entry-summary-name">${escapeHtml(item.name)}</span>
+                ${managementBadge}
+              </span>
+              <span class="update-entry-summary-version">${renderSummaryVersion(item.latest_version)}</span>
+            </span>
           </span>
-        </span>
-        <span class="update-entry-chevron" aria-hidden="true">
-          <i class="bi bi-chevron-down"></i>
-        </span>
-      </button>
+          <span class="update-entry-chevron" aria-hidden="true">
+            <i class="bi bi-chevron-down"></i>
+          </span>
+        </button>
+        ${quickAction}
+      </div>
       <div id="${panelId}" class="update-entry-panel" aria-hidden="true" hidden>
         <div class="update-entry-panel-inner">
           <div class="update-entry-details-grid">
@@ -122,14 +216,13 @@ function renderTargetEntry(item, index, groupKey) {
             ${renderKeyValue('Latest version', renderVersion(item.latest_version))}
             ${renderKeyValue('Status', `<span class="update-target-state" data-state="${escapeHtml(state)}">${escapeHtml(formatStateLabel(state))}</span>`)}
             ${renderKeyValue('Last check', escapeHtml(formatTimestamp(item.last_checked_at)))}
+            ${managementLabel ? renderKeyValue('Management', escapeHtml(managementLabel)) : ''}
           </div>
           ${reason}
+          ${renderGuidance(meta)}
           ${renderServiceEntries(item.entries)}
           <div class="update-entry-actions">
-            <button type="button" class="btn btn-primary btn-sm update-target-btn" data-update-target-type="${escapeHtml(item.type)}" data-update-target-id="${escapeHtml(item.target_id)}" ${buttonDisabled}>
-              <i class="bi bi-arrow-repeat" aria-hidden="true"></i>
-              <span>Update</span>
-            </button>
+            ${actionMarkup}
           </div>
         </div>
       </div>
@@ -155,23 +248,25 @@ function renderHistoryEntry(entry, index) {
 
   return `
     <article class="update-entry" data-target-type="${escapeHtml(entry.target_type)}" data-update-state="${escapeHtml(result)}">
-      <button
-        type="button"
-        class="update-entry-toggle"
-        data-update-entry-toggle
-        aria-expanded="false"
-        aria-controls="${panelId}"
-      >
-        <span class="update-entry-summary">
-          <span class="update-entry-summary-copy">
-            <span class="update-entry-summary-name">${escapeHtml(entry.target_name)}</span>
-            <span class="update-entry-summary-version">${renderSummaryVersion(entry.new_version)}</span>
+      <div class="update-entry-head">
+        <button
+          type="button"
+          class="update-entry-toggle"
+          data-update-entry-toggle
+          aria-expanded="false"
+          aria-controls="${panelId}"
+        >
+          <span class="update-entry-summary">
+            <span class="update-entry-summary-copy">
+              <span class="update-entry-summary-name">${escapeHtml(entry.target_name)}</span>
+              <span class="update-entry-summary-version">${renderSummaryVersion(entry.new_version)}</span>
+            </span>
           </span>
-        </span>
-        <span class="update-entry-chevron" aria-hidden="true">
-          <i class="bi bi-chevron-down"></i>
-        </span>
-      </button>
+          <span class="update-entry-chevron" aria-hidden="true">
+            <i class="bi bi-chevron-down"></i>
+          </span>
+        </button>
+      </div>
       <div id="${panelId}" class="update-entry-panel" aria-hidden="true" hidden>
         <div class="update-entry-panel-inner">
           <div class="update-entry-details-grid">
@@ -216,6 +311,7 @@ function renderHistoryList(items = [], emptyMessage) {
 
 export function createUpdateManagerController(ctx, deps) {
   let requestToken = 0;
+  let actionModalHideTimer = null;
 
   function ensureModal() {
     if (!ctx.elements.updateManagerModalEl) {
@@ -223,6 +319,17 @@ export function createUpdateManagerController(ctx, deps) {
     }
     ctx.state.updateManagerModal = bootstrap.Modal.getOrCreateInstance(ctx.elements.updateManagerModalEl);
     return ctx.state.updateManagerModal;
+  }
+
+  function ensureActionModal() {
+    if (!ctx.elements.updateManagerActionModalEl) {
+      return null;
+    }
+    ctx.state.updateManagerActionModal = bootstrap.Modal.getOrCreateInstance(ctx.elements.updateManagerActionModalEl, {
+      backdrop: 'static',
+      keyboard: false,
+    });
+    return ctx.state.updateManagerActionModal;
   }
 
   function showTab(tabKey) {
@@ -244,6 +351,63 @@ export function createUpdateManagerController(ctx, deps) {
       ctx.elements.updateManagerBadge.style.display = 'inline-block';
     } else {
       ctx.elements.updateManagerBadge.style.display = 'none';
+    }
+  }
+
+  function setActionModalClosable(enabled) {
+    if (ctx.elements.updateManagerActionCloseBtn) {
+      ctx.elements.updateManagerActionCloseBtn.disabled = !enabled;
+    }
+    if (ctx.elements.updateManagerActionCloseIcon) {
+      ctx.elements.updateManagerActionCloseIcon.disabled = !enabled;
+    }
+  }
+
+  function clearActionModalAutoHide() {
+    if (actionModalHideTimer) {
+      window.clearTimeout(actionModalHideTimer);
+      actionModalHideTimer = null;
+    }
+  }
+
+  function scheduleActionModalAutoHide() {
+    clearActionModalAutoHide();
+    actionModalHideTimer = window.setTimeout(() => {
+      ctx.state.updateManagerActionModal?.hide();
+      actionModalHideTimer = null;
+    }, 1600);
+  }
+
+  function setActionModalState({ title, state = 'pending', message = '', detail = '' }) {
+    const stateLabelMap = {
+      pending: 'In progress',
+      success: 'Success',
+      failure: 'Failed',
+    };
+    const stateIconMap = {
+      pending: '<i class="bi bi-arrow-repeat spin-inline" aria-hidden="true"></i>',
+      success: '<i class="bi bi-check-circle-fill" aria-hidden="true"></i>',
+      failure: '<i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i>',
+    };
+    if (ctx.elements.updateManagerActionModalLabel) {
+      ctx.elements.updateManagerActionModalLabel.textContent = title;
+    }
+    if (ctx.elements.updateManagerActionState) {
+      ctx.elements.updateManagerActionState.dataset.state = state;
+      ctx.elements.updateManagerActionState.innerHTML = `${stateIconMap[state] || stateIconMap.pending}<span>${stateLabelMap[state] || stateLabelMap.pending}</span>`;
+    }
+    if (ctx.elements.updateManagerActionMessage) {
+      ctx.elements.updateManagerActionMessage.textContent = message;
+    }
+    if (ctx.elements.updateManagerActionDetail) {
+      ctx.elements.updateManagerActionDetail.textContent = detail;
+      ctx.elements.updateManagerActionDetail.hidden = !detail;
+    }
+    setActionModalClosable(state !== 'pending');
+    if (state === 'success') {
+      scheduleActionModalAutoHide();
+    } else {
+      clearActionModalAutoHide();
     }
   }
 
@@ -281,10 +445,32 @@ export function createUpdateManagerController(ctx, deps) {
     const projects = Array.isArray(payload.projects) ? payload.projects : [];
     const containers = Array.isArray(payload.containers) ? payload.containers : [];
     const history = Array.isArray(payload.history) ? payload.history : [];
+    const visibleProjects = ctx.state.updateManagerHideBlocked
+      ? projects.filter((item) => String(item.update_state || '').toLowerCase() !== 'blocked')
+      : projects;
+    const visibleContainers = ctx.state.updateManagerHideBlocked
+      ? containers.filter((item) => String(item.update_state || '').toLowerCase() !== 'blocked')
+      : containers;
+    const hiddenBlockedCount = (projects.length - visibleProjects.length) + (containers.length - visibleContainers.length);
+    const metaSuffix = ctx.state.updateManagerHideBlocked && hiddenBlockedCount > 0
+      ? ` • ${hiddenBlockedCount} blocked entr${hiddenBlockedCount === 1 ? 'y hidden' : 'ies hidden'}`
+      : '';
 
-    ctx.elements.updateManagerMeta.textContent = `${projects.length} Compose stack(s), ${containers.length} standalone container(s), ${history.length} history entr${history.length === 1 ? 'y' : 'ies'}`;
-    ctx.elements.updateManagerProjectList.innerHTML = renderTargetList(projects, 'No Compose stacks currently have a confirmed update available.', 'projects');
-    ctx.elements.updateManagerContainerList.innerHTML = renderTargetList(containers, 'No standalone containers currently have a confirmed update available.', 'containers');
+    ctx.elements.updateManagerMeta.textContent = `${visibleProjects.length} Compose stack(s), ${visibleContainers.length} standalone container(s), ${history.length} history entr${history.length === 1 ? 'y' : 'ies'}${metaSuffix}`;
+    ctx.elements.updateManagerProjectList.innerHTML = renderTargetList(
+      visibleProjects,
+      ctx.state.updateManagerHideBlocked
+        ? 'No unblocked Compose stacks currently have a confirmed update available.'
+        : 'No Compose stacks currently have a confirmed update available.',
+      'projects',
+    );
+    ctx.elements.updateManagerContainerList.innerHTML = renderTargetList(
+      visibleContainers,
+      ctx.state.updateManagerHideBlocked
+        ? 'No unblocked standalone containers currently have a confirmed update available.'
+        : 'No standalone containers currently have a confirmed update available.',
+      'containers',
+    );
     ctx.elements.updateManagerHistoryList.innerHTML = renderHistoryList(history, 'No updates or rollbacks have been recorded yet.');
   }
 
@@ -320,6 +506,9 @@ export function createUpdateManagerController(ctx, deps) {
       ctx.elements.updateManagerContainerList.innerHTML = renderPlaceholder('Unable to load update candidates.');
       ctx.elements.updateManagerHistoryList.innerHTML = renderPlaceholder('Unable to load update history.');
       setManagerStatus(error.message || 'Unable to load update manager.', 'danger');
+      if (options.throwOnError) {
+        throw error;
+      }
     } finally {
       if (token === requestToken) {
         ctx.state.updateManagerLoading = false;
@@ -378,6 +567,86 @@ export function createUpdateManagerController(ctx, deps) {
     setEntryExpanded(toggleButton, !expanded);
   }
 
+  async function executeManagedAction({
+    title,
+    button,
+    busyMarkup,
+    pendingMessage,
+    successHeading,
+    failureHeading,
+    request,
+  }) {
+    if (ctx.state.updateManagerActionBusy) {
+      return;
+    }
+
+    const originalMarkup = button.innerHTML;
+    ctx.state.updateManagerActionBusy = true;
+    button.disabled = true;
+    button.innerHTML = busyMarkup;
+    setManagerStatus(pendingMessage, 'info');
+    setActionModalState({
+      title,
+      state: 'pending',
+      message: pendingMessage,
+      detail: 'Waiting for the server to finish the requested action.',
+    });
+    ensureActionModal()?.show();
+
+    try {
+      const payload = await request();
+      const successMessage = payload.message || successHeading;
+      setStatusMessage(ctx, successMessage, 'success');
+      setActionModalState({
+        title,
+        state: 'pending',
+        message: 'Refreshing dashboard metrics…',
+        detail: successMessage,
+      });
+      await deps.fetchMetrics();
+      setActionModalState({
+        title,
+        state: 'pending',
+        message: 'Reloading update inventory…',
+        detail: successMessage,
+      });
+
+      let refreshWarning = '';
+      try {
+        await loadTargets({ throwOnError: true });
+      } catch (error) {
+        refreshWarning = error.message || 'Unable to reload the update inventory after the action completed.';
+      }
+
+      const detail = refreshWarning
+        ? `${successMessage}\nInventory refresh warning: ${refreshWarning}`
+        : successMessage;
+      setActionModalState({
+        title,
+        state: 'success',
+        message: successHeading,
+        detail,
+      });
+      setManagerStatus(successMessage, refreshWarning ? 'warning' : 'success');
+    } catch (error) {
+      const failureMessage = error.message || failureHeading;
+      setActionModalState({
+        title,
+        state: 'failure',
+        message: failureHeading,
+        detail: failureMessage,
+      });
+      setManagerStatus(failureMessage, 'danger');
+      setStatusMessage(ctx, failureMessage, 'danger');
+    } finally {
+      ctx.state.updateManagerActionBusy = false;
+      if (button.isConnected) {
+        button.disabled = false;
+        button.innerHTML = originalMarkup;
+      }
+    }
+  }
+
   async function executeUpdate(targetType, targetId, button) {
     const typeLabel = formatTargetType(targetType);
     const confirmed = await deps.confirmAction({
@@ -391,33 +660,26 @@ export function createUpdateManagerController(ctx, deps) {
       return;
     }
 
-    const originalMarkup = button.innerHTML;
-    button.disabled = true;
-    button.innerHTML = '<i class="bi bi-arrow-repeat spin-inline" aria-hidden="true"></i><span>Updating...</span>';
-    setManagerStatus(`Applying update for ${targetId}...`, 'info');
-
-    try {
-      const response = await fetch('/api/update-manager/update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target_type: targetType, target_id: targetId }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.ok) {
-        throw new Error(payload.message || `Update failed for ${targetId}.`);
-      }
-      const successMessage = payload.message || 'Update completed.';
-      setManagerStatus(successMessage, 'success');
-      setStatusMessage(ctx, successMessage, 'success');
-      await deps.fetchMetrics();
-      await loadTargets();
-      setManagerStatus(successMessage, 'success');
-    } catch (error) {
-      button.disabled = false;
-      button.innerHTML = originalMarkup;
-      setManagerStatus(error.message || 'Update failed.', 'danger');
-      setStatusMessage(ctx, error.message || 'Update failed.', 'danger');
-    }
+    await executeManagedAction({
+      title: `Updating ${targetId}`,
+      button,
+      busyMarkup: '<i class="bi bi-arrow-repeat spin-inline" aria-hidden="true"></i><span>Updating...</span>',
+      pendingMessage: `Applying update for ${targetId}…`,
+      successHeading: 'Update completed',
+      failureHeading: 'Update failed',
+      request: async () => {
+        const response = await fetch('/api/update-manager/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target_type: targetType, target_id: targetId }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !payload.ok) {
+          throw new Error(payload.message || `Update failed for ${targetId}.`);
+        }
+        return payload;
+      },
+    });
   }
 
   async function executeRollback(historyId, button) {
@@ -432,33 +694,26 @@ export function createUpdateManagerController(ctx, deps) {
       return;
     }
 
-    const originalMarkup = button.innerHTML;
-    button.disabled = true;
-    button.innerHTML = '<i class="bi bi-arrow-counterclockwise spin-inline" aria-hidden="true"></i><span>Rolling back...</span>';
-    setManagerStatus(`Running rollback for history entry #${historyId}...`, 'info');
-
-    try {
-      const response = await fetch('/api/update-manager/rollback', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ history_id: Number(historyId) }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.ok) {
-        throw new Error(payload.message || 'Rollback failed.');
-      }
-      const successMessage = payload.message || 'Rollback completed.';
-      setManagerStatus(successMessage, 'success');
-      setStatusMessage(ctx, successMessage, 'success');
-      await deps.fetchMetrics();
-      await loadTargets();
-      setManagerStatus(successMessage, 'success');
-    } catch (error) {
-      button.disabled = false;
-      button.innerHTML = originalMarkup;
-      setManagerStatus(error.message || 'Rollback failed.', 'danger');
-      setStatusMessage(ctx, error.message || 'Rollback failed.', 'danger');
-    }
+    await executeManagedAction({
+      title: `Rolling back #${historyId}`,
+      button,
+      busyMarkup: '<i class="bi bi-arrow-counterclockwise spin-inline" aria-hidden="true"></i><span>Rolling back...</span>',
+      pendingMessage: `Running rollback for history entry #${historyId}…`,
+      successHeading: 'Rollback completed',
+      failureHeading: 'Rollback failed',
+      request: async () => {
+        const response = await fetch('/api/update-manager/rollback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ history_id: Number(historyId) }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !payload.ok) {
+          throw new Error(payload.message || 'Rollback failed.');
+        }
+        return payload;
+      },
+    });
   }
 
   function openModal(event) {
@@ -497,12 +752,35 @@ export function createUpdateManagerController(ctx, deps) {
 
   function init() {
     ensureModal();
+    ensureActionModal();
+    ctx.state.updateManagerHideBlocked = localStorage.getItem('updateManagerHideBlocked') === 'true';
+    if (ctx.elements.updateManagerHideBlocked) {
+      ctx.elements.updateManagerHideBlocked.checked = ctx.state.updateManagerHideBlocked;
+    }
     ctx.elements.updateManagerToggle?.addEventListener('click', openModal);
     ctx.elements.sidebarUpdateManagerToggle?.addEventListener('click', (event) => {
       deps.closeMobileMenu?.();
       openModal(event);
     });
     ctx.elements.refreshUpdateManagerBtn?.addEventListener('click', () => loadTargets({ refresh: true }));
+    ctx.elements.updateManagerHideBlocked?.addEventListener('change', () => {
+      ctx.state.updateManagerHideBlocked = ctx.elements.updateManagerHideBlocked.checked;
+      localStorage.setItem('updateManagerHideBlocked', String(ctx.state.updateManagerHideBlocked));
+      if (ctx.state.updateManagerPayload) {
+        renderPayload(ctx.state.updateManagerPayload);
+      }
+    });
+    ctx.elements.updateManagerActionCloseBtn?.addEventListener('click', () => {
+      clearActionModalAutoHide();
+      ctx.state.updateManagerActionModal?.hide();
+    });
+    ctx.elements.updateManagerActionCloseIcon?.addEventListener('click', () => {
+      clearActionModalAutoHide();
+      ctx.state.updateManagerActionModal?.hide();
+    });
+    ctx.elements.updateManagerActionModalEl?.addEventListener('hidden.bs.modal', () => {
+      clearActionModalAutoHide();
+    });
     ctx.elements.updateManagerModalEl?.addEventListener('click', handleModalClick);
     ctx.elements.updateManagerModalEl?.addEventListener('hidden.bs.modal', () => {
       setManagerStatus('');
