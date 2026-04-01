@@ -10,15 +10,9 @@ COPY requirements.txt .
 # Instala las dependencias
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copia todos los archivos de código Python necesarios al directorio de trabajo
-COPY app.py .
-COPY config.py .
-COPY docker_client.py .
-COPY metrics_utils.py .
-COPY sampler.py .
-COPY routes.py .
-COPY pushover_client.py .
-COPY users_db.py .
+# Copia todos los módulos Python del directorio raíz para evitar omitir
+# nuevas dependencias top-level en futuros releases.
+COPY *.py ./
 
 # Copia las carpetas de templates y static
 # Asegúrate de que tu logo.png está DENTRO de la carpeta 'static' en tu máquina local antes de construir

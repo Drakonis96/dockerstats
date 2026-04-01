@@ -25,7 +25,7 @@ def _read_secret(env_name, file_env_name=None, default=""):
     return os.environ.get(env_name, default).strip()
 
 
-APP_VERSION = os.environ.get("APP_VERSION", "v0.9.0").strip() or "v0.9.0"
+APP_VERSION = os.environ.get("APP_VERSION", "v0.9.1").strip() or "v0.9.1"
 APP_HOST = os.environ.get("APP_HOST", "0.0.0.0")
 APP_PORT = _get_int("APP_PORT", 5000)
 WAITRESS_THREADS = _get_int("WAITRESS_THREADS", 8)

@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.9.1
+
+### Fixed
+- Fixed Docker image packaging so all top-level Python modules are copied into the container image, including `update_manager.py`.
+- Prevented the `ModuleNotFoundError: No module named 'update_manager'` crash on startup in Docker deployments.
+
+### Testing
+- Added a regression test to ensure the Dockerfile keeps copying all root Python modules.
+
 ## v0.9.0
 
 ### Added
