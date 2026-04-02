@@ -349,7 +349,7 @@ If available, GPU usage and memory stats will be displayed in the UI for each co
   - `AUTH_USER`
   - `AUTH_PASSWORD` or `AUTH_PASSWORD_FILE`
 - Set `APP_SECRET_KEY` or `APP_SECRET_KEY_FILE` to keep sessions stable across restarts.
-- `APP_VERSION` controls the version string shown in the UI footer and defaults to `v0.9.7`.
+- `APP_VERSION` controls the version string shown in the UI footer and defaults to `v0.9.8`.
 - If you want to run the app without authentication, set `AUTH_ENABLED=false` explicitly.
 
 ---

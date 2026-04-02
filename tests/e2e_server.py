@@ -146,6 +146,71 @@ def initial_containers():
 CONTAINERS = initial_containers()
 
 
+def initial_standalone_update_targets():
+    return {
+        'cache-standalone': {
+            'id': 'cache-standalone',
+            'target_id': 'cache-standalone',
+            'name': 'cache',
+            'type': 'container',
+            'current_version': 'redis:7 @ cache-old',
+            'latest_version': 'redis:7 @ cache-new',
+            'update_state': 'ready',
+            'state_reason': None,
+            'last_checked_at': BASE_TS - 60,
+            'entries': [],
+        },
+    }
+
+
+STANDALONE_UPDATE_TARGETS = initial_standalone_update_targets()
+
+
+def initial_external_project_targets():
+    return {
+        'jobs': {
+            'id': 'project:jobs',
+            'target_id': 'jobs',
+            'name': 'jobs',
+            'type': 'project',
+            'current_version': 'worker=python:3.12 @ worker-current',
+            'latest_version': 'worker=python:3.13 @ worker-new',
+            'update_state': 'ready',
+            'state_reason': None,
+            'last_checked_at': BASE_TS - 120,
+            'entries': [
+                {
+                    'service': 'worker',
+                    'container_id': 'worker12345678',
+                    'container_name': 'worker',
+                    'current_version': 'python:3.12 @ worker-current',
+                    'latest_version': 'python:3.13 @ worker-new',
+                },
+            ],
+            'meta': {
+                'management_mode': 'external',
+                'manager_key': 'portainer',
+                'manager_name': 'Portainer',
+                'block_kind': 'missing_compose_files',
+                'missing_files': ['/data/compose/42/docker-compose.yml'],
+                'guidance': [
+                    'Docker Stats can still update the running services directly with its safe container recreation workflow, which preserves the current mounts, networks, environment, restart policy, and other materialized runtime settings from Docker.',
+                    'Docker Stats can only run project updates when it can read the original Compose files from the host filesystem.',
+                    'Docker Stats does not reconstruct Compose projects from running containers alone because Docker metadata does not preserve override merge order, env files, build contexts, secrets, configs, or services that are not currently running.',
+                ],
+                'action_hint': 'Compose files are unavailable, so Docker Stats will update the running services directly.',
+                'recovery_hint': 'Export the stack from Portainer or recover it from the original Git repository, then redeploy it from a host path that is mounted into Docker Stats if you want this application to manage updates.',
+                'auto_recovery_supported': True,
+                'update_strategy': 'external_project_safe_recreate',
+                'update_mode_label': 'External safe recreate',
+            },
+        },
+    }
+
+
+EXTERNAL_PROJECT_TARGETS = initial_external_project_targets()
+
+
 def list_containers():
     return list(CONTAINERS.values())
 
@@ -202,6 +267,12 @@ def build_update_manager_payload():
                 'entries': [],
             })
 
+    standalone.extend([
+        dict(target)
+        for target in sorted(STANDALONE_UPDATE_TARGETS.values(), key=lambda item: item['name'])
+        if str(target.get('update_state') or '').lower() == 'ready'
+    ])
+
     for project_name in sorted(grouped):
         containers = grouped[project_name]
         entries = sorted([
@@ -226,43 +297,11 @@ def build_update_manager_payload():
             'entries': entries,
         })
 
-    projects.append({
-        'id': 'project:jobs',
-        'target_id': 'jobs',
-        'name': 'jobs',
-        'type': 'project',
-        'current_version': 'worker=python:3.12 @ worker-current',
-        'latest_version': 'worker=python:3.13 @ worker-new',
-        'update_state': 'ready',
-        'state_reason': None,
-        'last_checked_at': BASE_TS - 120,
-        'entries': [
-            {
-                'service': 'worker',
-                'container_id': 'worker12345678',
-                'container_name': 'worker',
-                'current_version': 'python:3.12 @ worker-current',
-                'latest_version': 'python:3.13 @ worker-new',
-            },
-        ],
-        'meta': {
-            'management_mode': 'external',
-            'manager_key': 'portainer',
-            'manager_name': 'Portainer',
-            'block_kind': 'missing_compose_files',
-            'missing_files': ['/data/compose/42/docker-compose.yml'],
-            'guidance': [
-                'Docker Stats can still update the running services directly with its safe container recreation workflow, which preserves the current mounts, networks, environment, restart policy, and other materialized runtime settings from Docker.',
-                'Docker Stats can only run project updates when it can read the original Compose files from the host filesystem.',
-                'Docker Stats does not reconstruct Compose projects from running containers alone because Docker metadata does not preserve override merge order, env files, build contexts, secrets, configs, or services that are not currently running.',
-            ],
-            'action_hint': 'Compose files are unavailable, so Docker Stats will update the running services directly.',
-            'recovery_hint': 'Export the stack from Portainer or recover it from the original Git repository, then redeploy it from a host path that is mounted into Docker Stats if you want this application to manage updates.',
-            'auto_recovery_supported': True,
-            'update_strategy': 'external_project_safe_recreate',
-            'update_mode_label': 'External safe recreate',
-        },
-    })
+    projects.extend([
+        dict(target)
+        for target in sorted(EXTERNAL_PROJECT_TARGETS.values(), key=lambda item: item['name'])
+        if str(target.get('update_state') or '').lower() == 'ready'
+    ])
     projects.append({
         'id': 'project:broken',
         'target_id': 'broken',
@@ -669,6 +708,34 @@ def update_manager_update():
     target_id = payload.get('target_id')
     time.sleep(0.15)
 
+    if target_type == 'container' and target_id in STANDALONE_UPDATE_TARGETS:
+        target = STANDALONE_UPDATE_TARGETS[target_id]
+        target['current_version'] = target.get('latest_version') or target.get('current_version')
+        target['update_state'] = 'success'
+        target['state_reason'] = None
+        target['last_checked_at'] = time.time()
+        history_entry = append_update_history({
+            'id': next_update_history_id(),
+            'created_at': time.time(),
+            'actor_username': 'admin',
+            'action': 'update',
+            'target_type': 'container',
+            'target_id': target_id,
+            'target_name': target['name'],
+            'previous_version': 'redis:7 @ cache-old',
+            'new_version': target['current_version'],
+            'result': 'success',
+            'notes': 'Standalone container updated with safe container recreation.',
+            'metadata': {'rollback_ready': True, 'strategy': 'safe_container_recreate'},
+            'rollback_of': None,
+        })
+        publish_metrics()
+        return jsonify({
+            'ok': True,
+            'message': 'Container cache updated safely.',
+            'history_entry': history_entry,
+        })
+
     if target_type == 'project' and target_id == 'demo':
         matching = [container for container in list_containers() if container.get('compose_project') == 'demo']
         previous_version = '; '.join(
@@ -706,6 +773,7 @@ def update_manager_update():
         })
 
     if target_type == 'project' and target_id == 'jobs':
+        target = EXTERNAL_PROJECT_TARGETS.get('jobs')
         matching = [container for container in list_containers() if container.get('compose_project') == 'jobs']
         previous_version = '; '.join(
             f"{container['compose_service']}={container.get('current_version') or container.get('image')}"
@@ -719,6 +787,13 @@ def update_manager_update():
             container['current_version'] = container.get('latest_version') or container.get('current_version')
             container['update_available'] = False
             container['last_checked_at'] = time.time()
+        if target:
+            target['current_version'] = target.get('latest_version') or target.get('current_version')
+            target['update_state'] = 'success'
+            target['state_reason'] = None
+            target['last_checked_at'] = time.time()
+            for entry in target.get('entries', []):
+                entry['current_version'] = entry.get('latest_version') or entry.get('current_version')
         history_entry = append_update_history({
             'id': next_update_history_id(),
             'created_at': time.time(),
@@ -799,12 +874,22 @@ def update_manager_rollback():
         })
 
     if source.get('target_type') == 'project' and source.get('target_name') == 'jobs':
+        target = EXTERNAL_PROJECT_TARGETS.get('jobs')
         matching = [container for container in list_containers() if container.get('compose_project') == 'jobs']
         for container in matching:
             container['current_version'] = 'python:3.12 @ worker-current'
             container['latest_version'] = 'python:3.13 @ worker-new'
             container['update_available'] = True
             container['last_checked_at'] = time.time()
+        if target:
+            target['current_version'] = 'worker=python:3.12 @ worker-current'
+            target['latest_version'] = 'worker=python:3.13 @ worker-new'
+            target['update_state'] = 'ready'
+            target['state_reason'] = None
+            target['last_checked_at'] = time.time()
+            for entry in target.get('entries', []):
+                entry['current_version'] = 'python:3.12 @ worker-current'
+                entry['latest_version'] = 'python:3.13 @ worker-new'
         history_entry = append_update_history({
             'id': next_update_history_id(),
             'created_at': time.time(),
@@ -922,6 +1007,10 @@ def test_reset():
     ])
     CONTAINERS.clear()
     CONTAINERS.update(initial_containers())
+    STANDALONE_UPDATE_TARGETS.clear()
+    STANDALONE_UPDATE_TARGETS.update(initial_standalone_update_targets())
+    EXTERNAL_PROJECT_TARGETS.clear()
+    EXTERNAL_PROJECT_TARGETS.update(initial_external_project_targets())
     with STREAM_CONDITION:
         METRICS_SEQUENCE += 1
         NOTIFICATION_SEQUENCE = 0

@@ -1083,7 +1083,19 @@ nav.navbar {
 }
 
 .update-manager-pane-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
   margin-bottom: 0.75rem;
+}
+
+.update-manager-pane-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
 .update-manager-list {
@@ -2096,6 +2108,15 @@ nav.navbar {
 
   .update-manager-toolbar {
     flex-direction: column;
+  }
+
+  .update-manager-pane-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .update-manager-pane-actions {
+    width: 100%;
   }
 
   .update-entry-head {

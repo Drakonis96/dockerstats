@@ -36,6 +36,8 @@ export function createDashboardContext(config = {}) {
       updateManagerProjectList: byId('updateManagerProjectList'),
       updateManagerContainerList: byId('updateManagerContainerList'),
       updateManagerHistoryList: byId('updateManagerHistoryList'),
+      updateAllProjectsBtn: byId('updateAllProjectsBtn'),
+      updateAllContainersBtn: byId('updateAllContainersBtn'),
       updateManagerActionModalEl: byId('updateManagerActionModal'),
       updateManagerActionState: byId('updateManagerActionState'),
       updateManagerActionMessage: byId('updateManagerActionMessage'),

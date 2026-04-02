@@ -318,7 +318,7 @@ test('opens the update manager, runs update and rollback, and shows load errors'
   await expect(page.locator('#updateManagerProjectList')).toContainText('demo');
   await expect(page.locator('#updateManagerProjectList')).toContainText('jobs');
   await expect(page.locator('#updateManagerProjectList')).toContainText('broken');
-  await expect(page.locator('#updateManagerContainerList')).toContainText('No standalone containers');
+  await expect(page.locator('#updateManagerContainerList')).toContainText('cache');
   await page.locator('#updateManagerHideBlocked').check();
   await expect(page.locator('#updateManagerProjectList')).not.toContainText('broken');
   await expect(page.locator('#updateManagerProjectList')).toContainText('jobs');
@@ -394,4 +394,42 @@ test('opens the update manager, runs update and rollback, and shows load errors'
   });
   await page.locator('#refreshUpdateManagerBtn').click();
   await expect(page.locator('#updateManagerStatus')).toContainText('Unable to load update manager.');
+});
+
+test('updates all stacks and standalone containers sequentially from the update manager', async ({ page }) => {
+  await page.goto('/');
+
+  await page.locator('#updateManagerToggle').click();
+  await expect(page.locator('#updateManagerModal')).toHaveClass(/show/);
+  await expect(page.locator('#updateAllProjectsBtn')).toContainText('Update all stacks (2)');
+  await expect(page.locator('#updateAllContainersBtn')).toContainText('Update all containers (1)');
+
+  await page.locator('#updateAllProjectsBtn').click();
+  await expect(page.locator('#appDialogModal')).toHaveClass(/show/);
+  await page.locator('#appDialogConfirm').click();
+  await expect(page.locator('#updateManagerActionModal')).toHaveClass(/show/);
+  await expect(page.locator('#updateManagerActionState')).toContainText('Success');
+  await expect(page.locator('#updateManagerActionMessage')).toContainText('Updated 2 stacks successfully.');
+  await expect(page.locator('#updateManagerActionDetail')).toContainText('Sequential mode completed 2 stacks.');
+  await expect(page.locator('#updateManagerActionDetail')).toContainText('Updated: demo, jobs');
+  await expect(page.locator('#updateManagerActionModal')).not.toHaveClass(/show/);
+  await expect(page.locator('#updateManagerProjectList')).not.toContainText('demo');
+  await expect(page.locator('#updateManagerProjectList')).not.toContainText('jobs');
+  await expect(page.locator('#updateManagerProjectList')).toContainText('broken');
+  await expect(page.locator('#updateAllProjectsBtn')).toBeDisabled();
+  await expect(page.locator('#updateAllProjectsBtn')).toContainText('Update all stacks');
+
+  await page.locator('#updateManagerContainersTab').click();
+  await expect(page.locator('#updateManagerContainerList')).toContainText('cache');
+  await page.locator('#updateAllContainersBtn').click();
+  await expect(page.locator('#appDialogModal')).toHaveClass(/show/);
+  await page.locator('#appDialogConfirm').click();
+  await expect(page.locator('#updateManagerActionState')).toContainText('Success');
+  await expect(page.locator('#updateManagerActionMessage')).toContainText('Updated 1 container successfully.');
+  await expect(page.locator('#updateManagerActionDetail')).toContainText('Sequential mode completed 1 container.');
+  await expect(page.locator('#updateManagerActionDetail')).toContainText('Updated: cache');
+  await expect(page.locator('#updateManagerActionModal')).not.toHaveClass(/show/);
+  await expect(page.locator('#updateManagerContainerList')).toContainText('No standalone containers');
+  await expect(page.locator('#updateAllContainersBtn')).toBeDisabled();
+  await expect(page.locator('#updateAllContainersBtn')).toContainText('Update all containers');
 });

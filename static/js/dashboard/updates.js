@@ -319,6 +319,13 @@ export function createUpdateManagerController(ctx, deps) {
   let requestToken = 0;
   let actionModalHideTimer = null;
 
+  function getCollectionLabel(targetType, { plural = false } = {}) {
+    if (targetType === 'project') {
+      return plural ? 'stacks' : 'stack';
+    }
+    return plural ? 'containers' : 'container';
+  }
+
   function ensureModal() {
     if (!ctx.elements.updateManagerModalEl) {
       return null;
@@ -358,6 +365,47 @@ export function createUpdateManagerController(ctx, deps) {
     } else {
       ctx.elements.updateManagerBadge.style.display = 'none';
     }
+  }
+
+  function getReadyTargets(targetType) {
+    const payload = ctx.state.updateManagerPayload || {};
+    const source = targetType === 'project' ? payload.projects : payload.containers;
+    return (Array.isArray(source) ? source : []).filter((item) => String(item.update_state || '').toLowerCase() === 'ready');
+  }
+
+  function renderBulkButtonMarkup(targetType, count) {
+    const pluralLabel = getCollectionLabel(targetType, { plural: true });
+    const suffix = count > 0 ? ` (${count})` : '';
+    return `
+      <i class="bi bi-arrow-repeat" aria-hidden="true"></i>
+      <span>Update all ${escapeHtml(pluralLabel)}${escapeHtml(suffix)}</span>
+    `;
+  }
+
+  function syncBulkActionButtons({ activeButton = null } = {}) {
+    const buttonMap = [
+      ['project', ctx.elements.updateAllProjectsBtn],
+      ['container', ctx.elements.updateAllContainersBtn],
+    ];
+
+    buttonMap.forEach(([targetType, button]) => {
+      if (!button || button === activeButton) {
+        return;
+      }
+      const count = getReadyTargets(targetType).length;
+      button.innerHTML = renderBulkButtonMarkup(targetType, count);
+      button.disabled = count === 0 || ctx.state.updateManagerLoading || ctx.state.updateManagerActionBusy;
+    });
+  }
+
+  function syncActionLockState(options = {}) {
+    if (ctx.elements.refreshUpdateManagerBtn && !ctx.state.updateManagerLoading) {
+      ctx.elements.refreshUpdateManagerBtn.disabled = ctx.state.updateManagerActionBusy;
+    }
+    if (ctx.elements.updateManagerHideBlocked) {
+      ctx.elements.updateManagerHideBlocked.disabled = ctx.state.updateManagerActionBusy;
+    }
+    syncBulkActionButtons(options);
   }
 
   function setActionModalClosable(enabled) {
@@ -478,6 +526,70 @@ export function createUpdateManagerController(ctx, deps) {
       'containers',
     );
     ctx.elements.updateManagerHistoryList.innerHTML = renderHistoryList(history, 'No updates or rollbacks have been recorded yet.');
+    syncActionLockState();
+  }
+
+  async function requestUpdateTarget(targetType, targetId) {
+    const response = await fetch('/api/update-manager/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_type: targetType, target_id: targetId }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.message || `Update failed for ${targetId}.`);
+    }
+    return payload;
+  }
+
+  async function refreshAfterManagedAction(title, detail) {
+    setActionModalState({
+      title,
+      state: 'pending',
+      message: 'Refreshing dashboard metrics…',
+      detail,
+    });
+    await deps.fetchMetrics();
+    setActionModalState({
+      title,
+      state: 'pending',
+      message: 'Reloading update inventory…',
+      detail,
+    });
+
+    try {
+      await loadTargets({ throwOnError: true });
+      return '';
+    } catch (error) {
+      return error.message || 'Unable to reload the update inventory after the action completed.';
+    }
+  }
+
+  function formatBulkResultDetail(targetType, successes, failures, refreshWarning = '') {
+    const total = successes.length + failures.length;
+    const lines = [
+      `Sequential mode completed ${total} ${getCollectionLabel(targetType, { plural: total !== 1 })}.`,
+      `${successes.length} succeeded, ${failures.length} failed.`,
+    ];
+
+    if (successes.length > 0) {
+      lines.push(`Updated: ${successes.map((item) => item.name).join(', ')}`);
+    }
+
+    if (failures.length > 0) {
+      failures.slice(0, 5).forEach((item) => {
+        lines.push(`Failed: ${item.name} - ${item.message}`);
+      });
+      if (failures.length > 5) {
+        lines.push(`${failures.length - 5} additional failure(s) omitted.`);
+      }
+    }
+
+    if (refreshWarning) {
+      lines.push(`Inventory refresh warning: ${refreshWarning}`);
+    }
+
+    return lines.join('\n');
   }
 
   async function loadTargets(options = {}) {
@@ -520,6 +632,7 @@ export function createUpdateManagerController(ctx, deps) {
         ctx.state.updateManagerLoading = false;
         ctx.elements.refreshUpdateManagerBtn.disabled = false;
         ctx.elements.refreshUpdateManagerBtn.textContent = 'Refresh list';
+        syncActionLockState();
       }
     }
   }
@@ -590,6 +703,7 @@ export function createUpdateManagerController(ctx, deps) {
     ctx.state.updateManagerActionBusy = true;
     button.disabled = true;
     button.innerHTML = busyMarkup;
+    syncActionLockState();
     setManagerStatus(pendingMessage, 'info');
     setActionModalState({
       title,
@@ -603,26 +717,7 @@ export function createUpdateManagerController(ctx, deps) {
       const payload = await request();
       const successMessage = payload.message || successHeading;
       setStatusMessage(ctx, successMessage, 'success');
-      setActionModalState({
-        title,
-        state: 'pending',
-        message: 'Refreshing dashboard metrics…',
-        detail: successMessage,
-      });
-      await deps.fetchMetrics();
-      setActionModalState({
-        title,
-        state: 'pending',
-        message: 'Reloading update inventory…',
-        detail: successMessage,
-      });
-
-      let refreshWarning = '';
-      try {
-        await loadTargets({ throwOnError: true });
-      } catch (error) {
-        refreshWarning = error.message || 'Unable to reload the update inventory after the action completed.';
-      }
+      const refreshWarning = await refreshAfterManagedAction(title, successMessage);
 
       const detail = refreshWarning
         ? `${successMessage}\nInventory refresh warning: ${refreshWarning}`
@@ -650,6 +745,7 @@ export function createUpdateManagerController(ctx, deps) {
         button.disabled = false;
         button.innerHTML = originalMarkup;
       }
+      syncActionLockState();
     }
   }
 
@@ -678,19 +774,117 @@ export function createUpdateManagerController(ctx, deps) {
         : `Applying update for ${targetId}…`,
       successHeading: 'Update completed',
       failureHeading: 'Update failed',
-      request: async () => {
-        const response = await fetch('/api/update-manager/update', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ target_type: targetType, target_id: targetId }),
-        });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok || !payload.ok) {
-          throw new Error(payload.message || `Update failed for ${targetId}.`);
-        }
-        return payload;
-      },
+      request: () => requestUpdateTarget(targetType, targetId),
     });
+  }
+
+  async function executeBulkUpdate(targetType, button) {
+    if (ctx.state.updateManagerActionBusy) {
+      return;
+    }
+
+    const targets = getReadyTargets(targetType);
+    const pluralLabel = getCollectionLabel(targetType, { plural: true });
+    const singularLabel = getCollectionLabel(targetType);
+    const completedLabel = getCollectionLabel(targetType, { plural: targets.length !== 1 });
+
+    if (targets.length === 0) {
+      setManagerStatus(`No update-ready ${pluralLabel} are available right now.`, 'warning');
+      return;
+    }
+
+    const confirmed = await deps.confirmAction({
+      title: `Update all ${pluralLabel}`,
+      message: `Docker Stats will update ${targets.length} ${pluralLabel} sequentially for safety. Each ${singularLabel} keeps its normal safe update workflow, and failures will be recorded while the remaining targets continue.`,
+      confirmLabel: `Update all ${pluralLabel}`,
+      cancelLabel: 'Cancel',
+      tone: 'warning',
+    });
+    if (!confirmed) {
+      return;
+    }
+
+    const originalMarkup = button.innerHTML;
+    const successes = [];
+    const failures = [];
+    ctx.state.updateManagerActionBusy = true;
+    button.disabled = true;
+    button.innerHTML = `
+      <i class="bi bi-arrow-repeat spin-inline" aria-hidden="true"></i>
+      <span>Updating ${escapeHtml(pluralLabel)}...</span>
+    `;
+    syncActionLockState({ activeButton: button });
+    setManagerStatus(`Preparing sequential bulk update for ${targets.length} ${pluralLabel}…`, 'info');
+    ensureActionModal()?.show();
+
+    try {
+      for (let index = 0; index < targets.length; index += 1) {
+        const target = targets[index];
+        setActionModalState({
+          title: `Updating ${pluralLabel}`,
+          state: 'pending',
+          message: `Updating ${index + 1} of ${targets.length}: ${target.name}`,
+          detail: [
+            'Sequential mode for safety.',
+            `${successes.length} completed successfully.`,
+            `${failures.length} failed so far.`,
+          ].join('\n'),
+        });
+
+        try {
+          const payload = await requestUpdateTarget(target.type, target.target_id);
+          successes.push({
+            name: target.name,
+            message: payload.message || `${formatTargetType(target.type)} updated successfully.`,
+          });
+        } catch (error) {
+          failures.push({
+            name: target.name,
+            message: error.message || `Update failed for ${target.name}.`,
+          });
+          setManagerStatus(
+            `Bulk update hit a failure on ${target.name}. Docker Stats will continue with the remaining ${pluralLabel}.`,
+            'warning',
+          );
+        }
+      }
+
+      const refreshWarning = await refreshAfterManagedAction(
+        `Updating ${pluralLabel}`,
+        `${successes.length} succeeded, ${failures.length} failed.`,
+      );
+      const detail = formatBulkResultDetail(targetType, successes, failures, refreshWarning);
+      const hadFailures = failures.length > 0;
+      const summaryMessage = hadFailures
+        ? `Bulk update finished with ${failures.length} failure(s).`
+        : `Updated ${targets.length} ${completedLabel} successfully.`;
+
+      setActionModalState({
+        title: hadFailures ? `Bulk update finished with errors` : 'Bulk update completed',
+        state: hadFailures ? 'failure' : 'success',
+        message: summaryMessage,
+        detail,
+      });
+      setManagerStatus(summaryMessage, hadFailures ? 'warning' : 'success');
+      setStatusMessage(ctx, summaryMessage, hadFailures ? 'warning' : 'success');
+    } catch (error) {
+      const failureMessage = error.message || `Unable to update all ${pluralLabel}.`;
+      setActionModalState({
+        title: `Updating ${pluralLabel}`,
+        state: 'failure',
+        message: `Bulk update failed`,
+        detail: failureMessage,
+      });
+      setManagerStatus(failureMessage, 'danger');
+      setStatusMessage(ctx, failureMessage, 'danger');
+    } finally {
+      ctx.state.updateManagerActionBusy = false;
+      if (button.isConnected) {
+        button.disabled = false;
+        button.innerHTML = originalMarkup;
+      }
+      syncActionLockState();
+    }
   }
 
   async function executeRollback(historyId, button) {
@@ -779,6 +973,8 @@ export function createUpdateManagerController(ctx, deps) {
       openModal(event);
     });
     ctx.elements.refreshUpdateManagerBtn?.addEventListener('click', () => loadTargets({ refresh: true }));
+    ctx.elements.updateAllProjectsBtn?.addEventListener('click', () => executeBulkUpdate('project', ctx.elements.updateAllProjectsBtn));
+    ctx.elements.updateAllContainersBtn?.addEventListener('click', () => executeBulkUpdate('container', ctx.elements.updateAllContainersBtn));
     ctx.elements.updateManagerHideBlocked?.addEventListener('change', () => {
       ctx.state.updateManagerHideBlocked = ctx.elements.updateManagerHideBlocked.checked;
       localStorage.setItem('updateManagerHideBlocked', String(ctx.state.updateManagerHideBlocked));
@@ -801,6 +997,7 @@ export function createUpdateManagerController(ctx, deps) {
     ctx.elements.updateManagerModalEl?.addEventListener('hidden.bs.modal', () => {
       setManagerStatus('');
     });
+    syncActionLockState();
   }
 
   return {

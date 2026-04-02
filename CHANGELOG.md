@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.9.8
+
+### Added
+- Added `Update all` actions to both Update Manager tabs so ready compose stacks and standalone containers can be updated from one place.
+
+### Changed
+- Bulk updates now run sequentially through the existing safe update workflow, with per-target progress surfaced in the live action modal and a single consolidated refresh at the end.
+
+### Fixed
+- Brought the E2E update-manager fixtures in line with the real external-stack lifecycle so synthetic Portainer-style targets appear before update, disappear once current, and return after rollback.
+- Hardened end-to-end coverage around bulk stack and container updates, including progress summaries and disabled bulk buttons once no ready targets remain.
+
 ## v0.9.7
 
 ### Changed
