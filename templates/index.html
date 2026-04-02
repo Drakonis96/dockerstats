@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Docker Monitor</title>
+  <title>statainer</title>
   <link rel="icon" href="{{ url_for('static', filename='logo.png') }}">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
@@ -512,37 +512,6 @@
          white-space: nowrap !important;
      }
 
-     /* --- Chart Container Styling --- */
-     #chartContainer {
-        margin-top: 1rem; /* Reduced margin */
-        padding: 0.5rem; /* Further reduced padding */
-        border: 1px solid var(--bs-border-color-translucent, rgba(0,0,0,0.1));
-        border-radius: 0.375rem;
-        background: rgba(var(--bs-secondary-bg-rgb), 0.05);
-        max-height: 500px; /* Significantly reduced container height */
-        display: none; /* Initially hidden */
-        overflow: hidden; /* Hide potential overflow */
-     }
-     #chartContainer h5 {
-        margin-bottom: 0.25rem; /* Reduced margin */
-        font-size: 0.9rem; /* Smaller title */
-        text-align: center;
-     }
-     #chartContainer canvas { /* Ensure canvas respects container height */
-        max-height: 360px; /* Significantly reduced max-height for the canvas */
-     }
-     #chartControls {
-        text-align: center;
-        margin-bottom: 0.25rem; /* Reduced margin */
-     }
-     #chartControls .btn-group {
-        margin-bottom: 0.25rem; /* Space below buttons */
-     }
-     #chartControls .btn-sm {
-        padding: 0.15rem 0.4rem; /* Smaller buttons */
-        font-size: 0.8rem;
-     }
-
      /* Footer Styling */
      .footer {
         padding: 1rem 0;
@@ -692,8 +661,8 @@
         <button type="button" class="mobile-menu-toggle icon-btn icon-btn-only" id="mobileMenuToggle" aria-label="Menu">
           <i class="bi bi-list" aria-hidden="true"></i>
         </button>
-        <img src="{{ url_for('static', filename='logo.png') }}" alt="Docker Monitor Logo">
-        <span class="navbar-title">Docker Stats</span>
+        <img src="{{ url_for('static', filename='logo.png') }}" alt="statainer Logo">
+        <span class="navbar-title">statainer</span>
       </div>
 
       <!-- Right side: Buttons -->
@@ -784,6 +753,59 @@
   <!-- ScrollTop button remains outside the nav -->
   <button type="button" id="scrollTop" class="icon-btn icon-btn-only" aria-label="Scroll to top"><i class="bi bi-arrow-up" aria-hidden="true"></i></button>
 
+  <div class="mobile-section-nav-shell" id="mobileSectionNavShell">
+    <div class="mobile-section-nav" id="mobileSectionNav" role="tablist" aria-label="Dashboard sections">
+      <button
+        type="button"
+        class="mobile-section-tab"
+        id="mobileInfoTab"
+        data-mobile-section="info"
+        role="tab"
+        aria-controls="overviewShell"
+        aria-selected="false"
+      >
+        <i class="bi bi-info-circle" aria-hidden="true"></i>
+        <span class="mobile-section-label">Info</span>
+      </button>
+      <button
+        type="button"
+        class="mobile-section-tab"
+        id="mobileWorkspaceTab"
+        data-mobile-section="workspace"
+        role="tab"
+        aria-controls="workspaceShell"
+        aria-selected="false"
+      >
+        <i class="bi bi-sliders2" aria-hidden="true"></i>
+        <span class="mobile-section-label">Workspace</span>
+      </button>
+      <button
+        type="button"
+        class="mobile-section-tab"
+        id="mobileContainersTab"
+        data-mobile-section="containers"
+        role="tab"
+        aria-controls="dashboardContainersPane"
+        aria-selected="true"
+      >
+        <i class="bi bi-box-seam" aria-hidden="true"></i>
+        <span class="mobile-section-label">Containers</span>
+      </button>
+      <button
+        type="button"
+        class="mobile-section-tab"
+        id="mobileStacksTab"
+        data-mobile-section="stacks"
+        role="tab"
+        aria-controls="dashboardComposePane"
+        aria-selected="false"
+      >
+        <i class="bi bi-grid-1x2" aria-hidden="true"></i>
+        <span class="mobile-section-label">Stacks</span>
+      </button>
+    </div>
+  </div>
+
   <!-- Settings Modal -->
       <div class="modal fade" id="settingsModal" tabindex="-1" aria-labelledby="settingsModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg settings-dialog">
@@ -818,14 +840,16 @@
                       <label for="newPassword" class="form-label">New password</label>
                       <input type="password" class="form-control" id="newPassword" required autocomplete="new-password">
                     </div>
-                    <div class="mb-3">
-                      <label for="confirmPassword" class="form-label">Repeat new password</label>
-                      <input type="password" class="form-control" id="confirmPassword" required autocomplete="new-password">
-                    </div>
-                    <div id="passwordError" class="text-danger mb-2" style="display:none;"></div>
-                    <button type="submit" id="savePasswordBtn" class="btn btn-primary">Save</button>
-                  </form>
-                </div>
+	                    <div class="mb-3">
+	                      <label for="confirmPassword" class="form-label">Repeat new password</label>
+	                      <input type="password" class="form-control" id="confirmPassword" required autocomplete="new-password">
+	                    </div>
+	                    <div id="passwordError" class="text-danger mb-2" style="display:none;"></div>
+	                    <div class="settings-pane-actions">
+	                      <button type="submit" id="savePasswordBtn" class="btn btn-primary">Save</button>
+	                    </div>
+	                  </form>
+	                </div>
                 <!-- Manage User Tab -->
                 <div class="tab-pane fade settings-pane" id="manageUserTabPane" role="tabpanel" aria-labelledby="tab-manageuser">
                   <h6>Create user</h6>
@@ -846,12 +870,14 @@
                       <strong>Accessible columns:</strong>
                       <div id="userColumnsCheckboxes" class="column-toggles">
                         <!-- Checkboxes will be inserted here by JS -->
-                      </div>
-                    </div>
-                    <div id="userFormError" class="text-danger mb-2" style="display:none;"></div>
-                    <button type="submit" class="btn btn-primary">Create user</button>
-                  </form>
-                  <hr>
+	                      </div>
+	                    </div>
+	                    <div id="userFormError" class="text-danger mb-2" style="display:none;"></div>
+	                    <div class="settings-pane-actions">
+	                      <button type="submit" class="btn btn-primary">Create user</button>
+	                    </div>
+	                  </form>
+	                  <hr>
                   <h6>Existing users</h6>
                   <div id="usersList">
                     <!-- User list will be rendered here by JS -->
@@ -887,12 +913,30 @@
                   <input type="number" id="notifRamThreshold" class="form-control form-control-sm" min="0" max="100">
                 </div>
                 <div class="col-sm-6">
-                  <label class="form-label" for="notifWindowSeconds">Threshold window (seconds)</label>
-                  <input type="number" id="notifWindowSeconds" class="form-control form-control-sm" min="1">
+                  <label class="form-label">Threshold window</label>
+                  <div class="notif-duration-inputs">
+                    <div>
+                      <label class="form-label form-label-sm" for="notifWindowMinutes">Minutes</label>
+                      <input type="number" id="notifWindowMinutes" class="form-control form-control-sm" min="0">
+                    </div>
+                    <div>
+                      <label class="form-label form-label-sm" for="notifWindowSeconds">Seconds</label>
+                      <input type="number" id="notifWindowSeconds" class="form-control form-control-sm" min="0" max="59">
+                    </div>
+                  </div>
                 </div>
                 <div class="col-sm-6">
-                  <label class="form-label" for="notifCooldownSeconds">Cooldown between sends (seconds)</label>
-                  <input type="number" id="notifCooldownSeconds" class="form-control form-control-sm" min="0">
+                  <label class="form-label">Cooldown between sends</label>
+                  <div class="notif-duration-inputs">
+                    <div>
+                      <label class="form-label form-label-sm" for="notifCooldownMinutes">Minutes</label>
+                      <input type="number" id="notifCooldownMinutes" class="form-control form-control-sm" min="0">
+                    </div>
+                    <div>
+                      <label class="form-label form-label-sm" for="notifCooldownSeconds">Seconds</label>
+                      <input type="number" id="notifCooldownSeconds" class="form-control form-control-sm" min="0" max="59">
+                    </div>
+                  </div>
                 </div>
               </div>
               <div class="row g-2 mt-1">
@@ -973,8 +1017,17 @@
                 </div>
                 <div class="col-sm-6">
                   <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="notifDedupeEnabled"><label class="form-check-label" for="notifDedupeEnabled">Enable deduplication</label></div>
-                  <label class="form-label" for="notifDedupeWindowSeconds">Deduplication window (seconds)</label>
-                  <input type="number" id="notifDedupeWindowSeconds" class="form-control form-control-sm" min="0">
+                  <label class="form-label">Deduplication window</label>
+                  <div class="notif-duration-inputs">
+                    <div>
+                      <label class="form-label form-label-sm" for="notifDedupeWindowMinutes">Minutes</label>
+                      <input type="number" id="notifDedupeWindowMinutes" class="form-control form-control-sm" min="0">
+                    </div>
+                    <div>
+                      <label class="form-label form-label-sm" for="notifDedupeWindowSeconds">Seconds</label>
+                      <input type="number" id="notifDedupeWindowSeconds" class="form-control form-control-sm" min="0" max="59">
+                    </div>
+                  </div>
                 </div>
               </div>
             </section>
@@ -1105,6 +1158,7 @@
                   <div>
                     <p class="update-target-eyebrow">History</p>
                     <h6 class="mb-0">Recent updates and rollbacks</h6>
+                    <p class="update-history-retention-note mb-0" id="updateHistoryRetentionNotice">History entries are removed automatically 15 days after they are recorded.</p>
                   </div>
                 </div>
                 <div id="updateManagerHistoryList" class="update-manager-list">
@@ -1127,7 +1181,7 @@
         <div class="modal-header">
           <div>
             <h5 class="modal-title settings-title" id="updateManagerActionModalLabel">Update in progress</h5>
-            <p class="settings-subtitle mb-0">Docker Stats will keep this window updated while the request is running.</p>
+            <p class="settings-subtitle mb-0">statainer will keep this window updated while the request is running.</p>
           </div>
           <button type="button" id="updateManagerActionCloseIcon" class="btn-close" data-bs-dismiss="modal" aria-label="Close" disabled></button>
         </div>
@@ -1164,9 +1218,146 @@
     </div>
   </div>
 
+  <div class="modal fade" id="historyChartModal" tabindex="-1" aria-labelledby="historyChartModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-xl chart-modal-dialog">
+      <div class="modal-content chart-modal history-chart-modal">
+        <div class="modal-header">
+          <div>
+            <h5 class="modal-title settings-title" id="historyChartModalLabel"><i class="bi bi-graph-up-arrow" aria-hidden="true"></i><span>Container history chart</span></h5>
+            <p class="settings-subtitle">Inspect CPU and RAM trends with a single, responsive chart that keeps zoom, tooltips, and resize behavior predictable across devices.</p>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <section id="chartContainer" class="chart-surface chart-surface--history">
+            <div class="chart-surface-head">
+              <div>
+                <h5 id="chartTitle">Historical Usage</h5>
+                <p class="chart-surface-copy" id="chartMeta">Choose a container to inspect recent resource history.</p>
+              </div>
+              <div class="chart-surface-actions">
+                <div id="chartControls" class="chart-controls">
+                  <div class="btn-group" role="group" aria-label="Chart type toggle">
+                    <input type="radio" class="btn-check" name="chartType" id="lineChartBtn" value="line" autocomplete="off" checked>
+                    <label class="btn btn-outline-primary btn-sm" for="lineChartBtn">Line</label>
+
+                    <input type="radio" class="btn-check" name="chartType" id="barChartBtn" value="bar" autocomplete="off">
+                    <label class="btn btn-outline-primary btn-sm" for="barChartBtn">Bar</label>
+                  </div>
+                </div>
+                <button type="button" id="resetHistoryChartZoomBtn" class="btn btn-outline-secondary btn-sm">Reset zoom</button>
+              </div>
+            </div>
+            <div class="chart-hint">Hover for exact values. Use wheel or pinch to zoom, then drag to pan.</div>
+            <div class="chart-canvas-shell">
+              <canvas id="usageChart"></canvas>
+            </div>
+            <div id="chartStatus">Select a container's chart button to view history.</div>
+          </section>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="comparisonChartModal" tabindex="-1" aria-labelledby="comparisonChartModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-xl chart-modal-dialog">
+      <div class="modal-content chart-modal comparison-chart-modal">
+        <div class="modal-header">
+          <div>
+            <h5 class="modal-title settings-title" id="comparisonChartModalLabel"><i class="bi bi-bar-chart-line" aria-hidden="true"></i><span>Comparison graphs</span></h5>
+            <p class="settings-subtitle">Compare the top containers by CPU, RAM, or uptime from the same modal workflow used for individual history charts.</p>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <section class="chart-surface chart-surface--comparison">
+            <div class="chart-surface-head">
+              <div>
+                <h5 id="comparisonChartTitle">Comparison graphs</h5>
+                <p class="chart-surface-copy">Switch metrics without leaving the dashboard and keep the same zoom and tooltip behavior across every comparison.</p>
+              </div>
+              <div class="chart-surface-actions chart-surface-actions--comparison">
+                <label class="chart-inline-field" for="comparisonChartTopN">
+                  <span>Top N</span>
+                  <input id="comparisonChartTopN" type="number" min="1" value="10" class="form-control form-control-sm">
+                </label>
+                <button type="button" id="comparisonChartRefreshBtn" class="btn btn-outline-secondary btn-sm">Refresh</button>
+                <button type="button" id="comparisonChartResetZoomBtn" class="btn btn-outline-secondary btn-sm">Reset zoom</button>
+              </div>
+            </div>
+            <div class="comparison-chart-tabs" role="tablist" aria-label="Comparison chart metric">
+              <button type="button" class="comparison-chart-tab is-active" id="comparisonCpuTab" data-compare-type="cpu" aria-selected="true">CPU</button>
+              <button type="button" class="comparison-chart-tab" id="comparisonRamTab" data-compare-type="ram" aria-selected="false">RAM</button>
+              <button type="button" class="comparison-chart-tab" id="comparisonUptimeTab" data-compare-type="uptime" aria-selected="false">Uptime</button>
+            </div>
+            <div class="chart-canvas-shell chart-canvas-shell--comparison">
+              <canvas id="comparisonChartCanvas"></canvas>
+            </div>
+            <div id="comparisonChartStatus">Select a comparison view to load data.</div>
+          </section>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="logsModal" tabindex="-1" aria-labelledby="logsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-xl logs-modal-dialog">
+      <div class="modal-content logs-modal">
+        <div class="modal-header">
+          <div>
+            <h5 class="modal-title settings-title" id="logsModalLabel"><i class="bi bi-journal-text" aria-hidden="true"></i><span>Container logs</span></h5>
+            <p class="settings-subtitle">Follow live container output with configurable tail length, download support, and auto-scroll that can be paused without interrupting the stream.</p>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <section class="logs-surface">
+            <div class="logs-toolbar">
+              <div class="logs-toolbar-group">
+                <label class="chart-inline-field" for="logsLineLimitSelect">
+                  <span>Lines</span>
+                  <select id="logsLineLimitSelect" class="form-select form-select-sm">
+                    <option value="100">100</option>
+                    <option value="500">500</option>
+                    <option value="1000">1000</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </label>
+                <label class="chart-inline-field logs-custom-limit" id="logsCustomLimitWrap" for="logsCustomLimitInput" hidden>
+                  <span>Custom</span>
+                  <input id="logsCustomLimitInput" type="number" min="1" value="100" class="form-control form-control-sm">
+                </label>
+                <button type="button" id="logsApplyLimitBtn" class="btn btn-outline-secondary btn-sm">Apply</button>
+              </div>
+              <div class="logs-toolbar-group">
+                <div class="form-check form-switch logs-autoscroll-switch">
+                  <input class="form-check-input" type="checkbox" id="logsAutoScrollToggle" checked>
+                  <label class="form-check-label" for="logsAutoScrollToggle">Auto-scroll</label>
+                </div>
+                <button type="button" id="downloadLogsBtn" class="btn btn-outline-secondary btn-sm">Download .txt</button>
+              </div>
+            </div>
+            <div class="logs-meta" id="logsMeta">Waiting for the first log request.</div>
+            <pre id="logsOutput" class="logs-output" tabindex="0"></pre>
+            <div id="logsStatus">Choose a container log button to start streaming.</div>
+          </section>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="container-fluid px-3">
-    <div class="top-panels mb-2">
-    <div class="overview-shell" id="overviewShell">
+	    <div class="top-panels mb-2">
+	    <div class="overview-shell" id="overviewShell" data-mobile-panel="info">
       <section class="hero-shell">
       <div class="hero-copy">
         <h1>One cockpit for containers, updates and alerts.</h1>
@@ -1222,7 +1413,7 @@
       </section>
     </div>
 
-    <section class="filters-shell workspace-shell">
+	    <section class="filters-shell workspace-shell" id="workspaceShell" data-mobile-panel="workspace">
       <div class="toolbar-head">
         <div>
           <h2 class="toolbar-title">Container workspace</h2>
@@ -1456,7 +1647,7 @@
         </li>
       </ul>
       <div class="tab-content dashboard-view-content">
-        <div class="tab-pane fade show active" id="dashboardContainersPane" role="tabpanel" aria-labelledby="dashboardContainersTab">
+	        <div class="tab-pane fade show active" id="dashboardContainersPane" role="tabpanel" aria-labelledby="dashboardContainersTab" data-mobile-panel="containers">
           <div class="table-shell mb-4">
             <h2>Containers</h2>
             <div class="text-muted small">{{ cpu_cores }} CPU cores available (maximum CPU usage will be {{ max_cpu_percent }}%)</div>
@@ -1491,23 +1682,8 @@
               <div id="tableStatus" class="text-center text-muted mt-2"></div>
             </div>
           </div>
-          <div id="chartContainer">
-              <h5 id="chartTitle">Historical Usage</h5>
-              <div id="chartControls">
-                  <div class="btn-group" role="group" aria-label="Chart type toggle">
-                      <input type="radio" class="btn-check" name="chartType" id="lineChartBtn" value="line" autocomplete="off" checked>
-                      <label class="btn btn-outline-primary btn-sm" for="lineChartBtn">Line Chart</label>
-
-                      <input type="radio" class="btn-check" name="chartType" id="barChartBtn" value="bar" autocomplete="off">
-                      <label class="btn btn-outline-primary btn-sm" for="barChartBtn">Bar Chart</label>
-                  </div>
-              </div>
-              <div class="text-center text-muted small">Use mouse wheel to zoom and pan the chart.</div>
-              <canvas id="usageChart"></canvas>
-              <div id="chartStatus">Select a container's 'Show Chart' button to view history.</div>
-          </div>
         </div>
-        <div class="tab-pane fade" id="dashboardComposePane" role="tabpanel" aria-labelledby="dashboardComposeTab">
+	        <div class="tab-pane fade" id="dashboardComposePane" role="tabpanel" aria-labelledby="dashboardComposeTab" data-mobile-panel="stacks">
           <section class="project-dashboard-shell">
             <div class="project-dashboard-head">
               <div>
@@ -1528,13 +1704,13 @@
 
   <!-- Footer -->
   <footer class="footer container-fluid">
-    <p>DockerStats. Version {{ app_version }}</p>
+    <p>statainer. Version {{ app_version }}</p>
   </footer>
   <!-- End Footer -->
   <!-- Bootstrap Bundle with Popper -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
   <script>
-    window.DOCKERSTATS_CONFIG = {
+    window.STATAINER_CONFIG = {
       csrfToken: {{ csrf_token|tojson }},
       maxCpuPercent: {{ max_cpu_percent|tojson }}
     };

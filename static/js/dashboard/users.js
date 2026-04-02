@@ -1,6 +1,34 @@
 import { setStatusMessage } from './helpers.js';
 
 export function createUserController(ctx, deps) {
+  function forceHideModal(modalElement) {
+    if (!modalElement?.classList.contains('show')) {
+      return;
+    }
+
+    modalElement.classList.remove('show');
+    modalElement.style.display = 'none';
+    modalElement.setAttribute('aria-hidden', 'true');
+    modalElement.removeAttribute('aria-modal');
+    document.body.classList.remove('modal-open');
+    document.body.style.removeProperty('padding-right');
+    document.querySelectorAll('.modal-backdrop').forEach((element) => element.remove());
+  }
+
+  function hideSettingsModal() {
+    const modalElement = ctx.elements.settingsModalEl;
+    if (!modalElement) {
+      return;
+    }
+
+    const modal = bootstrap.Modal.getOrCreateInstance(modalElement);
+    modal.hide();
+
+    window.setTimeout(() => {
+      forceHideModal(modalElement);
+    }, 250);
+  }
+
   function updateUserInfoLabel(user) {
     if (!user || !user.username) {
       return;
@@ -51,7 +79,7 @@ export function createUserController(ctx, deps) {
       return;
     }
 
-    ctx.state.settingsModal.hide();
+    hideSettingsModal();
     setStatusMessage(ctx, 'Password changed successfully.', 'success');
     ctx.elements.passwordForm.reset();
   }
@@ -275,11 +303,11 @@ export function createUserController(ctx, deps) {
   }
 
   function openSettings() {
-    ctx.state.settingsModal.show();
+    requestAnimationFrame(() => ctx.state.settingsModal?.show());
   }
 
   function init() {
-    ctx.state.settingsModal = new bootstrap.Modal(ctx.elements.settingsModalEl);
+    ctx.state.settingsModal = bootstrap.Modal.getOrCreateInstance(ctx.elements.settingsModalEl);
     ctx.elements.settingsBtn.addEventListener('click', openSettings);
     ctx.elements.passwordForm.addEventListener('submit', handlePasswordSubmit);
     ctx.elements.createUserForm?.addEventListener('submit', handleCreateUser);

@@ -15,12 +15,13 @@ import {
   updateSummaryCards,
 } from './helpers.js';
 import { createMobileController } from './mobile.js';
+import { createLogController } from './logs.js';
 import { createNotificationController } from './notifications.js';
 import { createTableController } from './table.js';
 import { createUpdateManagerController } from './updates.js';
 import { createUserController } from './users.js';
 
-const ctx = createDashboardContext(window.DOCKERSTATS_CONFIG || {});
+const ctx = createDashboardContext(window.STATAINER_CONFIG || {});
 const dialogs = createDialogController(ctx);
 
 function patchFetchWithCsrf() {
@@ -36,11 +37,13 @@ function patchFetchWithCsrf() {
 }
 
 const charts = createChartController(ctx);
+const logs = createLogController(ctx);
 const table = createTableController(ctx, {
   matchesQuickFilter: (item) => matchesQuickFilter(ctx, item),
   fetchMetrics,
   showHistoryChart: (containerId, containerName) => charts.showHistoryChart(containerId, containerName),
   openComparison: (compareType) => charts.openComparison(compareType),
+  openLogs: (containerId, containerName) => logs.openLogs(containerId, containerName),
 });
 const notifications = createNotificationController(ctx);
 const users = createUserController(ctx, {
@@ -95,6 +98,7 @@ function toggleTheme() {
   ctx.state.currentTheme = ctx.state.currentTheme === 'light' ? 'dark' : 'light';
   localStorage.setItem('theme', ctx.state.currentTheme);
   applyTheme(ctx, ctx.state.currentTheme);
+  charts.refreshOpenCharts();
 }
 
 function buildMetricsQuery(extraParams = {}) {
@@ -337,7 +341,10 @@ function saveSettings() {
   localStorage.setItem('notifEnableRAM', ctx.elements.notifEnableRAM.checked);
   localStorage.setItem('notifEnableStatus', ctx.elements.notifEnableStatus.checked);
   localStorage.setItem('notifEnableUpdate', ctx.elements.notifEnableUpdate.checked);
-  localStorage.setItem('notifWindowSeconds', ctx.elements.notifWindowSeconds.value);
+  localStorage.setItem(
+    'notifWindowSeconds',
+    String(((parseInt(ctx.elements.notifWindowMinutes?.value, 10) || 0) * 60) + (parseInt(ctx.elements.notifWindowSeconds?.value, 10) || 0)),
+  );
   flashButtonSuccess(ctx.elements.saveSettingsBtn, { label: 'Saved' });
   setStatusMessage(ctx, 'Settings saved.', 'success');
 }
@@ -509,7 +516,10 @@ function initDashboardViewTabs() {
     });
   });
 
-  const savedView = localStorage.getItem('dashboardView') || 'containers';
+  const isMobileLayout = window.matchMedia('(max-width: 767.98px)').matches;
+  const savedView = isMobileLayout
+    ? (document.body.dataset.mobileSection === 'stacks' ? 'compose' : 'containers')
+    : (localStorage.getItem('dashboardView') || 'containers');
   const target = tabs.find((tab) => tab.dataset.dashboardView === savedView) || ctx.elements.dashboardContainersTab || tabs[0];
   if (target) {
     bootstrap.Tab.getOrCreateInstance(target).show();
@@ -589,7 +599,7 @@ function bindControls() {
 
   ctx.elements.filterRange.addEventListener('change', () => {
     localStorage.setItem('filterRange', ctx.elements.filterRange.value);
-    if (ctx.elements.chartContainer.style.display === 'block' && ctx.state.currentChartContainerId) {
+    if (ctx.elements.historyChartModalEl?.classList.contains('show') && ctx.state.currentChartContainerId) {
       charts.fetchAndRenderChart();
     } else {
       fetchMetrics();
@@ -602,6 +612,7 @@ async function init() {
   patchFetchWithCsrf();
   loadPersistedControls();
   charts.init();
+  logs.init();
   table.init();
   users.init();
   mobile.init();

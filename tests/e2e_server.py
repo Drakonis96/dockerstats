@@ -53,6 +53,13 @@ NOTIFICATION_SEQUENCE = 0
 UPDATE_HISTORY = []
 UPDATE_HISTORY_COUNTER = 0
 UPDATE_MANAGER_ERROR_MODE = False
+UPDATE_MANAGER_FAIL_TARGETS = set()
+UPDATE_HISTORY_RETENTION_DAYS = 15
+UPDATE_HISTORY_RETENTION_SECONDS = UPDATE_HISTORY_RETENTION_DAYS * 24 * 60 * 60
+UPDATE_HISTORY_NOTICE = f'Update history entries are removed automatically {UPDATE_HISTORY_RETENTION_DAYS} days after they are recorded.'
+LOG_CONDITION = threading.Condition()
+LOG_SEQUENCE = 0
+LOG_EVENTS = []
 EXPERIMENTAL_UPDATE_NOTICE = (
     'Experimental feature. It is designed to preserve user data, volumes, '
     'configuration, networks and environment, but every update should still '
@@ -146,6 +153,28 @@ def initial_containers():
 CONTAINERS = initial_containers()
 
 
+def initial_container_logs():
+    return {
+        'web1234567890': [
+            '2026-01-01T10:00:00.000000000Z web | Listening on :80',
+            '2026-01-01T10:00:10.000000000Z web | Health check passed',
+            '2026-01-01T10:00:20.000000000Z web | Accepted connection from 172.18.0.10',
+        ],
+        'db123456789012': [
+            '2026-01-01T10:00:00.000000000Z db | database system is ready to accept connections',
+            '2026-01-01T10:00:15.000000000Z db | checkpoint complete',
+            '2026-01-01T10:00:30.000000000Z db | autovacuum launcher started',
+        ],
+        'worker12345678': [
+            '2026-01-01T10:00:00.000000000Z worker | worker booted',
+            '2026-01-01T10:00:12.000000000Z worker | no pending jobs',
+        ],
+    }
+
+
+CONTAINER_LOGS = initial_container_logs()
+
+
 def initial_standalone_update_targets():
     return {
         'cache-standalone': {
@@ -194,12 +223,12 @@ def initial_external_project_targets():
                 'block_kind': 'missing_compose_files',
                 'missing_files': ['/data/compose/42/docker-compose.yml'],
                 'guidance': [
-                    'Docker Stats can still update the running services directly with its safe container recreation workflow, which preserves the current mounts, networks, environment, restart policy, and other materialized runtime settings from Docker.',
-                    'Docker Stats can only run project updates when it can read the original Compose files from the host filesystem.',
-                    'Docker Stats does not reconstruct Compose projects from running containers alone because Docker metadata does not preserve override merge order, env files, build contexts, secrets, configs, or services that are not currently running.',
+                    'statainer can still update the running services directly with its safe container recreation workflow, which preserves the current mounts, networks, environment, restart policy, and other materialized runtime settings from Docker.',
+                    'statainer can only run project updates when it can read the original Compose files from the host filesystem.',
+                    'statainer does not reconstruct Compose projects from running containers alone because Docker metadata does not preserve override merge order, env files, build contexts, secrets, configs, or services that are not currently running.',
                 ],
-                'action_hint': 'Compose files are unavailable, so Docker Stats will update the running services directly.',
-                'recovery_hint': 'Export the stack from Portainer or recover it from the original Git repository, then redeploy it from a host path that is mounted into Docker Stats if you want this application to manage updates.',
+                'action_hint': 'Compose files are unavailable, so statainer will update the running services directly.',
+                'recovery_hint': 'Export the stack from Portainer or recover it from the original Git repository, then redeploy it from a host path that is mounted into statainer if you want this application to manage updates.',
                 'auto_recovery_supported': True,
                 'update_strategy': 'external_project_safe_recreate',
                 'update_mode_label': 'External safe recreate',
@@ -241,7 +270,45 @@ def append_update_history(entry):
     return entry
 
 
+def purge_expired_update_history(now_ts=None):
+    effective_now = float(now_ts if now_ts is not None else time.time())
+    cutoff = effective_now - UPDATE_HISTORY_RETENTION_SECONDS
+    UPDATE_HISTORY[:] = [entry for entry in UPDATE_HISTORY if entry.get('created_at', 0) >= cutoff]
+
+
+def publish_update_notification(target_type, target_id, target_name, ok, message):
+    publish_notification({
+        'type': 'update',
+        'scope': 'update_success' if ok else 'update_failure',
+        'timestamp': time.time(),
+        'cid': target_id if target_type == 'container' else None,
+        'container': target_name if target_type == 'container' else '',
+        'project': target_name if target_type == 'project' else '',
+        'msg': message,
+    })
+
+
+def publish_log(container_id, line):
+    global LOG_SEQUENCE
+    text = str(line or '').rstrip('\n')
+    if not text:
+        return
+    CONTAINER_LOGS.setdefault(container_id, []).append(text)
+    CONTAINER_LOGS[container_id] = CONTAINER_LOGS[container_id][-5000:]
+    LOG_SEQUENCE += 1
+    LOG_EVENTS.append({
+        'seq': LOG_SEQUENCE,
+        'container_id': container_id,
+        'text': text,
+    })
+    if len(LOG_EVENTS) > 5000:
+        del LOG_EVENTS[:-5000]
+    with LOG_CONDITION:
+        LOG_CONDITION.notify_all()
+
+
 def build_update_manager_payload():
+    purge_expired_update_history()
     rollback_sources = {entry['rollback_of'] for entry in UPDATE_HISTORY if entry.get('rollback_of')}
     projects = []
     standalone = []
@@ -328,7 +395,7 @@ def build_update_manager_payload():
             'block_kind': 'inconsistent_metadata',
             'missing_files': [],
             'guidance': [
-                'Docker Stats could not resolve one canonical Compose project directory and file set from the running services.',
+                'statainer could not resolve one canonical Compose project directory and file set from the running services.',
             ],
             'action_hint': 'Project updates are disabled until the stack is relinked to a single Compose project on disk.',
             'recovery_hint': 'Redeploy or import the stack from one canonical Compose project directory so every service advertises the same working directory and config file set.',
@@ -351,6 +418,8 @@ def build_update_manager_payload():
 
     return {
         'experimental_notice': EXPERIMENTAL_UPDATE_NOTICE,
+        'history_notice': UPDATE_HISTORY_NOTICE,
+        'history_retention_days': UPDATE_HISTORY_RETENTION_DAYS,
         'projects': projects,
         'containers': standalone,
         'history': history,
@@ -612,6 +681,101 @@ def history(container_id):
     })
 
 
+@app.route('/api/compare/<compare_type>')
+def compare(compare_type):
+    top_n = max(1, int(request.args.get('topN', 5) or 5))
+    valid_types = {'cpu', 'ram', 'uptime'}
+    if compare_type not in valid_types:
+        return jsonify({'error': 'Invalid comparison type'}), 400
+
+    rows = []
+    for container in list_containers():
+        if compare_type == 'cpu':
+            metric_value = container.get('cpu')
+        elif compare_type == 'ram':
+            metric_value = container.get('mem')
+        else:
+            metric_value = container.get('uptime_sec')
+        rows.append({
+            'id': container['id'],
+            'name': container['name'],
+            'cpu': container.get('cpu'),
+            'mem': container.get('mem'),
+            'uptime_sec': container.get('uptime_sec'),
+            'uptime': container.get('uptime'),
+            'status': container.get('status'),
+            '_metric_value': metric_value if metric_value is not None else float('-inf'),
+        })
+
+    rows.sort(key=lambda item: item.get('_metric_value', float('-inf')), reverse=True)
+    trimmed = []
+    for row in rows[:top_n]:
+        item = dict(row)
+        item.pop('_metric_value', None)
+        trimmed.append(item)
+    return jsonify(trimmed)
+
+
+@app.route('/api/logs/<container_id>')
+def logs_snapshot(container_id):
+    if container_id not in CONTAINERS:
+        return jsonify({'error': 'Container not found'}), 404
+
+    tail = max(1, min(int(request.args.get('tail', 100) or 100), 5000))
+    lines = CONTAINER_LOGS.get(container_id, [])[-tail:]
+    text = '\n'.join(lines)
+    if text:
+        text += '\n'
+    response = Response(text, mimetype='text/plain; charset=utf-8')
+    if request.args.get('download', '0') == '1':
+        response.headers['Content-Disposition'] = f'attachment; filename="{CONTAINERS[container_id]["name"]}-{container_id[:12]}-logs.txt"'
+    return response
+
+
+@app.route('/api/logs/<container_id>/stream')
+def logs_stream(container_id):
+    if container_id not in CONTAINERS:
+        return jsonify({'error': 'Container not found'}), 404
+
+    tail = max(1, min(int(request.args.get('tail', 100) or 100), 5000))
+
+    def format_event(event_name, payload):
+        return f"event: {event_name}\ndata: {json.dumps(payload)}\n\n"
+
+    def generate():
+        last_sequence = LOG_SEQUENCE
+        yield format_event('connected', {
+            'container_id': container_id,
+            'container_name': CONTAINERS[container_id]['name'],
+            'tail': tail,
+        })
+        yield format_event('snapshot', {
+            'container_id': container_id,
+            'container_name': CONTAINERS[container_id]['name'],
+            'tail': tail,
+            'lines': CONTAINER_LOGS.get(container_id, [])[-tail:],
+        })
+
+        while True:
+            with LOG_CONDITION:
+                timed_out = not LOG_CONDITION.wait_for(lambda: LOG_SEQUENCE != last_sequence, timeout=15)
+                current_sequence = LOG_SEQUENCE
+
+            if current_sequence != last_sequence:
+                new_events = [
+                    event for event in LOG_EVENTS
+                    if event['seq'] > last_sequence and event['container_id'] == container_id
+                ]
+                last_sequence = current_sequence
+                for event in new_events:
+                    yield format_event('line', {'text': event['text']})
+
+            if timed_out:
+                yield format_event('heartbeat', {'timestamp': time.time()})
+
+    return Response(generate(), mimetype='text/event-stream')
+
+
 @app.route('/api/containers/<container_id>/<action>', methods=['POST'])
 def container_action(container_id, action):
     container = CONTAINERS.get(container_id)
@@ -708,6 +872,29 @@ def update_manager_update():
     target_id = payload.get('target_id')
     time.sleep(0.15)
 
+    if target_id in UPDATE_MANAGER_FAIL_TARGETS:
+        history_entry = append_update_history({
+            'id': next_update_history_id(),
+            'created_at': time.time(),
+            'actor_username': 'admin',
+            'action': 'update',
+            'target_type': target_type,
+            'target_id': target_id,
+            'target_name': target_id,
+            'previous_version': 'unknown',
+            'new_version': 'unknown',
+            'result': 'failure',
+            'notes': f'Update failed for {target_id}.',
+            'metadata': {'rollback_ready': False},
+            'rollback_of': None,
+        })
+        publish_update_notification(target_type or 'container', target_id, target_id, False, f'Update failed for {target_id}.')
+        return jsonify({
+            'ok': False,
+            'message': f'Update failed for {target_id}.',
+            'history_entry': history_entry,
+        }), 409
+
     if target_type == 'container' and target_id in STANDALONE_UPDATE_TARGETS:
         target = STANDALONE_UPDATE_TARGETS[target_id]
         target['current_version'] = target.get('latest_version') or target.get('current_version')
@@ -730,6 +917,7 @@ def update_manager_update():
             'rollback_of': None,
         })
         publish_metrics()
+        publish_update_notification('container', target_id, target['name'], True, 'Container cache updated safely.')
         return jsonify({
             'ok': True,
             'message': 'Container cache updated safely.',
@@ -766,6 +954,7 @@ def update_manager_update():
             'rollback_of': None,
         })
         publish_metrics()
+        publish_update_notification('project', 'demo', 'demo', True, 'Project demo updated with a safe compose workflow.')
         return jsonify({
             'ok': True,
             'message': 'Project demo updated with a safe compose workflow.',
@@ -805,7 +994,7 @@ def update_manager_update():
             'previous_version': previous_version,
             'new_version': new_version,
             'result': 'success',
-            'notes': 'Compose files were unavailable, so Docker Stats updated the running services directly with safe container recreation.',
+            'notes': 'Compose files were unavailable, so statainer updated the running services directly with safe container recreation.',
             'metadata': {
                 'rollback_ready': True,
                 'strategy': 'external_project_safe_recreate',
@@ -820,12 +1009,14 @@ def update_manager_update():
             'rollback_of': None,
         })
         publish_metrics()
+        publish_update_notification('project', 'jobs', 'jobs', True, 'Project jobs updated safely by recreating the running services without compose files.')
         return jsonify({
             'ok': True,
             'message': 'Project jobs updated safely by recreating the running services without compose files.',
             'history_entry': history_entry,
         })
 
+    publish_update_notification(target_type or 'container', target_id or 'unknown', target_id or 'unknown', False, 'Update target not supported in the E2E mock.')
     return jsonify({'ok': False, 'message': 'Update target not supported in the E2E mock.'}), 409
 
 
@@ -969,7 +1160,7 @@ def user_detail(username):
 
 @app.route('/api/test/reset', methods=['POST'])
 def test_reset():
-    global CURRENT_PASSWORD, METRICS_SEQUENCE, NOTIFICATION_SEQUENCE, UPDATE_HISTORY_COUNTER, UPDATE_MANAGER_ERROR_MODE
+    global CURRENT_PASSWORD, METRICS_SEQUENCE, NOTIFICATION_SEQUENCE, UPDATE_HISTORY_COUNTER, UPDATE_MANAGER_ERROR_MODE, LOG_SEQUENCE
     CURRENT_PASSWORD = DEFAULT_PASSWORD
     NOTIFICATION_SETTINGS.clear()
     NOTIFICATION_SETTINGS.update({
@@ -1000,6 +1191,9 @@ def test_reset():
     UPDATE_HISTORY.clear()
     UPDATE_HISTORY_COUNTER = 0
     UPDATE_MANAGER_ERROR_MODE = False
+    UPDATE_MANAGER_FAIL_TARGETS.clear()
+    LOG_EVENTS.clear()
+    LOG_SEQUENCE = 0
     USERS.clear()
     USERS.extend([
         {'username': 'admin', 'columns': [], 'role': 'admin'},
@@ -1011,10 +1205,14 @@ def test_reset():
     STANDALONE_UPDATE_TARGETS.update(initial_standalone_update_targets())
     EXTERNAL_PROJECT_TARGETS.clear()
     EXTERNAL_PROJECT_TARGETS.update(initial_external_project_targets())
+    CONTAINER_LOGS.clear()
+    CONTAINER_LOGS.update(initial_container_logs())
     with STREAM_CONDITION:
         METRICS_SEQUENCE += 1
         NOTIFICATION_SEQUENCE = 0
         STREAM_CONDITION.notify_all()
+    with LOG_CONDITION:
+        LOG_CONDITION.notify_all()
     return jsonify({'ok': True})
 
 
@@ -1024,6 +1222,55 @@ def test_update_manager_error_mode():
     payload = request.get_json(silent=True) or {}
     UPDATE_MANAGER_ERROR_MODE = bool(payload.get('enabled'))
     return jsonify({'ok': True, 'enabled': UPDATE_MANAGER_ERROR_MODE})
+
+
+@app.route('/api/test/update-manager/fail-target', methods=['POST'])
+def test_update_manager_fail_target():
+    payload = request.get_json(silent=True) or {}
+    target_id = str(payload.get('target_id') or '').strip()
+    enabled = bool(payload.get('enabled'))
+    if not target_id:
+        return jsonify({'error': 'target_id is required'}), 400
+    if enabled:
+        UPDATE_MANAGER_FAIL_TARGETS.add(target_id)
+    else:
+        UPDATE_MANAGER_FAIL_TARGETS.discard(target_id)
+    return jsonify({'ok': True, 'target_id': target_id, 'enabled': enabled})
+
+
+@app.route('/api/test/update-history/add', methods=['POST'])
+def test_add_update_history():
+    payload = request.get_json(silent=True) or {}
+    age_days = float(payload.get('age_days', 0) or 0)
+    created_at = time.time() - (age_days * 24 * 60 * 60)
+    entry = append_update_history({
+        'id': next_update_history_id(),
+        'created_at': created_at,
+        'actor_username': 'admin',
+        'action': payload.get('action', 'update'),
+        'target_type': payload.get('target_type', 'container'),
+        'target_id': payload.get('target_id', f'history-{UPDATE_HISTORY_COUNTER}'),
+        'target_name': payload.get('target_name', 'history item'),
+        'previous_version': payload.get('previous_version', 'old'),
+        'new_version': payload.get('new_version', 'new'),
+        'result': payload.get('result', 'success'),
+        'notes': payload.get('notes', 'Synthetic history entry for tests.'),
+        'metadata': payload.get('metadata', {'rollback_ready': False}),
+        'rollback_of': payload.get('rollback_of'),
+    })
+    return jsonify({'ok': True, 'entry': entry})
+
+
+@app.route('/api/test/logs/<container_id>/append', methods=['POST'])
+def test_append_log_line(container_id):
+    if container_id not in CONTAINERS:
+        return jsonify({'error': 'Container not found'}), 404
+    payload = request.get_json(silent=True) or {}
+    line = payload.get('line')
+    if not line:
+        return jsonify({'error': 'line is required'}), 400
+    publish_log(container_id, line)
+    return jsonify({'ok': True, 'container_id': container_id, 'line': line})
 
 
 @app.route('/api/test/containers/<container_id>/mutate', methods=['POST'])

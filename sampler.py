@@ -541,8 +541,8 @@ def dispatch_external_notification(event):
     """Forward a notification event to all configured outbound channels."""
     event_type = str(event.get('type') or '').lower()
     priority = 1 if event_type in {'cpu', 'ram', 'status', 'security'} else 0
-    title = f"Docker Stats {event_type.upper()}" if event_type else "Docker Stats"
-    push_notify(event.get('msg', 'Docker Stats notification'), title=title, priority=priority, event=event)
+    title = f"statainer {event_type.upper()}" if event_type else "statainer"
+    push_notify(event.get('msg', 'statainer notification'), title=title, priority=priority, event=event)
 
 
 def get_metrics_sequence():

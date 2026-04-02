@@ -109,7 +109,7 @@ def _build_context(message, title, priority, event=None):
     timestamp = float(event.get("timestamp", datetime.datetime.now(datetime.timezone.utc).timestamp()))
     timestamp_iso = datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc).isoformat()
     return {
-        "app": "Docker Stats",
+        "app": "statainer",
         "host": DEFAULT_HOST,
         "title": _safe_text(title),
         "message": _safe_text(message),
@@ -244,7 +244,7 @@ def _send_ntfy(message, title, priority, context):
 
     headers["Tags"] = _merge_csv_values(
         os.getenv("NTFY_TAGS"),
-        "dockerstats",
+        "statainer",
         context.get("event_type"),
     )
 
@@ -323,7 +323,7 @@ def _send_generic_webhook(context):
     return resp
 
 
-def send(message, title="Docker-Stats", priority=0, event=None):
+def send(message, title="statainer", priority=0, event=None):
     """Send a notification to all configured services and return per-channel status."""
     configured = get_configured_services()
     context = _build_context(message, title, priority, event=event)

@@ -8,6 +8,8 @@ from werkzeug.security import check_password_hash, generate_password_hash
 APP_DIR = os.path.dirname(__file__)
 DEFAULT_DB_PATH = os.path.join(APP_DIR, 'data', 'users.db')
 LEGACY_DB_PATH = os.path.join(APP_DIR, 'users.db')
+UPDATE_HISTORY_RETENTION_DAYS = 15
+UPDATE_HISTORY_RETENTION_SECONDS = UPDATE_HISTORY_RETENTION_DAYS * 24 * 60 * 60
 
 
 def _normalize_db_path(path):
@@ -308,6 +310,18 @@ def set_notification_settings(settings):
     set_global_setting('notification_settings', settings)
 
 
+def purge_expired_update_history(now_ts=None, retention_seconds=UPDATE_HISTORY_RETENTION_SECONDS):
+    effective_now = float(now_ts if now_ts is not None else time.time())
+    cutoff = effective_now - max(0, int(retention_seconds))
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('DELETE FROM update_history WHERE created_at < ?', (cutoff,))
+    conn.commit()
+    deleted = c.rowcount
+    conn.close()
+    return deleted
+
+
 def record_update_history(
     action,
     target_type,
@@ -352,6 +366,7 @@ def record_update_history(
 
 
 def get_update_history_entry(entry_id):
+    purge_expired_update_history()
     conn = get_db()
     c = conn.cursor()
     c.execute(
@@ -389,6 +404,7 @@ def get_update_history_entry(entry_id):
 
 
 def list_update_history(limit=100):
+    purge_expired_update_history()
     conn = get_db()
     c = conn.cursor()
     c.execute(

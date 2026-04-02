@@ -43,7 +43,7 @@ def test_login_and_index_pages_render(client, monkeypatch):
 
     login_response = client.get("/login")
     assert login_response.status_code == 200
-    assert b"Docker Control Plane" in login_response.data
+    assert b"statainer" in login_response.data
 
     set_page_session(client)
     index_response = client.get("/")
@@ -244,6 +244,66 @@ def test_update_manager_update_endpoint_executes_target(client, monkeypatch):
     payload = response.get_json()
     assert payload["ok"] is True
     assert payload["history_entry"]["id"] == 7
+
+
+def test_update_manager_update_endpoint_emits_success_notification(client, monkeypatch):
+    set_auth_mode(client, "page")
+    csrf_token = set_page_session(client)
+    emitted = []
+
+    monkeypatch.setattr(routes.update_manager, "update_target", lambda target_type, target_id, actor_username=None: {
+        "ok": True,
+        "message": f"{target_type}:{target_id} updated",
+        "history_entry": {"id": 11, "target_type": target_type, "target_id": target_id},
+    })
+    monkeypatch.setattr(routes.sampler, "emit_notification", lambda event: emitted.append(event))
+
+    response = client.post(
+        "/api/update-manager/update",
+        json={"target_type": "project", "target_id": "demo"},
+        headers={"X-CSRFToken": csrf_token},
+    )
+
+    assert response.status_code == 200
+    assert emitted == [{
+        "type": "update",
+        "scope": "update_success",
+        "timestamp": emitted[0]["timestamp"],
+        "cid": None,
+        "container": "",
+        "project": "demo",
+        "msg": "project:demo updated",
+    }]
+
+
+def test_update_manager_update_endpoint_emits_failure_notification(client, monkeypatch):
+    set_auth_mode(client, "page")
+    csrf_token = set_page_session(client)
+    emitted = []
+
+    monkeypatch.setattr(routes.update_manager, "update_target", lambda target_type, target_id, actor_username=None: {
+        "ok": False,
+        "message": f"{target_type}:{target_id} failed",
+        "history_entry": {"id": 12, "target_type": target_type, "target_id": target_id},
+    })
+    monkeypatch.setattr(routes.sampler, "emit_notification", lambda event: emitted.append(event))
+
+    response = client.post(
+        "/api/update-manager/update",
+        json={"target_type": "container", "target_id": "cache-standalone"},
+        headers={"X-CSRFToken": csrf_token},
+    )
+
+    assert response.status_code == 409
+    assert emitted == [{
+        "type": "update",
+        "scope": "update_failure",
+        "timestamp": emitted[0]["timestamp"],
+        "cid": "cache-standalone",
+        "container": "cache-standalone",
+        "project": "",
+        "msg": "container:cache-standalone failed",
+    }]
 
 
 def test_update_manager_rollback_endpoint_reports_failure_state(client, monkeypatch):
@@ -465,6 +525,47 @@ def test_container_actions_are_audited(client, monkeypatch):
     assert any(event["action"] == "container.start" and event["target_id"] == "abc123" for event in audit_events)
 
 
+def test_container_update_action_emits_update_notification(client, monkeypatch):
+    set_auth_mode(client, "page")
+    csrf_token = set_page_session(client)
+    emitted = []
+
+    class DummyContainer:
+        name = "cache"
+
+    class DummyContainers:
+        def get(self, container_id):
+            assert container_id == "abc123"
+            return DummyContainer()
+
+    class DummyClient:
+        containers = DummyContainers()
+
+    monkeypatch.setattr(routes, "get_docker_client", lambda: DummyClient())
+    monkeypatch.setattr(routes.update_manager, "update_container_target", lambda container_id, actor_username=None: {
+        "ok": True,
+        "message": "Container cache updated safely.",
+        "history_entry": {"id": 14, "target_type": "container", "target_id": container_id},
+    })
+    monkeypatch.setattr(routes.sampler, "emit_notification", lambda event: emitted.append(event))
+
+    response = client.post(
+        "/api/containers/abc123/update",
+        headers={"X-CSRFToken": csrf_token},
+    )
+
+    assert response.status_code == 200
+    assert emitted == [{
+        "type": "update",
+        "scope": "update_success",
+        "timestamp": emitted[0]["timestamp"],
+        "cid": "abc123",
+        "container": "cache",
+        "project": "",
+        "msg": "Container cache updated safely.",
+    }]
+
+
 def test_metrics_stream_can_emit_single_snapshot(client, monkeypatch):
     set_auth_mode(client, "page")
     set_page_session(client)
@@ -480,6 +581,78 @@ def test_metrics_stream_can_emit_single_snapshot(client, monkeypatch):
     assert "event: connected" in body
     assert "event: metrics" in body
     assert '"name": "web"' in body
+
+
+def test_logs_snapshot_returns_downloadable_text_file(client, monkeypatch):
+    set_auth_mode(client, "page")
+    set_page_session(client)
+
+    class DummyContainer:
+        name = "db primary"
+
+        def logs(self, tail=100, timestamps=True):
+            assert tail == 2
+            assert timestamps is True
+            return b"log line 1\nlog line 2\n"
+
+    class DummyContainers:
+        def get(self, container_id):
+            assert container_id == "abc123"
+            return DummyContainer()
+
+    class DummyClient:
+        containers = DummyContainers()
+
+    monkeypatch.setattr(routes, "get_docker_client", lambda: DummyClient())
+
+    response = client.get("/api/logs/abc123?tail=2&download=1")
+
+    assert response.status_code == 200
+    assert response.mimetype == "text/plain"
+    assert response.get_data(as_text=True) == "log line 1\nlog line 2\n"
+    assert response.headers["Content-Disposition"] == 'attachment; filename="db-primary-abc123-logs.txt"'
+
+
+def test_logs_stream_emits_connected_snapshot_and_live_lines(client, monkeypatch):
+    set_auth_mode(client, "page")
+    set_page_session(client)
+
+    class DummyContainer:
+        name = "db"
+
+        def logs(self, tail=100, timestamps=True, stream=False, follow=False):
+            assert timestamps is True
+            if stream:
+                assert tail == 0
+                assert follow is True
+                return iter([
+                    b"2026-01-01T10:00:20.000000000Z db | live line 1\n",
+                    b"2026-01-01T10:00:21.000000000Z db | live line 2\n",
+                ])
+            assert tail == 2
+            return b"2026-01-01T10:00:00.000000000Z db | snapshot line 1\n2026-01-01T10:00:10.000000000Z db | snapshot line 2\n"
+
+    class DummyContainers:
+        def get(self, container_id):
+            assert container_id == "abc123"
+            return DummyContainer()
+
+    class DummyClient:
+        containers = DummyContainers()
+
+    monkeypatch.setattr(routes, "get_docker_client", lambda: DummyClient())
+
+    response = client.get("/api/logs/abc123/stream?tail=2")
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert response.mimetype == "text/event-stream"
+    assert "event: connected" in body
+    assert "event: snapshot" in body
+    assert "event: line" in body
+    assert '"container_name": "db"' in body
+    assert "snapshot line 1" in body
+    assert "live line 2" in body
 
 
 def test_export_csv_returns_downloadable_csv(client):

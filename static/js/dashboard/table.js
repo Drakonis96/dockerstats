@@ -114,7 +114,7 @@ export function createTableController(ctx, deps) {
       + `<td class="col-image" title="${imageName}" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;">${imageName}</td>`
       + `<td class="col-ports" title="${portInfo}" style="max-width:250px;overflow:hidden;text-overflow:ellipsis;">${portInfo}</td>`
       + `<td class="col-restarts">${restartsText}</td>`
-      + `<td class="col-logs text-center"><a href="/logs/${item.id}" target="_blank" class="btn btn-link btn-sm p-0"><img src="/static/icons/table_logs.svg" alt="Logs" width="18" height="18"></a></td>`
+      + `<td class="col-logs text-center"><button type="button" class="btn btn-link btn-sm p-0 show-logs-btn" data-container-id="${item.id}" data-container-name="${escapeHtml(item.name || 'Unknown')}"><img src="/static/icons/table_logs.svg" alt="Logs" width="18" height="18"></button></td>`
       + `<td class="col-charts text-center"><button class="btn btn-link btn-sm p-0 show-chart-btn" data-container-id="${item.id}" data-container-name="${escapeHtml(item.name || 'Unknown')}"><img src="/static/icons/table_charts.svg" alt="Chart" width="18" height="18"></button></td>`
       + `<td class="col-ui text-center">${hasUiLink ? `<a href="http://${baseHost}:${hostPort}" target="_blank" class="btn btn-link btn-sm p-0"><img src="/static/icons/table_ui.svg" alt="UI" width="18" height="18"></a>` : '<span class="text-muted small">No UI</span>'}</td>`
       + `<td class="col-update text-center">${item.update_available ? '<img src="/static/icons/table_updates.svg" alt="Update Available" width="18" height="18">' : ''}</td>`
@@ -287,6 +287,12 @@ export function createTableController(ctx, deps) {
     const chartButton = event.target.closest('.show-chart-btn');
     if (chartButton) {
       deps.showHistoryChart(chartButton.dataset.containerId, chartButton.dataset.containerName);
+      return;
+    }
+
+    const logsButton = event.target.closest('.show-logs-btn');
+    if (logsButton) {
+      deps.openLogs(logsButton.dataset.containerId, logsButton.dataset.containerName);
       return;
     }
 

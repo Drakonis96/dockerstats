@@ -176,7 +176,86 @@ test('keeps themed buttons readable and modals centered with internal scroll', a
   expect(modalMetrics.windowScrollY).toBe(0);
 });
 
+test('uses four-tab mobile navigation and keeps mobile modals inside the viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 780 });
+  await page.goto('/');
+
+  await expect(page.locator('#mobileSectionNavShell')).toBeVisible();
+  await expect(page.locator('#mobileSectionNav .mobile-section-tab')).toHaveCount(4);
+
+  const mobileTabState = await page.locator('#mobileSectionNav .mobile-section-tab').evaluateAll((nodes) => nodes.map((node) => {
+    const label = node.querySelector('.mobile-section-label');
+    return {
+      id: node.id,
+      selected: node.getAttribute('aria-selected'),
+      labelOpacity: label ? getComputedStyle(label).opacity : '',
+    };
+  }));
+
+  expect(mobileTabState.map((tab) => tab.id)).toEqual([
+    'mobileInfoTab',
+    'mobileWorkspaceTab',
+    'mobileContainersTab',
+    'mobileStacksTab',
+  ]);
+  expect(mobileTabState.find((tab) => tab.id === 'mobileContainersTab')?.selected).toBe('true');
+  expect(Number(mobileTabState.find((tab) => tab.id === 'mobileContainersTab')?.labelOpacity || 0)).toBeGreaterThan(0.9);
+  expect(Number(mobileTabState.find((tab) => tab.id === 'mobileInfoTab')?.labelOpacity || 1)).toBeLessThan(0.2);
+
+  await expect(page.locator('#dashboardContainersPane')).toBeVisible();
+  await expect(page.locator('#overviewShell')).not.toBeVisible();
+  await expect(page.locator('#workspaceShell')).not.toBeVisible();
+
+  await page.locator('#mobileInfoTab').click();
+  await expect(page.locator('#overviewShell')).toBeVisible();
+  await expect(page.locator('#workspaceShell')).not.toBeVisible();
+  await expect(page.locator('#dashboardContainersPane')).not.toBeVisible();
+
+  await page.locator('#mobileWorkspaceTab').click();
+  await expect(page.locator('#workspaceShell')).toBeVisible();
+  await expect(page.locator('#overviewShell')).not.toBeVisible();
+
+  await page.locator('#mobileStacksTab').click();
+  await expect(page.locator('#dashboardComposePane')).toBeVisible();
+  await expect(page.locator('#projectDashboardGrid')).toContainText('demo');
+  await expect(page.locator('#dashboardContainersPane')).not.toBeVisible();
+
+  await page.locator('#mobileContainersTab').click();
+  await expect(page.locator('#dashboardContainersPane')).toBeVisible();
+  await expect(page.locator('#dashboardComposePane')).not.toBeVisible();
+
+  await page.locator('#mobileMenuToggle').click();
+  await page.locator('#sidebarUpdateManagerToggle').click();
+  await expect(page.locator('#updateManagerModal')).toHaveClass(/show/);
+
+  const mobileModalMetrics = await page.locator('#updateManagerModal .modal-dialog').evaluate((dialog) => {
+    const body = dialog.querySelector('.modal-body');
+    const footer = dialog.querySelector('.modal-footer');
+    const closeButton = footer?.querySelector('button');
+
+    if (body) {
+      body.scrollTop = body.scrollHeight;
+    }
+
+    return {
+      dialogBottom: dialog.getBoundingClientRect().bottom,
+      footerBottom: footer ? footer.getBoundingClientRect().bottom : 0,
+      closeButtonBottom: closeButton ? closeButton.getBoundingClientRect().bottom : 0,
+      viewportHeight: window.visualViewport?.height ?? window.innerHeight,
+      bodyOverflowY: body ? getComputedStyle(body).overflowY : '',
+      bodyScrollable: body ? body.scrollHeight > body.clientHeight : false,
+    };
+  });
+
+  expect(mobileModalMetrics.dialogBottom).toBeLessThanOrEqual(mobileModalMetrics.viewportHeight + 1);
+  expect(mobileModalMetrics.footerBottom).toBeLessThanOrEqual(mobileModalMetrics.viewportHeight + 1);
+  expect(mobileModalMetrics.closeButtonBottom).toBeLessThanOrEqual(mobileModalMetrics.viewportHeight + 1);
+  expect(['auto', 'scroll']).toContain(mobileModalMetrics.bodyOverflowY);
+  expect(mobileModalMetrics.bodyScrollable).toBeTruthy();
+});
+
 test('supports container actions and chart loading', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto('/');
 
   const webRow = page.locator('#metricsTable tbody tr').filter({ hasText: 'web' });
@@ -190,9 +269,70 @@ test('supports container actions and chart loading', async ({ page }) => {
 
   const dbRow = page.locator('#metricsTable tbody tr').filter({ hasText: 'db' });
   await dbRow.locator('.show-chart-btn').click();
-  await expect(page.locator('#chartContainer')).toBeVisible();
+  await expect(page.locator('#historyChartModal')).toHaveClass(/show/);
   await expect(page.locator('#chartTitle')).toContainText('db');
   await expect(page.locator('#chartStatus')).toHaveText('');
+
+  const historyModalMetrics = await page.locator('#historyChartModal .modal-dialog').evaluate((dialog) => {
+    const rect = dialog.getBoundingClientRect();
+    const footer = dialog.querySelector('.modal-footer');
+    const canvas = dialog.querySelector('#usageChart');
+    return {
+      dialogCenterX: rect.left + (rect.width / 2),
+      dialogCenterY: rect.top + (rect.height / 2),
+      viewportCenterX: window.innerWidth / 2,
+      viewportCenterY: window.innerHeight / 2,
+      footerBottom: footer ? footer.getBoundingClientRect().bottom : 0,
+      canvasWidth: canvas?.clientWidth ?? 0,
+      canvasHeight: canvas?.clientHeight ?? 0,
+    };
+  });
+  expect(Math.abs(historyModalMetrics.dialogCenterX - historyModalMetrics.viewportCenterX)).toBeLessThan(32);
+  expect(Math.abs(historyModalMetrics.dialogCenterY - historyModalMetrics.viewportCenterY)).toBeLessThan(32);
+  expect(historyModalMetrics.footerBottom).toBeLessThanOrEqual(720);
+  expect(historyModalMetrics.canvasWidth).toBeGreaterThan(0);
+  expect(historyModalMetrics.canvasHeight).toBeGreaterThan(0);
+
+  await page.locator('#historyChartModal .modal-footer .btn').click();
+  await expect(page.locator('#historyChartModal')).not.toHaveClass(/show/);
+
+  await page.locator('#compareDropdown').click();
+  await page.locator('.compare-action[data-compare-type="cpu"]').click();
+  await expect(page.locator('#comparisonChartModal')).toHaveClass(/show/);
+  await expect(page.locator('#comparisonChartTitle')).toContainText('CPU usage');
+  await expect(page.locator('#comparisonChartStatus')).toHaveText('');
+
+  await page.locator('#comparisonChartTopN').fill('2');
+  await page.locator('#comparisonChartRefreshBtn').click();
+  await expect(page.locator('#comparisonChartStatus')).toHaveText('');
+
+  await page.locator('#comparisonRamTab').click();
+  await expect(page.locator('#comparisonChartTitle')).toContainText('RAM usage');
+  await expect(page.locator('#comparisonChartStatus')).toHaveText('');
+
+  await page.locator('#comparisonUptimeTab').click();
+  await expect(page.locator('#comparisonChartTitle')).toContainText('Uptime');
+  await expect(page.locator('#comparisonChartStatus')).toHaveText('');
+
+  const comparisonModalMetrics = await page.locator('#comparisonChartModal .modal-dialog').evaluate((dialog) => {
+    const rect = dialog.getBoundingClientRect();
+    const footer = dialog.querySelector('.modal-footer');
+    const canvas = dialog.querySelector('#comparisonChartCanvas');
+    return {
+      dialogCenterX: rect.left + (rect.width / 2),
+      dialogCenterY: rect.top + (rect.height / 2),
+      viewportCenterX: window.innerWidth / 2,
+      viewportCenterY: window.innerHeight / 2,
+      footerBottom: footer ? footer.getBoundingClientRect().bottom : 0,
+      canvasWidth: canvas?.clientWidth ?? 0,
+      canvasHeight: canvas?.clientHeight ?? 0,
+    };
+  });
+  expect(Math.abs(comparisonModalMetrics.dialogCenterX - comparisonModalMetrics.viewportCenterX)).toBeLessThan(32);
+  expect(Math.abs(comparisonModalMetrics.dialogCenterY - comparisonModalMetrics.viewportCenterY)).toBeLessThan(32);
+  expect(comparisonModalMetrics.footerBottom).toBeLessThanOrEqual(720);
+  expect(comparisonModalMetrics.canvasWidth).toBeGreaterThan(0);
+  expect(comparisonModalMetrics.canvasHeight).toBeGreaterThan(0);
 });
 
 test('updates the table through realtime SSE without polling', async ({ page, request }) => {
@@ -260,11 +400,15 @@ test('opens pending notifications panel and edits advanced notification settings
   await page.locator('#notifProjectRules').fill('demo\njobs-*');
   await page.selectOption('#notifContainerRuleMode', 'exclude');
   await page.locator('#notifContainerRules').fill('db');
+  await page.locator('#notifWindowMinutes').fill('1');
+  await page.locator('#notifWindowSeconds').fill('5');
+  await page.locator('#notifCooldownMinutes').fill('2');
   await page.locator('#notifCooldownSeconds').fill('45');
   await page.locator('#notifSilenceEnabled').check();
   await page.locator('#notifSilenceStart').fill('23:00');
   await page.locator('#notifSilenceEnd').fill('06:30');
-  await page.locator('#notifDedupeWindowSeconds').fill('240');
+  await page.locator('#notifDedupeWindowMinutes').fill('4');
+  await page.locator('#notifDedupeWindowSeconds').fill('0');
   await page.locator('#notifEnableSecurity').check();
   await page.locator('#notifSecurityPublicPortsEnabled').uncheck();
   await page.locator('#notifSecurityLatestEnabled').uncheck();
@@ -283,7 +427,8 @@ test('opens pending notifications panel and edits advanced notification settings
   expect(settingsPayload.project_rules).toBe('demo\njobs-*');
   expect(settingsPayload.container_rule_mode).toBe('exclude');
   expect(settingsPayload.container_rules).toBe('db');
-  expect(settingsPayload.cooldown_seconds).toBe(45);
+  expect(settingsPayload.window_seconds).toBe(65);
+  expect(settingsPayload.cooldown_seconds).toBe(165);
   expect(settingsPayload.silence_enabled).toBe(true);
   expect(settingsPayload.silence_start).toBe('23:00');
   expect(settingsPayload.silence_end).toBe('06:30');
@@ -291,6 +436,18 @@ test('opens pending notifications panel and edits advanced notification settings
   expect(settingsPayload.security_enabled).toBe(true);
   expect(settingsPayload.security_public_ports_enabled).toBe(false);
   expect(settingsPayload.security_latest_enabled).toBe(false);
+
+  await page.locator('#notifSettingsModal .btn-close').click();
+  if (!(await page.locator('#notifPanel').isVisible())) {
+    await page.locator('#notifToggle').click();
+  }
+  await page.locator('#notifSettingsBtn').click();
+  await expect(page.locator('#notifWindowMinutes')).toHaveValue('1');
+  await expect(page.locator('#notifWindowSeconds')).toHaveValue('5');
+  await expect(page.locator('#notifCooldownMinutes')).toHaveValue('2');
+  await expect(page.locator('#notifCooldownSeconds')).toHaveValue('45');
+  await expect(page.locator('#notifDedupeWindowMinutes')).toHaveValue('4');
+  await expect(page.locator('#notifDedupeWindowSeconds')).toHaveValue('0');
 
   const testNotifButton = page.locator('#testNotifBtn');
   await testNotifButton.click();
@@ -308,6 +465,167 @@ test('opens pending notifications panel and edits advanced notification settings
   await expect(page.locator('#clearNotificationsModal')).not.toHaveClass(/show/);
   await page.locator('#notifToggle').click();
   await expect(page.locator('#notifList')).toContainText('No notifications');
+});
+
+test('streams logs in a modal with configurable limits, download, and auto-scroll controls', async ({ page, request }) => {
+  for (let index = 1; index <= 110; index += 1) {
+    await request.post('http://127.0.0.1:5100/api/test/logs/db123456789012/append', {
+      data: { line: `2026-01-01T10:01:${String(index).padStart(2, '0')}.000000000Z db | seeded log line ${index}` },
+    });
+  }
+
+  await page.goto('/');
+
+  const dbRow = page.locator('#metricsTable tbody tr').filter({ hasText: 'db' });
+  await dbRow.locator('.show-logs-btn').click();
+  await expect(page.locator('#logsModal')).toHaveClass(/show/);
+  await expect(page.locator('#logsStatus')).toContainText('Live stream connected.');
+  await expect(page.locator('#logsMeta')).toContainText('latest 100 lines');
+  await expect(page.locator('#logsOutput')).toContainText('seeded log line 110');
+  const defaultLogLines = await page.locator('#logsOutput').evaluate((node) => node.textContent.split('\n'));
+  expect(defaultLogLines.some((line) => line.endsWith('seeded log line 1'))).toBe(false);
+  await expect(page.locator('#logsAutoScrollToggle')).toBeChecked();
+
+  const downloadPromise = page.waitForEvent('download');
+  await page.locator('#downloadLogsBtn').click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/^db-.*-logs\.txt$/);
+
+  await page.selectOption('#logsLineLimitSelect', 'custom');
+  await page.locator('#logsCustomLimitInput').fill('110');
+  await page.locator('#logsApplyLimitBtn').click();
+  await expect(page.locator('#logsMeta')).toContainText('latest 110 lines');
+  const expandedLogLines = await page.locator('#logsOutput').evaluate((node) => node.textContent.split('\n'));
+  expect(expandedLogLines.some((line) => line.endsWith('seeded log line 1'))).toBe(true);
+
+  await page.locator('#logsAutoScrollToggle').uncheck();
+  await page.locator('#logsOutput').evaluate((node) => {
+    node.scrollTop = 0;
+  });
+  await expect.poll(async () => page.locator('#logsOutput').evaluate((node) => node.scrollTop)).toBe(0);
+  await request.post('http://127.0.0.1:5100/api/test/logs/db123456789012/append', {
+    data: { line: '2026-01-01T10:05:00.000000000Z db | live line while auto-scroll is paused' },
+  });
+  await expect(page.locator('#logsOutput')).toContainText('live line while auto-scroll is paused');
+
+  const pausedScrollMetrics = await page.locator('#logsOutput').evaluate((node) => ({
+    scrollTop: node.scrollTop,
+    maxScrollTop: node.scrollHeight - node.clientHeight,
+  }));
+  expect(pausedScrollMetrics.maxScrollTop).toBeGreaterThan(0);
+  expect(pausedScrollMetrics.scrollTop).toBeLessThan(24);
+
+  await page.locator('#logsAutoScrollToggle').check();
+  await request.post('http://127.0.0.1:5100/api/test/logs/db123456789012/append', {
+    data: { line: '2026-01-01T10:05:10.000000000Z db | live line after auto-scroll resumed' },
+  });
+  await expect(page.locator('#logsOutput')).toContainText('live line after auto-scroll resumed');
+  await expect.poll(async () => page.locator('#logsOutput').evaluate((node) => {
+    const maxScrollTop = node.scrollHeight - node.clientHeight;
+    return Math.abs(maxScrollTop - node.scrollTop) <= 2;
+  })).toBe(true);
+});
+
+test('shows success and failure update notifications and auto-cleans stale history entries', async ({ page, request }) => {
+  await request.post('http://127.0.0.1:5100/api/test/update-history/add', {
+    data: {
+      age_days: 16,
+      target_id: 'stale-history-entry',
+      target_name: 'stale history entry',
+    },
+  });
+  await request.post('http://127.0.0.1:5100/api/test/update-history/add', {
+    data: {
+      age_days: 1,
+      target_id: 'fresh-history-entry',
+      target_name: 'fresh history entry',
+    },
+  });
+  await request.post('http://127.0.0.1:5100/api/test/update-manager/fail-target', {
+    data: { target_id: 'jobs', enabled: true },
+  });
+
+  await page.goto('/');
+  await page.locator('#updateManagerToggle').click();
+  await expect(page.locator('#updateManagerModal')).toHaveClass(/show/);
+
+  const demoEntry = page.locator('#updateManagerProjectList .update-entry').filter({ hasText: 'demo' });
+  await demoEntry.locator('.update-target-btn--quick').click();
+  await expect(page.locator('#appDialogModal')).toHaveClass(/show/);
+  await page.locator('#appDialogConfirm').click();
+  await expect(page.locator('#updateManagerActionState')).toContainText('Success');
+  await expect(page.locator('#updateManagerActionModal')).not.toHaveClass(/show/);
+
+  const jobsEntry = page.locator('#updateManagerProjectList .update-entry').filter({ hasText: 'jobs' });
+  await jobsEntry.locator('.update-target-btn--quick').click();
+  await expect(page.locator('#appDialogModal')).toHaveClass(/show/);
+  await page.locator('#appDialogConfirm').click();
+  await expect(page.locator('#updateManagerActionState')).toContainText('Failed');
+  await expect(page.locator('#updateManagerActionMessage')).toContainText('Update failed');
+  await expect(page.locator('#updateManagerActionCloseBtn')).toBeEnabled();
+  await page.locator('#updateManagerActionCloseBtn').click();
+  await expect(page.locator('#updateManagerActionModal')).not.toHaveClass(/show/);
+  await page.locator('#updateManagerModal .btn-close').click();
+  await expect(page.locator('#updateManagerModal')).not.toHaveClass(/show/);
+
+  await page.locator('#notifToggle').click();
+  await expect(page.locator('#notifList')).toContainText('Project demo updated with a safe compose workflow.');
+  await expect(page.locator('#notifList')).toContainText('Update failed for jobs.');
+
+  await page.locator('#updateManagerToggle').click();
+  await page.locator('#updateManagerHistoryTab').click();
+  await expect(page.locator('#updateHistoryRetentionNotice')).toContainText('15 days');
+  await expect(page.locator('#updateManagerHistoryList')).toContainText('fresh history entry');
+  await expect(page.locator('#updateManagerHistoryList')).not.toContainText('stale history entry');
+});
+
+test('keeps chart and log modals inside the mobile viewport', async ({ page, request }) => {
+  for (let index = 1; index <= 90; index += 1) {
+    await request.post('http://127.0.0.1:5100/api/test/logs/db123456789012/append', {
+      data: { line: `2026-01-01T10:02:${String(index).padStart(2, '0')}.000000000Z db | mobile line ${index}` },
+    });
+  }
+
+  await page.setViewportSize({ width: 390, height: 780 });
+  await page.goto('/');
+
+  const dbRow = page.locator('#metricsTable tbody tr').filter({ hasText: 'db' });
+  await dbRow.locator('.show-chart-btn').click();
+  await expect(page.locator('#historyChartModal')).toHaveClass(/show/);
+
+  const chartModalMetrics = await page.locator('#historyChartModal .modal-dialog').evaluate((dialog) => {
+    const footer = dialog.querySelector('.modal-footer');
+    return {
+      dialogBottom: dialog.getBoundingClientRect().bottom,
+      footerBottom: footer ? footer.getBoundingClientRect().bottom : 0,
+      viewportHeight: window.visualViewport?.height ?? window.innerHeight,
+    };
+  });
+  expect(chartModalMetrics.dialogBottom).toBeLessThanOrEqual(chartModalMetrics.viewportHeight + 1);
+  expect(chartModalMetrics.footerBottom).toBeLessThanOrEqual(chartModalMetrics.viewportHeight + 1);
+
+  await page.locator('#historyChartModal .modal-footer .btn').click();
+  await expect(page.locator('#historyChartModal')).not.toHaveClass(/show/);
+
+  await dbRow.locator('.show-logs-btn').click();
+  await expect(page.locator('#logsModal')).toHaveClass(/show/);
+  await expect(page.locator('#logsStatus')).toContainText('Live stream connected.');
+
+  const logsModalMetrics = await page.locator('#logsModal .modal-dialog').evaluate((dialog) => {
+    const footer = dialog.querySelector('.modal-footer');
+    const output = dialog.querySelector('#logsOutput');
+    return {
+      dialogBottom: dialog.getBoundingClientRect().bottom,
+      footerBottom: footer ? footer.getBoundingClientRect().bottom : 0,
+      viewportHeight: window.visualViewport?.height ?? window.innerHeight,
+      outputScrollable: output ? output.scrollHeight > output.clientHeight : false,
+      outputOverflowY: output ? getComputedStyle(output).overflowY : '',
+    };
+  });
+  expect(logsModalMetrics.dialogBottom).toBeLessThanOrEqual(logsModalMetrics.viewportHeight + 1);
+  expect(logsModalMetrics.footerBottom).toBeLessThanOrEqual(logsModalMetrics.viewportHeight + 1);
+  expect(logsModalMetrics.outputScrollable).toBeTruthy();
+  expect(['auto', 'scroll']).toContain(logsModalMetrics.outputOverflowY);
 });
 
 test('opens the update manager, runs update and rollback, and shows load errors', async ({ page, request }) => {
@@ -348,7 +666,7 @@ test('opens the update manager, runs update and rollback, and shows load errors'
   await expect(projectPanel).toContainText('Current version');
   await expect(projectPanel).toContainText('Ready');
   await expect(projectPanel).toContainText('/data/compose/42/docker-compose.yml');
-  await expect(projectPanel).toContainText('Compose files are unavailable, so Docker Stats will update the running services directly.');
+  await expect(projectPanel).toContainText('Compose files are unavailable, so statainer will update the running services directly.');
 
   const updateButton = projectPanel.locator('.update-target-btn').first();
   await updateButton.click();

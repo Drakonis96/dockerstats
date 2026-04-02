@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 print("***********************************")
-print("*** Docker Monitor APP STARTING ***")
+print("*** statainer APP STARTING ***")
 print("***********************************")
 
 import threading
@@ -123,7 +123,7 @@ def initialize_runtime():
 
 if __name__ == '__main__':
     print("-------------------------------------")
-    print(" Docker Monitor ")
+    print(" statainer ")
     print("-------------------------------------")
     print("Starting Flask server...")
 

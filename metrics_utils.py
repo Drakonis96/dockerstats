@@ -106,7 +106,7 @@ def calc_cpu_percent(current_stats, prev_stats):
         return 0.0 # Retornar 0 en cualquier error de cálculo
 
 def calc_mem_percent_usage(d):
-    """Calculates memory percent and usage from Docker stats."""
+    """Calculates memory percent and usage from container stats."""
     try:
         if not isinstance(d, dict): return 0.0, 0 # Asegurar que la entrada es un dict
 

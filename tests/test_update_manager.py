@@ -108,6 +108,8 @@ def test_list_update_targets_groups_projects_and_standalone_containers(temp_db, 
     payload = update_manager.list_update_targets(history_limit=5)
 
     assert payload['experimental_notice'] == update_manager.EXPERIMENTAL_NOTICE
+    assert payload['history_notice'] == update_manager.UPDATE_HISTORY_NOTICE
+    assert payload['history_retention_days'] == update_manager.UPDATE_HISTORY_RETENTION_DAYS
     assert len(payload['projects']) == 1
     assert payload['projects'][0]['name'] == 'demo'
     assert payload['projects'][0]['type'] == 'project'

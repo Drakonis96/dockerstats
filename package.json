@@ -1,5 +1,5 @@
 {
-  "name": "dockerstats-main",
+  "name": "statainer-main",
   "private": true,
   "type": "module",
   "scripts": {

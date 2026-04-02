@@ -1,3 +1,5 @@
+import time
+
 import users_db
 
 
@@ -94,3 +96,42 @@ def test_update_history_is_persisted_across_reopen(temp_db):
     assert entry["metadata"]["rollback_ready"] is True
     assert rows[0]["id"] == entry_id
     assert rows[0]["previous_version"] == "db=postgres:16"
+
+
+def test_update_history_auto_cleanup_removes_entries_older_than_retention(temp_db):
+    stale_entry_id = users_db.record_update_history(
+        action="update",
+        target_type="container",
+        target_id="stale",
+        target_name="stale",
+        result="success",
+        actor_username="admin",
+    )
+    fresh_entry_id = users_db.record_update_history(
+        action="update",
+        target_type="container",
+        target_id="fresh",
+        target_name="fresh",
+        result="success",
+        actor_username="admin",
+    )
+
+    now_ts = time.time()
+    conn = users_db.get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE update_history SET created_at=? WHERE id=?",
+        (now_ts - users_db.UPDATE_HISTORY_RETENTION_SECONDS - 60, stale_entry_id),
+    )
+    cursor.execute(
+        "UPDATE update_history SET created_at=? WHERE id=?",
+        (now_ts - users_db.UPDATE_HISTORY_RETENTION_SECONDS + 60, fresh_entry_id),
+    )
+    conn.commit()
+    conn.close()
+
+    rows = users_db.list_update_history(limit=10)
+
+    assert [row["id"] for row in rows] == [fresh_entry_id]
+    assert users_db.get_update_history_entry(stale_entry_id) is None
+    assert users_db.get_update_history_entry(fresh_entry_id)["target_name"] == "fresh"

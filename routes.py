@@ -67,6 +67,50 @@ def audit_event(action, target_type, status, target_id=None, details=None):
 def sse_event(event_name, payload):
     return f"event: {event_name}\ndata: {json.dumps(payload)}\n\n"
 
+
+def parse_positive_int_arg(value, default, *, minimum=0, maximum=None):
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    parsed = max(minimum, parsed)
+    if maximum is not None:
+        parsed = min(maximum, parsed)
+    return parsed
+
+
+def parse_log_tail_arg():
+    return parse_positive_int_arg(request.args.get('tail', 100), 100, minimum=1, maximum=10000)
+
+
+def read_container_log_text(container, tail):
+    raw_logs = container.logs(tail=tail, timestamps=True)
+    if isinstance(raw_logs, bytes):
+        return raw_logs.decode('utf-8', errors='replace')
+    return str(raw_logs or '')
+
+
+def sanitize_download_filename(value, fallback='container'):
+    token = ''.join(ch if ch.isalnum() or ch in '-._' else '-' for ch in str(value or '').strip())
+    cleaned = token.strip('.-_')
+    return cleaned or fallback
+
+
+def emit_update_result_notification(target_type, target_id, target_name, message, ok):
+    event = {
+        'type': 'update',
+        'scope': 'update_success' if ok else 'update_failure',
+        'timestamp': time.time(),
+        'cid': target_id if target_type == 'container' else None,
+        'container': target_name if target_type == 'container' else '',
+        'project': target_name if target_type == 'project' else '',
+        'msg': message,
+    }
+    try:
+        sampler.emit_notification(event)
+    except Exception as exc:
+        print(f"WARN UPDATE NOTIF: Unable to emit {target_type} update notification for {target_id}: {exc}")
+
 # --- CSRF Token Utilities ---
 def generate_csrf_token():
     if 'csrf_token' not in session:
@@ -905,62 +949,87 @@ def api_container_history(container_id):
 
 # --- Ruta API para Logs del Contenedor ---
 @main_routes.route('/api/logs/<container_id>')
-def stream_container_logs(container_id):
-    print(f"DEBUG LOGS: Log request received for {container_id[:12]}")
+def api_container_logs(container_id):
+    print(f"DEBUG LOGS: Snapshot request received for {container_id[:12]}")
+    tail = parse_log_tail_arg()
+    download = request.args.get('download', '0') == '1'
     try:
         client = get_docker_client()
         container = client.containers.get(container_id)
-        container_name = escape(container.name)
+        logs = read_container_log_text(container, tail)
     except errors.NotFound:
-        print(f"WARN LOGS: Container {container_id[:12]} was not found.")
-        return f"<html><body><h1>Error 404</h1><p>Container '{escape(container_id)}' not found.</p></body></html>", 404
+        return jsonify({'error': f"Container '{container_id}' not found."}), 404
+    except Exception as e:
+        print(f"ERROR LOGS: Error while reading logs for {container_id[:12]}: {e}")
+        return jsonify({'error': f'Error accessing container logs: {str(e)}'}), 500
+
+    response = Response(logs, mimetype='text/plain; charset=utf-8')
+    if download:
+        filename = sanitize_download_filename(getattr(container, 'name', container_id))
+        response.headers['Content-Disposition'] = f'attachment; filename="{filename}-{container_id[:12]}-logs.txt"'
+    return response
+
+
+@main_routes.route('/api/logs/<container_id>/stream')
+def stream_container_logs(container_id):
+    print(f"DEBUG LOGS: Stream request received for {container_id[:12]}")
+    tail = parse_log_tail_arg()
+    try:
+        client = get_docker_client()
+        container = client.containers.get(container_id)
+        container_name = str(container.name)
+    except errors.NotFound:
+        return jsonify({'error': f"Container '{container_id}' not found."}), 404
     except Exception as e:
         print(f"ERROR LOGS: Error while accessing container {container_id[:12]}: {e}")
-        return f"<html><body><h1>Error 500</h1><p>Error accessing container: {escape(str(e))}</p></body></html>", 500
+        return jsonify({'error': f'Error accessing container: {str(e)}'}), 500
 
     def generate_logs():
-        yield '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">'
-        yield f'<title>Logs: {container_name} ({container_id[:12]})</title>'
-        yield '''<style>
-            body { font-family: monospace; background-color: #f8f9fa; color: #212529; line-height: 1.4; margin: 0; padding: 15px; }
-            pre { white-space: pre-wrap; word-wrap: break-word; margin: 0; border: 1px solid #dee2e6; padding: 10px; border-radius: 4px; background-color: #fff;}
-            h2 { margin-top: 0; color: #343a40; }
-            @media (prefers-color-scheme: dark) {
-                body { background-color: #1c1c1c; color: #e0e0e0; }
-                pre { background-color: #2a2a2a; border-color: #444; }
-                h2 { color: #adb5bd; }
-            }
-        </style></head><body>'''
-        yield f'<h2>Logs for {container_name}</h2><pre>'
-
         log_stream = None
         try:
-            print(f"DEBUG LOGS: Opening log stream for {container_id[:12]}")
-            log_stream = container.logs(stream=True, follow=False, tail=200, timestamps=True)
-            processed_lines = 0
+            snapshot_lines = read_container_log_text(container, tail).splitlines()
+            yield sse_event('connected', {
+                'container_id': container_id,
+                'container_name': container_name,
+                'tail': tail,
+            })
+            yield sse_event('snapshot', {
+                'container_id': container_id,
+                'container_name': container_name,
+                'tail': tail,
+                'lines': snapshot_lines,
+            })
+
+            log_stream = container.logs(stream=True, follow=True, tail=0, timestamps=True)
+            buffer = ''
             for chunk in log_stream:
-                try:
-                    decoded_line = chunk.decode('utf-8', errors='replace')
-                    yield escape(decoded_line)
-                    processed_lines += 1
-                except UnicodeDecodeError:
-                    yield "[log decode error]\n"
-            print(f"DEBUG LOGS: Processed {processed_lines} log lines for {container_id[:12]}")
+                buffer += chunk.decode('utf-8', errors='replace')
+                while '\n' in buffer:
+                    line, buffer = buffer.split('\n', 1)
+                    yield sse_event('line', {'text': line})
 
+            if buffer:
+                yield sse_event('line', {'text': buffer})
         except errors.APIError as api_e:
-             print(f"ERROR LOGS: Docker API error while fetching logs for {container_id[:12]}: {api_e}")
-             yield f"\n--- Docker API Error fetching logs: {escape(str(api_e))} ---"
+            print(f"ERROR LOGS: Docker API error while streaming logs for {container_id[:12]}: {api_e}")
+            yield sse_event('error', {'message': f'Docker API error while streaming logs: {str(api_e)}'})
+        except GeneratorExit:
+            pass
         except Exception as log_e:
-             print(f"ERROR LOGS: Unexpected error while streaming logs for {container_id[:12]}: {log_e}")
-             yield f"\n--- Error streaming logs: {escape(str(log_e))} ---"
+            print(f"ERROR LOGS: Unexpected error while streaming logs for {container_id[:12]}: {log_e}")
+            yield sse_event('error', {'message': f'Error streaming logs: {str(log_e)}'})
         finally:
-             yield '</pre></body></html>'
-             if hasattr(log_stream, 'close'):
-                 try: log_stream.close()
-                 except Exception: pass
-             print(f"DEBUG LOGS: Log stream closed for {container_id[:12]}")
+            if hasattr(log_stream, 'close'):
+                try:
+                    log_stream.close()
+                except Exception:
+                    pass
+            print(f"DEBUG LOGS: Log stream closed for {container_id[:12]}")
 
-    return Response(stream_with_context(generate_logs()), mimetype='text/html')
+    response = Response(stream_with_context(generate_logs()), mimetype='text/event-stream')
+    response.headers['Cache-Control'] = 'no-cache'
+    response.headers['X-Accel-Buffering'] = 'no'
+    return response
 
 # --- Ruta para obtener logs de un contenedor ---
 @main_routes.route('/logs/<container_id>')
@@ -1251,6 +1320,17 @@ def container_action(container_id, action):
             return jsonify({'status': f'Container {container_name} restarted'})
         elif action == 'update':
             result = update_manager.update_container_target(container_id, actor_username=get_request_username())
+            emit_update_result_notification(
+                'container',
+                container_id,
+                str(container_name),
+                result.get('message') or (
+                    f"Container {container_name} updated successfully."
+                    if result.get('ok')
+                    else f"Container {container_name} update failed."
+                ),
+                bool(result.get('ok')),
+            )
             audit_event(
                 'container.update',
                 'container',
@@ -1336,8 +1416,8 @@ def api_notification_test():
     except (TypeError, ValueError):
         priority = 0
     result = send_notification(
-        data.get('message') or f'Test notification from Docker Stats for {username}',
-        title=data.get('title') or 'Docker Stats Test',
+        data.get('message') or f'Test notification from statainer for {username}',
+        title=data.get('title') or 'statainer Test',
         priority=priority,
     )
 
@@ -1376,6 +1456,17 @@ def api_update_manager_update():
         return jsonify({'ok': False, 'message': 'target_type and target_id are required.'}), 400
 
     result = update_manager.update_target(target_type, target_id, actor_username=get_request_username())
+    emit_update_result_notification(
+        target_type,
+        target_id,
+        target_id,
+        result.get('message') or (
+            f"{target_type.title()} {target_id} updated successfully."
+            if result.get('ok')
+            else f"{target_type.title()} {target_id} update failed."
+        ),
+        bool(result.get('ok')),
+    )
     audit_event(
         'update-manager.update',
         target_type,

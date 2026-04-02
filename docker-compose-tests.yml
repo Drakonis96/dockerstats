@@ -22,9 +22,9 @@ services:
       - --docker_only=true
       - --housekeeping_interval=10s
 
-  dockerstats:
+  statainer:
     build: .
-    container_name: docker-stats-test
+    container_name: statainer-test
     restart: unless-stopped
     depends_on:
       - cadvisor

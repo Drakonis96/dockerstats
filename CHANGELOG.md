@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.9.10
+
+### Added
+- Added modal-based chart and log workflows so comparison graphs, per-container history charts, and live logs stay inside the dashboard with responsive layouts, internal scrolling, and mobile-safe behavior.
+- Added live log streaming controls with default tail limits, configurable line counts, auto-scroll pause/resume, and `.txt` download support.
+- Added update-completion notifications for both successful and failed update actions, plus automatic cleanup for update history entries after 15 days with a visible retention notice in the history tab.
+
+### Changed
+- Simplified the mobile dashboard structure with a dedicated four-tab section navigation under the header for `Info`, `Workspace`, `Containers`, and `Stacks`.
+- Refined modal sizing and viewport handling across the app so action buttons remain visible and modal content scrolls internally on desktop and mobile.
+- Expanded notification timing controls to accept minutes and seconds for threshold windows, cooldowns, and deduplication intervals.
+- Refreshed the README with updated product screenshots that reflect the current dashboard, charts, logs, and update-manager flows.
+
+### Testing
+- Extended backend and end-to-end coverage for modal charts, live logs, notification timing controls, update notifications, retention cleanup, and responsive mobile modal behavior.
+
 ## v0.9.9
 
 ### Added
@@ -46,7 +62,7 @@
 - Added rollback support for those externally managed stack updates using the recorded previous image versions and the same safe container recreation workflow.
 
 ### Changed
-- Externally managed stacks with missing compose files now surface as updateable when Docker Stats can safely operate on the running services, with explicit `External safe recreate` labeling and guidance in the Update Manager UI.
+- Externally managed stacks with missing compose files now surface as updateable when statainer can safely operate on the running services, with explicit `External safe recreate` labeling and guidance in the Update Manager UI.
 
 ### Fixed
 - Constrained Update Manager action modal copy so long progress and result messages wrap inside the modal instead of overflowing.
@@ -68,7 +84,7 @@
 
 ### Fixed
 - Optimized Update Manager refreshes by deduplicating registry lookups per image reference and resolving them in parallel instead of rechecking each container sequentially.
-- Kept blocked externally managed compose stacks visible but non-actionable, so Docker Stats no longer presents them as update candidates it can safely manage.
+- Kept blocked externally managed compose stacks visible but non-actionable, so statainer no longer presents them as update candidates it can safely manage.
 - Contained horizontal overflow inside the `Containers` table block so enabling all columns does not push the whole page sideways.
 
 ### Testing

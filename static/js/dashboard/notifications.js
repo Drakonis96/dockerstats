@@ -47,6 +47,24 @@ function stringFromStorage(key, fallback) {
   return value === null ? fallback : value;
 }
 
+function splitDuration(totalSeconds, minimum = 0) {
+  const total = Math.max(minimum, Number(totalSeconds) || 0);
+  return {
+    minutes: Math.floor(total / 60),
+    seconds: total % 60,
+  };
+}
+
+function durationInputsToSeconds(minutesInput, secondsInput, fallback, minimum = 0) {
+  const minutes = Math.max(0, parseInt(minutesInput?.value, 10) || 0);
+  const seconds = Math.max(0, Math.min(59, parseInt(secondsInput?.value, 10) || 0));
+  const total = (minutes * 60) + seconds;
+  if (total === 0 && minimum > 0) {
+    return fallback;
+  }
+  return Math.max(minimum, total);
+}
+
 export function createNotificationController(ctx) {
   let tooltipInstances = [];
 
@@ -79,8 +97,18 @@ export function createNotificationController(ctx) {
       security_docker_socket_enabled: Boolean(ctx.elements.notifSecurityDockerSocketEnabled?.checked),
       cpu_threshold: Number(ctx.elements.notifCpuThreshold?.value || DEFAULT_NOTIFICATION_SETTINGS.cpu_threshold),
       ram_threshold: Number(ctx.elements.notifRamThreshold?.value || DEFAULT_NOTIFICATION_SETTINGS.ram_threshold),
-      window_seconds: Number(ctx.elements.notifWindowSeconds?.value || DEFAULT_NOTIFICATION_SETTINGS.window_seconds),
-      cooldown_seconds: Number(ctx.elements.notifCooldownSeconds?.value || DEFAULT_NOTIFICATION_SETTINGS.cooldown_seconds),
+      window_seconds: durationInputsToSeconds(
+        ctx.elements.notifWindowMinutes,
+        ctx.elements.notifWindowSeconds,
+        DEFAULT_NOTIFICATION_SETTINGS.window_seconds,
+        1,
+      ),
+      cooldown_seconds: durationInputsToSeconds(
+        ctx.elements.notifCooldownMinutes,
+        ctx.elements.notifCooldownSeconds,
+        DEFAULT_NOTIFICATION_SETTINGS.cooldown_seconds,
+        0,
+      ),
       project_rule_mode: ctx.elements.notifProjectRuleMode?.value || DEFAULT_NOTIFICATION_SETTINGS.project_rule_mode,
       project_rules: ctx.elements.notifProjectRules?.value || '',
       container_rule_mode: ctx.elements.notifContainerRuleMode?.value || DEFAULT_NOTIFICATION_SETTINGS.container_rule_mode,
@@ -89,7 +117,12 @@ export function createNotificationController(ctx) {
       silence_start: ctx.elements.notifSilenceStart?.value || DEFAULT_NOTIFICATION_SETTINGS.silence_start,
       silence_end: ctx.elements.notifSilenceEnd?.value || DEFAULT_NOTIFICATION_SETTINGS.silence_end,
       dedupe_enabled: Boolean(ctx.elements.notifDedupeEnabled?.checked),
-      dedupe_window_seconds: Number(ctx.elements.notifDedupeWindowSeconds?.value || DEFAULT_NOTIFICATION_SETTINGS.dedupe_window_seconds),
+      dedupe_window_seconds: durationInputsToSeconds(
+        ctx.elements.notifDedupeWindowMinutes,
+        ctx.elements.notifDedupeWindowSeconds,
+        DEFAULT_NOTIFICATION_SETTINGS.dedupe_window_seconds,
+        0,
+      ),
     };
   }
 
@@ -119,10 +152,15 @@ export function createNotificationController(ctx) {
 
   function writeSettingsToInputs(settings = {}) {
     const merged = { ...DEFAULT_NOTIFICATION_SETTINGS, ...settings };
+    const windowDuration = splitDuration(merged.window_seconds, 1);
+    const cooldownDuration = splitDuration(merged.cooldown_seconds, 0);
+    const dedupeDuration = splitDuration(merged.dedupe_window_seconds, 0);
     ctx.elements.notifCpuThreshold.value = merged.cpu_threshold;
     ctx.elements.notifRamThreshold.value = merged.ram_threshold;
-    ctx.elements.notifWindowSeconds.value = merged.window_seconds;
-    ctx.elements.notifCooldownSeconds.value = merged.cooldown_seconds;
+    ctx.elements.notifWindowMinutes.value = windowDuration.minutes;
+    ctx.elements.notifWindowSeconds.value = windowDuration.seconds;
+    ctx.elements.notifCooldownMinutes.value = cooldownDuration.minutes;
+    ctx.elements.notifCooldownSeconds.value = cooldownDuration.seconds;
     ctx.elements.notifEnableCPU.checked = Boolean(merged.cpu_enabled);
     ctx.elements.notifEnableRAM.checked = Boolean(merged.ram_enabled);
     ctx.elements.notifEnableStatus.checked = Boolean(merged.status_enabled);
@@ -140,7 +178,8 @@ export function createNotificationController(ctx) {
     ctx.elements.notifSilenceStart.value = merged.silence_start || DEFAULT_NOTIFICATION_SETTINGS.silence_start;
     ctx.elements.notifSilenceEnd.value = merged.silence_end || DEFAULT_NOTIFICATION_SETTINGS.silence_end;
     ctx.elements.notifDedupeEnabled.checked = Boolean(merged.dedupe_enabled);
-    ctx.elements.notifDedupeWindowSeconds.value = merged.dedupe_window_seconds;
+    ctx.elements.notifDedupeWindowMinutes.value = dedupeDuration.minutes;
+    ctx.elements.notifDedupeWindowSeconds.value = dedupeDuration.seconds;
     syncSilenceInputsState();
     syncSecurityInputsState();
   }
@@ -592,9 +631,11 @@ export function createNotificationController(ctx) {
       ctx.elements.notifSecurityPublicPortsEnabled,
       ctx.elements.notifSecurityLatestEnabled,
       ctx.elements.notifSecurityDockerSocketEnabled,
+      ctx.elements.notifWindowMinutes,
       ctx.elements.notifWindowSeconds,
       ctx.elements.notifCpuThreshold,
       ctx.elements.notifRamThreshold,
+      ctx.elements.notifCooldownMinutes,
       ctx.elements.notifCooldownSeconds,
       ctx.elements.notifProjectRuleMode,
       ctx.elements.notifProjectRules,
@@ -603,6 +644,7 @@ export function createNotificationController(ctx) {
       ctx.elements.notifSilenceStart,
       ctx.elements.notifSilenceEnd,
       ctx.elements.notifDedupeEnabled,
+      ctx.elements.notifDedupeWindowMinutes,
       ctx.elements.notifDedupeWindowSeconds,
     ].forEach((element) => {
       element?.addEventListener('change', () => persistSettingsToLocalStorage(getCurrentSettings()));

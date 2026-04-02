@@ -1,12 +1,12 @@
 <div align="center">
-  <img src="static/logo.png" alt="Docker Stats" width="140">
-  <h1>Docker Stats</h1>
+  <img src="static/logo.png" alt="statainer" width="140">
+  <h1>statainer</h1>
   <p><strong>A focused dashboard for container monitoring, safe updates, notifications, and Compose-aware operations.</strong></p>
 </div>
 
 ## Overview
 
-Docker Stats is a lightweight web UI for Docker hosts. It combines live container metrics, Compose project grouping, configurable alerts, update discovery, rollback history, and day-to-day container controls in one interface.
+statainer is a lightweight web UI for Docker hosts. It combines live container metrics, Compose project grouping, configurable alerts, update discovery, rollback history, and day-to-day container controls in one interface.
 
 It is designed for self-hosted environments where you want fast operational visibility without giving up practical controls.
 
@@ -39,10 +39,10 @@ It is designed for self-hosted environments where you want fast operational visi
 ## Screenshots
 
 <div align="center">
-  <img src="screenshots/Screenshot 1.png" alt="Dashboard" width="720">
-  <img src="screenshots/Screenshot 2.png" alt="Charts" width="720">
-  <img src="screenshots/Screenshot 3.png" alt="Notifications" width="720">
-  <img src="screenshots/Screenshot 4.png" alt="Update Manager" width="720">
+  <img src="screenshots/Screenshot 1.png" alt="statainer dashboard overview" width="720">
+  <img src="screenshots/Screenshot 2.png" alt="statainer comparison charts modal" width="720">
+  <img src="screenshots/Screenshot 3.png" alt="statainer live logs modal" width="720">
+  <img src="screenshots/Screenshot 4.png" alt="statainer update manager history modal" width="720">
 </div>
 
 ## Quick Start
@@ -55,8 +55,8 @@ It is designed for self-hosted environments where you want fast operational visi
 ### Start With Docker Compose
 
 ```bash
-git clone https://github.com/Drakonis96/dockerstats
-cd dockerstats
+git clone https://github.com/Drakonis96/statainer
+cd statainer
 docker compose up --build -d
 ```
 
@@ -70,7 +70,7 @@ http://localhost:5001
 
 The bundled [docker-compose.yml](docker-compose.yml) exposes:
 
-- Docker Stats on `5001`
+- statainer on `5001`
 - cAdvisor on `8080`
 
 It also mounts:
@@ -91,7 +91,7 @@ It also mounts:
 | `APP_SECRET_KEY` | Session secret | generated if missing |
 | `APP_SECRET_KEY_FILE` | Secret file alternative | empty |
 | `LOGIN_MODE` | Login flow: `popup` or `page` | `popup` |
-| `APP_VERSION` | Version shown in the UI footer | `v0.9.9` |
+| `APP_VERSION` | Version shown in the UI footer | `v0.9.10` |
 | `DOCKER_SOCKET_URL` | Docker socket URL | `unix:///var/run/docker.sock` |
 | `CADVISOR_URL` | cAdvisor endpoint | `http://cadvisor:8080` |
 | `GPU_METRICS_ENABLED` | Enables GPU collection | `true` in bundled compose |
@@ -155,7 +155,7 @@ The Update Manager is designed around safety and operator visibility.
 
 ### Externally Managed Stacks
 
-If a stack was originally created by another tool, Docker Stats may not have the original Compose files available on disk. In that case the app can:
+If a stack was originally created by another tool, statainer may not have the original Compose files available on disk. In that case the app can:
 
 - mark the stack as blocked when it cannot safely manage it
 - explain why the Compose files are unavailable
@@ -179,7 +179,7 @@ This is especially relevant for stacks created through tools such as Portainer, 
 ### Common Workflow
 
 1. Set the provider environment variables.
-2. Restart Docker Stats.
+2. Restart statainer.
 3. Open the notification panel as an admin user.
 4. Enable the event types you want.
 5. Save the configuration.
@@ -237,20 +237,20 @@ DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 Basic public ntfy setup:
 
 ```env
-NTFY_TOPIC=dockerstats-home
+NTFY_TOPIC=statainer-home
 NTFY_SERVER_URL=https://ntfy.sh
 ```
 
 Protected or self-hosted ntfy examples:
 
 ```env
-NTFY_TOPIC=dockerstats-prod
+NTFY_TOPIC=statainer-prod
 NTFY_SERVER_URL=https://ntfy.example.com
 NTFY_TOKEN=tk_your_token_here
 ```
 
 ```env
-NTFY_TOPIC=dockerstats-prod
+NTFY_TOPIC=statainer-prod
 NTFY_SERVER_URL=https://ntfy.example.com
 NTFY_USERNAME=myuser
 NTFY_PASSWORD=mysecret
@@ -266,13 +266,13 @@ NTFY_MARKDOWN=false
 Simple JSON webhook:
 
 ```env
-GENERIC_WEBHOOK_URL=https://example.com/hooks/dockerstats
+GENERIC_WEBHOOK_URL=https://example.com/hooks/statainer
 ```
 
 Plain-text body example:
 
 ```env
-GENERIC_WEBHOOK_URL=https://example.com/hooks/dockerstats
+GENERIC_WEBHOOK_URL=https://example.com/hooks/statainer
 GENERIC_WEBHOOK_METHOD=POST
 GENERIC_WEBHOOK_CONTENT_TYPE=text/plain; charset=utf-8
 GENERIC_WEBHOOK_BODY_TEMPLATE=[{event_type}] {title}\n{message}
@@ -281,7 +281,7 @@ GENERIC_WEBHOOK_BODY_TEMPLATE=[{event_type}] {title}\n{message}
 Custom headers:
 
 ```env
-GENERIC_WEBHOOK_URL=https://example.com/hooks/dockerstats
+GENERIC_WEBHOOK_URL=https://example.com/hooks/statainer
 GENERIC_WEBHOOK_HEADERS={"Authorization":"Bearer super-secret-token","X-Environment":"prod"}
 ```
 
@@ -306,7 +306,7 @@ Available placeholders:
 
 ## Metrics Backends
 
-Docker Stats can work with:
+statainer can work with:
 
 - Docker API only
 - Docker API plus cAdvisor
@@ -329,7 +329,7 @@ environment:
   GPU_METRICS_ENABLED: true
 ```
 
-If GPU data is available, Docker Stats surfaces GPU load and memory usage per container in the dashboard.
+If GPU data is available, statainer surfaces GPU load and memory usage per container in the dashboard.
 
 ## Runtime Notes
 
@@ -351,7 +351,7 @@ Exited containers stay visible in the main table so you can:
 
 ## Safety Notice
 
-Docker Stats requires access to your Docker environment to inspect containers, operate on them, and evaluate updates. Use it only on systems where you understand the implications of Docker socket access and trust the deployment.
+statainer requires access to your Docker environment to inspect containers, operate on them, and evaluate updates. Use it only on systems where you understand the implications of Docker socket access and trust the deployment.
 
 Managed updates are designed to preserve volumes, configuration, environment, networks, and other persistent state whenever possible, but you should still review updates before applying them in production.
 

@@ -14,6 +14,7 @@ from docker.types import DeviceRequest, LogConfig, Mount, Ulimit
 import sampler
 from docker_client import get_api_client, get_docker_client
 from users_db import (
+    UPDATE_HISTORY_RETENTION_DAYS,
     get_update_history_entry,
     list_update_history,
     record_update_history,
@@ -25,15 +26,19 @@ EXPERIMENTAL_NOTICE = (
     "configuration, networks and environment, but every update should still "
     "be reviewed carefully before applying it."
 )
+UPDATE_HISTORY_NOTICE = (
+    f"Update history entries are removed automatically {UPDATE_HISTORY_RETENTION_DAYS} days "
+    "after they are recorded."
+)
 UPDATE_REFRESH_MAX_WORKERS = 8
 COMPOSE_RECONSTRUCTION_LIMITATION = (
-    "Docker Stats does not reconstruct Compose projects from running "
+    "statainer does not reconstruct Compose projects from running "
     "containers alone because Docker metadata does not preserve override "
     "merge order, env files, build contexts, secrets, configs, or services "
     "that are not currently running."
 )
 EXTERNAL_SAFE_RECREATE_NOTICE = (
-    "Docker Stats can still update the running services directly with its "
+    "statainer can still update the running services directly with its "
     "safe container recreation workflow, which preserves the current mounts, "
     "networks, environment, restart policy, and other materialized runtime "
     "settings from Docker."
@@ -45,14 +50,14 @@ KNOWN_EXTERNAL_COMPOSE_MANAGERS = (
         'path_fragments': ('/data/compose/',),
         'reason': (
             "This stack appears to be managed by Portainer. Docker labels point "
-            "to compose files in Portainer's data directory, which Docker Stats "
+            "to compose files in Portainer's data directory, which statainer "
             "cannot access directly from this host."
         ),
         'action_hint': 'Project updates are disabled here because Portainer owns the compose definition.',
         'recovery_hint': (
             "Export the stack from Portainer or recover it from the original Git "
             "repository, then redeploy it from a host path that is mounted into "
-            "Docker Stats if you want this application to manage updates."
+            "statainer if you want this application to manage updates."
         ),
     },
     {
@@ -61,12 +66,12 @@ KNOWN_EXTERNAL_COMPOSE_MANAGERS = (
         'path_fragments': ('/config/compose/', 'config/compose/'),
         'reason': (
             "This stack appears to be managed by Yacht. Docker labels point to "
-            "compose files inside Yacht's COMPOSE_DIR, which Docker Stats "
+            "compose files inside Yacht's COMPOSE_DIR, which statainer "
             "cannot access directly from this host."
         ),
         'action_hint': 'Project updates are disabled here because Yacht owns the compose definition.',
         'recovery_hint': (
-            "Mount Yacht's COMPOSE_DIR into Docker Stats or export the project "
+            "Mount Yacht's COMPOSE_DIR into statainer or export the project "
             "and redeploy it from a host path accessible to this application."
         ),
     },
@@ -488,7 +493,7 @@ def _refresh_update_checks(container_ids):
 
 
 def _backup_name(base_name):
-    return f'{base_name}-dockerstats-backup-{int(time.time())}'
+    return f'{base_name}-statainer-backup-{int(time.time())}'
 
 
 def _rename_back(container, original_name):
@@ -743,7 +748,7 @@ def _compose_paths_from_labels(project_name, containers):
             block_kind='inconsistent_metadata',
             guidance=[
                 (
-                    "Docker Stats could not resolve one canonical Compose "
+                    "statainer could not resolve one canonical Compose "
                     "project directory and file set from the running services."
                 ),
                 (
@@ -775,7 +780,7 @@ def _compose_paths_from_labels(project_name, containers):
         if manager:
             guidance = [
                 (
-                    "Docker Stats can only run project updates when it can read "
+                    "statainer can only run project updates when it can read "
                     "the original Compose files from the host filesystem."
                 ),
                 COMPOSE_RECONSTRUCTION_LIMITATION,
@@ -800,7 +805,7 @@ def _compose_paths_from_labels(project_name, containers):
             missing_files=missing,
             guidance=[
                 (
-                    "Docker Stats can only run project updates when the compose "
+                    "statainer can only run project updates when the compose "
                     "files advertised by Docker labels still exist on disk."
                 ),
                 (
@@ -882,7 +887,7 @@ def _project_candidate(project_name, containers, client):
                 'update_mode_label': 'External safe recreate',
                 'guidance': guidance,
                 'action_hint': (
-                    "Compose files are unavailable, so Docker Stats will "
+                    "Compose files are unavailable, so statainer will "
                     "update the running services directly."
                 ),
             })
@@ -922,7 +927,7 @@ def _sanitize_repo_fragment(value):
 
 
 def _tag_for_rollback(client, image_id, project_name, service_name, history_id):
-    repository = f"dockerstats-rollback/{_sanitize_repo_fragment(project_name)}-{_sanitize_repo_fragment(service_name)}"
+    repository = f"statainer-rollback/{_sanitize_repo_fragment(project_name)}-{_sanitize_repo_fragment(service_name)}"
     tag = f'history-{history_id}'
     image = client.images.get(image_id)
     image.tag(repository, tag=tag)
@@ -1013,6 +1018,8 @@ def list_update_targets(history_limit=20, force_refresh=False):
 
     return {
         'experimental_notice': EXPERIMENTAL_NOTICE,
+        'history_notice': UPDATE_HISTORY_NOTICE,
+        'history_retention_days': UPDATE_HISTORY_RETENTION_DAYS,
         'projects': project_items,
         'containers': container_items,
         'history': history_entries,
@@ -1256,7 +1263,7 @@ def _update_external_project_target(project_name, project_containers, candidate,
         new_version=new_version,
         result='success',
         notes=(
-            "Compose files were unavailable, so Docker Stats updated the running "
+            "Compose files were unavailable, so statainer updated the running "
             "services directly with safe container recreation."
         ),
         metadata={

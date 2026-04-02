@@ -581,6 +581,9 @@ export function createUpdateManagerController(ctx, deps) {
 
   function renderPayload(payload) {
     ctx.state.updateManagerPayload = payload;
+    if (ctx.elements.updateHistoryRetentionNotice && payload?.history_notice) {
+      ctx.elements.updateHistoryRetentionNotice.textContent = payload.history_notice;
+    }
     pruneSelections();
     const projects = Array.isArray(payload.projects) ? payload.projects : [];
     const containers = Array.isArray(payload.containers) ? payload.containers : [];
@@ -964,8 +967,8 @@ export function createUpdateManagerController(ctx, deps) {
     const confirmed = await deps.confirmAction({
       title: safeExternalMode ? 'Apply safe external update' : 'Apply update',
       message: safeExternalMode
-        ? `Update ${typeLabel.toLowerCase()} "${targetId}" without compose files? Docker Stats will recreate only the running services that have a newer image available while preserving their current volumes, configuration, networks and environment where possible.`
-        : `Update ${typeLabel.toLowerCase()} "${targetId}" with the experimental safe workflow? Docker Stats will preserve volumes, configuration, networks and environment where possible, but you should still review the change carefully before continuing.`,
+        ? `Update ${typeLabel.toLowerCase()} "${targetId}" without compose files? statainer will recreate only the running services that have a newer image available while preserving their current volumes, configuration, networks and environment where possible.`
+        : `Update ${typeLabel.toLowerCase()} "${targetId}" with the experimental safe workflow? statainer will preserve volumes, configuration, networks and environment where possible, but you should still review the change carefully before continuing.`,
       confirmLabel: safeExternalMode ? 'Update safely' : 'Apply update',
       cancelLabel: 'Cancel',
       tone: 'warning',
@@ -1011,7 +1014,7 @@ export function createUpdateManagerController(ctx, deps) {
 
     const confirmed = await deps.confirmAction({
       title: `Update ${selectionMode === 'selected' ? 'selected' : 'all'} ${pluralLabel}`,
-      message: `Docker Stats will update ${targets.length} ${selectionMode === 'selected' ? 'selected ' : ''}${pluralLabel} sequentially for safety. Each ${singularLabel} keeps its normal safe update workflow, and failures will be recorded while the remaining targets continue.`,
+      message: `statainer will update ${targets.length} ${selectionMode === 'selected' ? 'selected ' : ''}${pluralLabel} sequentially for safety. Each ${singularLabel} keeps its normal safe update workflow, and failures will be recorded while the remaining targets continue.`,
       confirmLabel: `Update ${selectionMode === 'selected' ? 'selected' : 'all'} ${pluralLabel}`,
       cancelLabel: 'Cancel',
       tone: 'warning',
@@ -1065,7 +1068,7 @@ export function createUpdateManagerController(ctx, deps) {
             renderPayload(ctx.state.updateManagerPayload || {});
           }
           setManagerStatus(
-            `Batch update hit a failure on ${target.name}. Docker Stats will continue with the remaining ${pluralLabel}.`,
+            `Batch update hit a failure on ${target.name}. statainer will continue with the remaining ${pluralLabel}.`,
             'warning',
           );
         }

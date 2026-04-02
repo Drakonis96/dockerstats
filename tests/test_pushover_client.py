@@ -86,7 +86,7 @@ def test_send_posts_to_configured_pushover(monkeypatch):
 def test_send_posts_to_configured_ntfy(monkeypatch):
     clear_notification_env(monkeypatch)
     monkeypatch.setenv("NTFY_SERVER_URL", "https://ntfy.example.com")
-    monkeypatch.setenv("NTFY_TOPIC", "dockerstats")
+    monkeypatch.setenv("NTFY_TOPIC", "statainer")
     monkeypatch.setenv("NTFY_TOKEN", "tk_secret")
     monkeypatch.setenv("NTFY_TAGS", "prod,ops")
 
@@ -112,19 +112,19 @@ def test_send_posts_to_configured_ntfy(monkeypatch):
 
     assert result["ok"] is True
     assert result["successful_channels"] == ["ntfy"]
-    assert captured["url"] == "https://ntfy.example.com/dockerstats"
+    assert captured["url"] == "https://ntfy.example.com/statainer"
     assert captured["timeout"] == 5
     assert captured["data"] == b"CPU high"
     assert captured["headers"]["Title"] == "Alert"
     assert captured["headers"]["Priority"] == "4"
     assert captured["headers"]["Authorization"] == "Bearer tk_secret"
-    assert captured["headers"]["Tags"] == "prod,ops,dockerstats,cpu"
+    assert captured["headers"]["Tags"] == "prod,ops,statainer,cpu"
     assert captured["auth"] is None
 
 
 def test_send_posts_default_json_to_generic_webhook(monkeypatch):
     clear_notification_env(monkeypatch)
-    monkeypatch.setenv("GENERIC_WEBHOOK_URL", "https://hooks.example.com/dockerstats")
+    monkeypatch.setenv("GENERIC_WEBHOOK_URL", "https://hooks.example.com/statainer")
     monkeypatch.setenv("GENERIC_WEBHOOK_HEADERS", '{"Authorization":"Bearer 123","X-Source":"tests"}')
 
     captured = {}
@@ -137,7 +137,7 @@ def test_send_posts_default_json_to_generic_webhook(monkeypatch):
 
     result = pushover_client.send(
         "Status changed",
-        title="Docker Stats STATUS",
+        title="statainer STATUS",
         priority=1,
         event={
             "type": "status",
@@ -153,11 +153,11 @@ def test_send_posts_default_json_to_generic_webhook(monkeypatch):
     assert result["ok"] is True
     assert result["successful_channels"] == ["webhook"]
     assert captured["method"] == "POST"
-    assert captured["url"] == "https://hooks.example.com/dockerstats"
+    assert captured["url"] == "https://hooks.example.com/statainer"
     assert captured["timeout"] == 5
     assert captured["headers"]["Authorization"] == "Bearer 123"
     assert captured["headers"]["X-Source"] == "tests"
-    assert captured["json"]["title"] == "Docker Stats STATUS"
+    assert captured["json"]["title"] == "statainer STATUS"
     assert captured["json"]["message"] == "Status changed"
     assert captured["json"]["event_type"] == "status"
     assert captured["json"]["container"] == "worker"
@@ -184,7 +184,7 @@ def test_send_supports_custom_generic_webhook_body_template(monkeypatch):
 
     result = pushover_client.send(
         "Container restarted",
-        title="Docker Stats STATUS",
+        title="statainer STATUS",
         priority=0,
         event={"type": "status", "container": "worker", "timestamp": 88.0},
     )
