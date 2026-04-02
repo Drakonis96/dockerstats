@@ -173,14 +173,28 @@ def _container_version_info(container, client):
 
 def _container_version_info_for_list(container, client):
     cached_details = getattr(sampler, 'update_check_details_cache', {}).get(container.id)
-    if not cached_details:
-        return _container_version_info(container, client)
-
-    image_ref = cached_details.get('image_ref') or _container_image_ref(container)
+    image_ref = _container_image_ref(container)
     current_image = getattr(container, 'image', None)
-    current_token = cached_details.get('current_token') or _local_digest_for_image(current_image, image_ref)
-    latest_token = cached_details.get('latest_token')
+    current_token = _local_digest_for_image(current_image, image_ref)
     update_available = sampler.update_check_cache.get(container.id)
+
+    # The inventory view should render from sampler cache and local Docker state
+    # only. Falling back to live registry lookups here can stall the entire modal
+    # on slow or unreachable registries.
+    if not cached_details:
+        latest_token = 'update-available' if update_available is True else current_token
+        return {
+            'image_ref': image_ref,
+            'current_token': current_token,
+            'latest_token': None,
+            'current_version': _format_version(image_ref, current_token),
+            'latest_version': _format_version(image_ref, latest_token),
+            'current_image_id': getattr(current_image, 'id', None),
+            'error': 'cache-miss',
+        }
+    image_ref = cached_details.get('image_ref') or image_ref
+    current_token = cached_details.get('current_token') or current_token
+    latest_token = cached_details.get('latest_token')
     latest_version = cached_details.get('latest_version')
     if not latest_version:
         latest_version = _format_version(
@@ -1052,14 +1066,17 @@ def list_update_targets(history_limit=20, force_refresh=False):
     if force_refresh:
         containers = [container for container, _update_available in refreshed]
 
-    project_items, container_items = _build_candidate_collections(containers, client, only_update_available=True)
+    all_project_items, all_container_items = _build_candidate_collections(containers, client, only_update_available=False)
+    project_items = [item for item in all_project_items if item.get('update_available')]
+    container_items = [item for item in all_container_items if item.get('update_available')]
     auto_update_settings = get_auto_update_settings()
     last_updated_lookup = list_latest_successful_update_timestamps()
     project_items = [_attach_auto_update_metadata(item, auto_update_settings, last_updated_lookup) for item in project_items]
     container_items = [_attach_auto_update_metadata(item, auto_update_settings, last_updated_lookup) for item in container_items]
     auto_update_items = [
         _attach_auto_update_metadata(item, auto_update_settings, last_updated_lookup)
-        for item in _list_auto_update_targets(containers, client)
+        for item in [*all_project_items, *all_container_items]
+        if str(item.get('update_state') or '').lower() == 'ready'
     ]
 
     rollback_sources = {entry['rollback_of'] for entry in list_update_history(limit=history_limit * 3) if entry.get('rollback_of')}

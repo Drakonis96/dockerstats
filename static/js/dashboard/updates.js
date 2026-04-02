@@ -6,6 +6,7 @@ const UPDATE_MANAGER_TAB_IDS = {
   autoUpdates: 'updateManagerAutoUpdatesTab',
   history: 'updateManagerHistoryTab',
 };
+const UPDATE_MANAGER_REQUEST_TIMEOUT_MS = 15000;
 
 function formatTimestamp(value, fallback = 'Not checked yet') {
   if (!value) {
@@ -884,7 +885,21 @@ export function createUpdateManagerController(ctx, deps) {
     });
 
     try {
-      const response = await fetch(`/api/update-manager?history_limit=25${refresh ? '&refresh=1' : ''}`, { credentials: 'include' });
+      const controller = typeof AbortController === 'function' ? new AbortController() : null;
+      const timeoutId = controller
+        ? window.setTimeout(() => controller.abort(), UPDATE_MANAGER_REQUEST_TIMEOUT_MS)
+        : null;
+      let response;
+      try {
+        response = await fetch(`/api/update-manager?history_limit=25${refresh ? '&refresh=1' : ''}`, {
+          credentials: 'include',
+          ...(controller ? { signal: controller.signal } : {}),
+        });
+      } finally {
+        if (timeoutId !== null) {
+          window.clearTimeout(timeoutId);
+        }
+      }
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(payload.message || `Unable to load update manager (${response.status}).`);
@@ -898,14 +913,17 @@ export function createUpdateManagerController(ctx, deps) {
       if (token !== requestToken) {
         return;
       }
+      const failureMessage = error?.name === 'AbortError'
+        ? 'Update manager request timed out. Docker or registry metadata may be responding too slowly.'
+        : (error.message || 'Unable to load update manager.');
       ctx.elements.updateManagerMeta.textContent = 'Update manager unavailable';
       ctx.elements.updateManagerProjectList.innerHTML = renderPlaceholder('Unable to load update candidates.');
       ctx.elements.updateManagerContainerList.innerHTML = renderPlaceholder('Unable to load update candidates.');
       ctx.elements.updateManagerAutoList.innerHTML = renderPlaceholder('Unable to load auto-update targets.');
       ctx.elements.updateManagerHistoryList.innerHTML = renderPlaceholder('Unable to load update history.');
-      setManagerStatus(error.message || 'Unable to load update manager.', 'danger');
+      setManagerStatus(failureMessage, 'danger');
       if (options.throwOnError) {
-        throw error;
+        throw error?.name === 'AbortError' ? new Error(failureMessage) : error;
       }
     } finally {
       if (token === requestToken) {

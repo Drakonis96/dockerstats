@@ -156,6 +156,111 @@ def test_list_update_targets_uses_cached_details_without_marking_ready_updates_b
     assert candidate['latest_version'].startswith('redis:7 @ ')
 
 
+def test_container_version_info_for_list_avoids_live_lookup_on_cache_miss(temp_db, monkeypatch):
+    container = FakeContainer('cid-cache', 'cache', 'redis:7', image_id='sha256:cache-old')
+
+    def fail_live_lookup(*_args, **_kwargs):
+        raise AssertionError('inventory rendering should not trigger live registry lookups')
+
+    monkeypatch.setattr(update_manager, '_container_version_info', fail_live_lookup)
+    monkeypatch.setattr(sampler, 'update_check_cache', {'cid-cache': True})
+    monkeypatch.setattr(sampler, 'update_check_details_cache', {})
+
+    details = update_manager._container_version_info_for_list(container, client=None)
+
+    assert details['current_version'] == 'redis:7 @ cache-old'
+    assert details['latest_version'].startswith('redis:7 @ update-avail')
+    assert details['current_image_id'] == 'sha256:cache-old'
+    assert details['error'] == 'cache-miss'
+
+
+def test_list_update_targets_reuses_candidate_inventory_for_auto_updates(temp_db, monkeypatch):
+    container = FakeContainer('cid-cache', 'cache', 'redis:7')
+    client = FakeDockerClient(FakeContainersManager(list_sequences=[[container]]))
+    build_calls = []
+
+    def fake_build(containers, _client, only_update_available=False):
+        build_calls.append({
+            'containers': [item.id for item in containers],
+            'only_update_available': only_update_available,
+        })
+        return (
+            [
+                {
+                    'id': 'project:demo',
+                    'target_id': 'demo',
+                    'name': 'demo',
+                    'type': 'project',
+                    'current_version': 'web=nginx:1.25 @ old',
+                    'latest_version': 'web=nginx:1.25 @ new',
+                    'update_available': True,
+                    'update_state': 'ready',
+                    'state_reason': None,
+                    'last_checked_at': 100.0,
+                    'entries': [],
+                    'meta': {},
+                },
+                {
+                    'id': 'project:blocked',
+                    'target_id': 'blocked',
+                    'name': 'blocked',
+                    'type': 'project',
+                    'current_version': 'api=my-api:1.0 @ old',
+                    'latest_version': 'api=my-api:1.1 @ new',
+                    'update_available': True,
+                    'update_state': 'blocked',
+                    'state_reason': 'missing compose files',
+                    'last_checked_at': 99.0,
+                    'entries': [],
+                    'meta': {},
+                },
+            ],
+            [
+                {
+                    'id': 'container:cid-cache',
+                    'target_id': 'cid-cache',
+                    'name': 'cache',
+                    'type': 'container',
+                    'current_version': 'redis:7 @ old',
+                    'latest_version': 'redis:7 @ new',
+                    'update_available': True,
+                    'update_state': 'ready',
+                    'state_reason': None,
+                    'last_checked_at': 101.0,
+                    'entries': [],
+                    'meta': {},
+                },
+                {
+                    'id': 'container:cid-monitor',
+                    'target_id': 'cid-monitor',
+                    'name': 'monitor',
+                    'type': 'container',
+                    'current_version': 'busybox:1.36 @ old',
+                    'latest_version': 'busybox:1.36 @ old',
+                    'update_available': False,
+                    'update_state': 'ready',
+                    'state_reason': None,
+                    'last_checked_at': 98.0,
+                    'entries': [],
+                    'meta': {},
+                },
+            ],
+        )
+
+    monkeypatch.setattr(update_manager, 'get_docker_client', lambda: client)
+    monkeypatch.setattr(update_manager, '_build_candidate_collections', fake_build)
+    monkeypatch.setattr(update_manager, 'get_auto_update_settings', lambda: {'containers': {}, 'projects': {}})
+    monkeypatch.setattr(update_manager, 'list_latest_successful_update_timestamps', lambda: {})
+    monkeypatch.setattr(update_manager, 'list_update_history', lambda limit=100: [])
+
+    payload = update_manager.list_update_targets(history_limit=5)
+
+    assert build_calls == [{'containers': ['cid-cache'], 'only_update_available': False}]
+    assert [item['name'] for item in payload['projects']] == ['demo', 'blocked']
+    assert [item['name'] for item in payload['containers']] == ['cache']
+    assert [item['name'] for item in payload['auto_updates']] == ['demo', 'cache', 'monitor']
+
+
 def test_list_update_targets_marks_portainer_managed_projects_as_ready_for_external_safe_recreate(temp_db, monkeypatch):
     labels = {
         'com.docker.compose.project': 'portainer-demo',

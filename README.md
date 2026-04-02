@@ -131,7 +131,7 @@ It also mounts:
 | `APP_SECRET_KEY` | Session secret | generated if missing |
 | `APP_SECRET_KEY_FILE` | Secret file alternative | empty |
 | `LOGIN_MODE` | Login flow: `popup` or `page` | `popup` |
-| `APP_VERSION` | Version shown in the UI footer | repository `VERSION` file (`v0.9.11`) |
+| `APP_VERSION` | Version shown in the UI footer | repository `VERSION` file (`v0.9.12`) |
 | `DOCKER_SOCKET_URL` | Docker socket URL | `unix:///var/run/docker.sock` |
 | `CADVISOR_URL` | cAdvisor endpoint | `http://cadvisor:8080` |
 | `GPU_METRICS_ENABLED` | Enables GPU collection | `true` in bundled compose |

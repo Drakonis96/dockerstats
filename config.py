@@ -29,7 +29,7 @@ def _read_secret(env_name, file_env_name=None, default=""):
     return os.environ.get(env_name, default).strip()
 
 
-def _read_default_app_version(default="v0.9.11"):
+def _read_default_app_version(default="v0.9.12"):
     try:
         with open(VERSION_FILE, "r", encoding="utf-8") as handle:
             value = handle.read().strip()

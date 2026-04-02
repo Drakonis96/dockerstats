@@ -3,6 +3,7 @@ import { setStatusMessage } from './helpers.js';
 export function createUserController(ctx, deps) {
   let hideSettingsModalTimer = null;
   let pendingSettingsModalOpen = false;
+  let pendingSettingsModalFrame = null;
 
   function forceHideModal(modalElement) {
     if (!modalElement?.classList.contains('show')) {
@@ -35,6 +36,32 @@ export function createUserController(ctx, deps) {
       hideSettingsModalTimer = null;
       forceHideModal(modalElement);
     }, 250);
+  }
+
+  function cancelPendingSettingsModalOpen() {
+    if (pendingSettingsModalFrame !== null) {
+      window.cancelAnimationFrame(pendingSettingsModalFrame);
+      pendingSettingsModalFrame = null;
+    }
+  }
+
+  function flushPendingSettingsModalOpen() {
+    const modalElement = ctx.elements.settingsModalEl;
+    const modal = ctx.state.settingsModal;
+    if (!pendingSettingsModalOpen || !modalElement || !modal) {
+      cancelPendingSettingsModalOpen();
+      return;
+    }
+
+    const transitionInProgress = Boolean(modal._isTransitioning) || window.getComputedStyle(modalElement).display !== 'none';
+    if (transitionInProgress) {
+      pendingSettingsModalFrame = window.requestAnimationFrame(flushPendingSettingsModalOpen);
+      return;
+    }
+
+    pendingSettingsModalOpen = false;
+    cancelPendingSettingsModalOpen();
+    modal.show();
   }
 
   function updateUserInfoLabel(user) {
@@ -327,19 +354,17 @@ export function createUserController(ctx, deps) {
 
     const transitionInProgress = Boolean(modal._isTransitioning) || window.getComputedStyle(modalElement).display !== 'none';
     if (transitionInProgress) {
-      if (pendingSettingsModalOpen) {
+      if (pendingSettingsModalOpen && pendingSettingsModalFrame !== null) {
         return;
       }
       pendingSettingsModalOpen = true;
-      modalElement.addEventListener('hidden.bs.modal', () => {
-        pendingSettingsModalOpen = false;
-        requestAnimationFrame(() => modal.show());
-      }, { once: true });
+      pendingSettingsModalFrame = window.requestAnimationFrame(flushPendingSettingsModalOpen);
       return;
     }
 
     pendingSettingsModalOpen = false;
-    requestAnimationFrame(() => modal.show());
+    cancelPendingSettingsModalOpen();
+    modal.show();
   }
 
   function init() {

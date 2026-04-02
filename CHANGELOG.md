@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.9.12
+
+- Prevented Update Manager inventory rendering from falling back to live registry lookups when sampler cache details are missing, which keeps the modal responsive on slow or unreachable registries.
+- Reused the already-built update candidate inventory for the auto-update tab so ready targets still appear there even when they do not currently have a pending update.
+- Added a 15 second timeout to Update Manager fetches in the dashboard and surface a clearer error when Docker or registry metadata takes too long to respond.
+
 ## v0.9.11
 
 - Added a dedicated Auto-Update Management tab to the Update Manager with per-item enable and disable controls, support-aware inventory, and last update timestamps.
