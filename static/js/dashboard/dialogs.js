@@ -2,6 +2,7 @@ export function createDialogController(ctx) {
   let currentResolver = null;
   let currentResult = false;
   let hiddenHandlerBound = false;
+  let pendingHideAfterShow = false;
 
   function ensureModal() {
     if (!ctx.state.appDialogModal && ctx.elements.appDialogModalEl) {
@@ -16,6 +17,12 @@ export function createDialogController(ctx) {
           currentResolver = null;
           currentResult = false;
           resolver(result);
+        }
+      });
+      ctx.elements.appDialogModalEl.addEventListener('shown.bs.modal', () => {
+        if (pendingHideAfterShow) {
+          pendingHideAfterShow = false;
+          ctx.state.appDialogModal?.hide();
         }
       });
       hiddenHandlerBound = true;
@@ -58,6 +65,10 @@ export function createDialogController(ctx) {
 
       const confirmHandler = () => {
         currentResult = true;
+        if (ctx.state.appDialogModal?._isTransitioning) {
+          pendingHideAfterShow = true;
+          return;
+        }
         ctx.state.appDialogModal.hide();
       };
 

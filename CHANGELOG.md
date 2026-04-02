@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.9.9
+
+### Added
+- Added per-target selection checkboxes to the Update Manager for both Compose stacks and standalone containers, including `Shift` range selection and dedicated `Update selected` actions in each tab.
+
+### Changed
+- Batch updates now add their history entries locally as each target completes, so the history tab reflects successful or failed items immediately instead of waiting for the final inventory refresh.
+- Reorganized the README into a cleaner product-style structure with clearer feature areas, quick start guidance, configuration tables, update-manager notes, and notification setup sections.
+
+### Fixed
+- Hardened the shared confirmation modal so confirm actions requested during the opening transition still close cleanly and continue into the requested update workflow.
+- Stabilized the end-to-end update-manager coverage around modal transitions and the new selected-update flow.
+
 ## v0.9.8
 
 ### Added

@@ -157,11 +157,28 @@ function renderSummaryVersion(value) {
   `;
 }
 
-function renderTargetEntry(item, index, groupKey) {
+function renderTargetEntry(item, index, groupKey, options = {}) {
+  const {
+    selected = false,
+  } = options;
   const state = String(item.update_state || '').toLowerCase() || 'pending';
   const meta = item.meta || {};
   const panelId = `update-entry-panel-${groupKey}-${index}`;
   const isExternalSafeUpdate = meta.update_strategy === 'external_project_safe_recreate';
+  const selectionControl = state === 'ready'
+    ? `
+      <div class="update-entry-select-slot">
+        <input
+          type="checkbox"
+          class="form-check-input update-entry-select"
+          data-update-select-type="${escapeHtml(item.type)}"
+          data-update-select-id="${escapeHtml(item.target_id)}"
+          aria-label="Select ${escapeHtml(formatTargetType(item.type).toLowerCase())} ${escapeHtml(item.name)} for batch update"
+          ${selected ? 'checked' : ''}
+        >
+      </div>
+    `
+    : '<div class="update-entry-select-slot" aria-hidden="true"></div>';
   const quickAction = state === 'ready'
     ? `
       <button type="button" class="btn btn-outline-primary btn-sm update-target-btn update-target-btn--quick" data-update-target-type="${escapeHtml(item.type)}" data-update-target-id="${escapeHtml(item.target_id)}" data-update-strategy="${escapeHtml(meta.update_strategy || '')}">
@@ -188,8 +205,9 @@ function renderTargetEntry(item, index, groupKey) {
     : '';
 
   return `
-    <article class="update-entry" data-target-type="${escapeHtml(item.type)}" data-update-state="${escapeHtml(state)}">
+    <article class="update-entry ${selected ? 'is-selected' : ''}" data-target-type="${escapeHtml(item.type)}" data-target-id="${escapeHtml(item.target_id)}" data-update-state="${escapeHtml(state)}">
       <div class="update-entry-head">
+        ${selectionControl}
         <button
           type="button"
           class="update-entry-toggle"
@@ -293,13 +311,18 @@ function renderHistoryEntry(entry, index) {
   `;
 }
 
-function renderTargetList(items = [], emptyMessage, groupKey) {
+function renderTargetList(items = [], emptyMessage, groupKey, options = {}) {
+  const {
+    isSelected = () => false,
+  } = options;
   if (!Array.isArray(items) || items.length === 0) {
     return renderPlaceholder(emptyMessage);
   }
   return `
     <div class="update-entry-stack">
-      ${items.map((item, index) => renderTargetEntry(item, index, groupKey)).join('')}
+      ${items.map((item, index) => renderTargetEntry(item, index, groupKey, {
+        selected: isSelected(item),
+      })).join('')}
     </div>
   `;
 }
@@ -318,12 +341,38 @@ function renderHistoryList(items = [], emptyMessage) {
 export function createUpdateManagerController(ctx, deps) {
   let requestToken = 0;
   let actionModalHideTimer = null;
+  let activeBatchButtons = new Set();
+  const selectionState = {
+    project: new Set(),
+    container: new Set(),
+  };
+  const selectionAnchors = {
+    project: null,
+    container: null,
+  };
 
   function getCollectionLabel(targetType, { plural = false } = {}) {
     if (targetType === 'project') {
       return plural ? 'stacks' : 'stack';
     }
     return plural ? 'containers' : 'container';
+  }
+
+  function getSelectionSet(targetType) {
+    return selectionState[targetType === 'project' ? 'project' : 'container'];
+  }
+
+  function getSelectionAnchor(targetType) {
+    return selectionAnchors[targetType === 'project' ? 'project' : 'container'];
+  }
+
+  function setSelectionAnchor(targetType, targetId) {
+    selectionAnchors[targetType === 'project' ? 'project' : 'container'] = targetId || null;
+  }
+
+  function clearSelection(targetType) {
+    getSelectionSet(targetType).clear();
+    setSelectionAnchor(targetType, null);
   }
 
   function ensureModal() {
@@ -373,6 +422,26 @@ export function createUpdateManagerController(ctx, deps) {
     return (Array.isArray(source) ? source : []).filter((item) => String(item.update_state || '').toLowerCase() === 'ready');
   }
 
+  function getSelectedTargets(targetType) {
+    const selectedIds = getSelectionSet(targetType);
+    return getReadyTargets(targetType).filter((item) => selectedIds.has(item.target_id));
+  }
+
+  function pruneSelections() {
+    ['project', 'container'].forEach((targetType) => {
+      const validIds = new Set(getReadyTargets(targetType).map((item) => item.target_id));
+      const selection = getSelectionSet(targetType);
+      Array.from(selection).forEach((targetId) => {
+        if (!validIds.has(targetId)) {
+          selection.delete(targetId);
+        }
+      });
+      if (!validIds.has(getSelectionAnchor(targetType))) {
+        setSelectionAnchor(targetType, null);
+      }
+    });
+  }
+
   function renderBulkButtonMarkup(targetType, count) {
     const pluralLabel = getCollectionLabel(targetType, { plural: true });
     const suffix = count > 0 ? ` (${count})` : '';
@@ -382,18 +451,34 @@ export function createUpdateManagerController(ctx, deps) {
     `;
   }
 
-  function syncBulkActionButtons({ activeButton = null } = {}) {
+  function renderSelectedButtonMarkup(targetType, count) {
+    const pluralLabel = getCollectionLabel(targetType, { plural: true });
+    const suffix = count > 0 ? ` (${count})` : '';
+    return `
+      <i class="bi bi-check2-square" aria-hidden="true"></i>
+      <span>Update selected ${escapeHtml(pluralLabel)}${escapeHtml(suffix)}</span>
+    `;
+  }
+
+  function syncBatchActionButtons({ activeButtons = new Set() } = {}) {
+    const lockedButtons = activeButtons.size > 0 ? activeButtons : activeBatchButtons;
     const buttonMap = [
-      ['project', ctx.elements.updateAllProjectsBtn],
-      ['container', ctx.elements.updateAllContainersBtn],
+      ['project', 'all', ctx.elements.updateAllProjectsBtn],
+      ['project', 'selected', ctx.elements.updateSelectedProjectsBtn],
+      ['container', 'all', ctx.elements.updateAllContainersBtn],
+      ['container', 'selected', ctx.elements.updateSelectedContainersBtn],
     ];
 
-    buttonMap.forEach(([targetType, button]) => {
-      if (!button || button === activeButton) {
+    buttonMap.forEach(([targetType, mode, button]) => {
+      if (!button || lockedButtons.has(button)) {
         return;
       }
-      const count = getReadyTargets(targetType).length;
-      button.innerHTML = renderBulkButtonMarkup(targetType, count);
+      const count = mode === 'selected'
+        ? getSelectedTargets(targetType).length
+        : getReadyTargets(targetType).length;
+      button.innerHTML = mode === 'selected'
+        ? renderSelectedButtonMarkup(targetType, count)
+        : renderBulkButtonMarkup(targetType, count);
       button.disabled = count === 0 || ctx.state.updateManagerLoading || ctx.state.updateManagerActionBusy;
     });
   }
@@ -405,7 +490,7 @@ export function createUpdateManagerController(ctx, deps) {
     if (ctx.elements.updateManagerHideBlocked) {
       ctx.elements.updateManagerHideBlocked.disabled = ctx.state.updateManagerActionBusy;
     }
-    syncBulkActionButtons(options);
+    syncBatchActionButtons(options);
   }
 
   function setActionModalClosable(enabled) {
@@ -496,6 +581,7 @@ export function createUpdateManagerController(ctx, deps) {
 
   function renderPayload(payload) {
     ctx.state.updateManagerPayload = payload;
+    pruneSelections();
     const projects = Array.isArray(payload.projects) ? payload.projects : [];
     const containers = Array.isArray(payload.containers) ? payload.containers : [];
     const history = Array.isArray(payload.history) ? payload.history : [];
@@ -517,6 +603,9 @@ export function createUpdateManagerController(ctx, deps) {
         ? 'No unblocked Compose stacks currently have a confirmed update available.'
         : 'No Compose stacks currently have a confirmed update available.',
       'projects',
+      {
+        isSelected: (item) => getSelectionSet('project').has(item.target_id),
+      },
     );
     ctx.elements.updateManagerContainerList.innerHTML = renderTargetList(
       visibleContainers,
@@ -524,6 +613,9 @@ export function createUpdateManagerController(ctx, deps) {
         ? 'No unblocked standalone containers currently have a confirmed update available.'
         : 'No standalone containers currently have a confirmed update available.',
       'containers',
+      {
+        isSelected: (item) => getSelectionSet('container').has(item.target_id),
+      },
     );
     ctx.elements.updateManagerHistoryList.innerHTML = renderHistoryList(history, 'No updates or rollbacks have been recorded yet.');
     syncActionLockState();
@@ -537,9 +629,60 @@ export function createUpdateManagerController(ctx, deps) {
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok || !payload.ok) {
-      throw new Error(payload.message || `Update failed for ${targetId}.`);
+      const error = new Error(payload.message || `Update failed for ${targetId}.`);
+      error.historyEntry = payload.history_entry || null;
+      throw error;
     }
     return payload;
+  }
+
+  function normalizeHistoryEntry(entry = {}) {
+    const metadata = entry.metadata || {};
+    return {
+      ...entry,
+      can_rollback: (
+        entry.action === 'update'
+        && entry.result === 'success'
+        && Boolean(metadata.rollback_ready)
+        && !entry.rollback_of
+      ),
+    };
+  }
+
+  function removeTargetFromPayload(targetType, targetId) {
+    const payload = ctx.state.updateManagerPayload;
+    if (!payload) {
+      return;
+    }
+    const collectionKey = targetType === 'project' ? 'projects' : 'containers';
+    payload[collectionKey] = (Array.isArray(payload[collectionKey]) ? payload[collectionKey] : [])
+      .filter((item) => item.target_id !== targetId);
+    getSelectionSet(targetType).delete(targetId);
+    if (getSelectionAnchor(targetType) === targetId) {
+      setSelectionAnchor(targetType, null);
+    }
+  }
+
+  function prependHistoryEntry(entry) {
+    if (!entry || !ctx.state.updateManagerPayload) {
+      return;
+    }
+    const payload = ctx.state.updateManagerPayload;
+    payload.history = [
+      normalizeHistoryEntry(entry),
+      ...(Array.isArray(payload.history) ? payload.history : []),
+    ].slice(0, 25);
+  }
+
+  function applyLocalManagedActionUpdate(targetType, targetId, historyEntry) {
+    if (!ctx.state.updateManagerPayload) {
+      return;
+    }
+    if (historyEntry) {
+      prependHistoryEntry(historyEntry);
+    }
+    removeTargetFromPayload(targetType, targetId);
+    renderPayload(ctx.state.updateManagerPayload);
   }
 
   async function refreshAfterManagedAction(title, detail) {
@@ -686,6 +829,64 @@ export function createUpdateManagerController(ctx, deps) {
     setEntryExpanded(toggleButton, !expanded);
   }
 
+  function getListElementForType(targetType) {
+    return targetType === 'project'
+      ? ctx.elements.updateManagerProjectList
+      : ctx.elements.updateManagerContainerList;
+  }
+
+  function getVisibleSelectableIds(targetType) {
+    const listElement = getListElementForType(targetType);
+    if (!listElement) {
+      return [];
+    }
+    return Array.from(listElement.querySelectorAll(`.update-entry-select[data-update-select-type="${targetType}"]`))
+      .filter((checkbox) => !checkbox.disabled)
+      .map((checkbox) => checkbox.dataset.updateSelectId)
+      .filter(Boolean);
+  }
+
+  function handleSelectionToggle(checkbox, shiftKey) {
+    const targetType = checkbox.dataset.updateSelectType;
+    const targetId = checkbox.dataset.updateSelectId;
+    if (!targetType || !targetId) {
+      return;
+    }
+
+    const selection = getSelectionSet(targetType);
+    const shouldSelect = checkbox.checked;
+
+    if (shiftKey) {
+      const anchorId = getSelectionAnchor(targetType);
+      const visibleIds = getVisibleSelectableIds(targetType);
+      const anchorIndex = visibleIds.indexOf(anchorId);
+      const targetIndex = visibleIds.indexOf(targetId);
+      if (anchorIndex !== -1 && targetIndex !== -1) {
+        const [start, end] = anchorIndex < targetIndex
+          ? [anchorIndex, targetIndex]
+          : [targetIndex, anchorIndex];
+        visibleIds.slice(start, end + 1).forEach((visibleId) => {
+          if (shouldSelect) {
+            selection.add(visibleId);
+          } else {
+            selection.delete(visibleId);
+          }
+        });
+      } else if (shouldSelect) {
+        selection.add(targetId);
+      } else {
+        selection.delete(targetId);
+      }
+    } else if (shouldSelect) {
+      selection.add(targetId);
+    } else {
+      selection.delete(targetId);
+    }
+
+    setSelectionAnchor(targetType, targetId);
+    renderPayload(ctx.state.updateManagerPayload || {});
+  }
+
   async function executeManagedAction({
     title,
     button,
@@ -694,6 +895,7 @@ export function createUpdateManagerController(ctx, deps) {
     successHeading,
     failureHeading,
     request,
+    afterSuccess,
   }) {
     if (ctx.state.updateManagerActionBusy) {
       return;
@@ -715,6 +917,9 @@ export function createUpdateManagerController(ctx, deps) {
 
     try {
       const payload = await request();
+      if (typeof afterSuccess === 'function') {
+        afterSuccess(payload);
+      }
       const successMessage = payload.message || successHeading;
       setStatusMessage(ctx, successMessage, 'success');
       const refreshWarning = await refreshAfterManagedAction(title, successMessage);
@@ -730,6 +935,10 @@ export function createUpdateManagerController(ctx, deps) {
       });
       setManagerStatus(successMessage, refreshWarning ? 'warning' : 'success');
     } catch (error) {
+      if (error.historyEntry) {
+        prependHistoryEntry(error.historyEntry);
+        renderPayload(ctx.state.updateManagerPayload || {});
+      }
       const failureMessage = error.message || failureHeading;
       setActionModalState({
         title,
@@ -775,28 +984,35 @@ export function createUpdateManagerController(ctx, deps) {
       successHeading: 'Update completed',
       failureHeading: 'Update failed',
       request: () => requestUpdateTarget(targetType, targetId),
+      afterSuccess: (payload) => applyLocalManagedActionUpdate(targetType, targetId, payload.history_entry),
     });
   }
 
-  async function executeBulkUpdate(targetType, button) {
+  async function executeBatchUpdate(targetType, button, targets, options = {}) {
     if (ctx.state.updateManagerActionBusy) {
       return;
     }
 
-    const targets = getReadyTargets(targetType);
+    const selectionMode = options.selectionMode === 'selected' ? 'selected' : 'all';
     const pluralLabel = getCollectionLabel(targetType, { plural: true });
     const singularLabel = getCollectionLabel(targetType);
     const completedLabel = getCollectionLabel(targetType, { plural: targets.length !== 1 });
+    const actionLabel = selectionMode === 'selected'
+      ? `selected ${pluralLabel}`
+      : `all ${pluralLabel}`;
 
     if (targets.length === 0) {
-      setManagerStatus(`No update-ready ${pluralLabel} are available right now.`, 'warning');
+      const emptyLabel = selectionMode === 'selected'
+        ? `No ${pluralLabel} are currently selected.`
+        : `No update-ready ${pluralLabel} are available right now.`;
+      setManagerStatus(emptyLabel, 'warning');
       return;
     }
 
     const confirmed = await deps.confirmAction({
-      title: `Update all ${pluralLabel}`,
-      message: `Docker Stats will update ${targets.length} ${pluralLabel} sequentially for safety. Each ${singularLabel} keeps its normal safe update workflow, and failures will be recorded while the remaining targets continue.`,
-      confirmLabel: `Update all ${pluralLabel}`,
+      title: `Update ${selectionMode === 'selected' ? 'selected' : 'all'} ${pluralLabel}`,
+      message: `Docker Stats will update ${targets.length} ${selectionMode === 'selected' ? 'selected ' : ''}${pluralLabel} sequentially for safety. Each ${singularLabel} keeps its normal safe update workflow, and failures will be recorded while the remaining targets continue.`,
+      confirmLabel: `Update ${selectionMode === 'selected' ? 'selected' : 'all'} ${pluralLabel}`,
       cancelLabel: 'Cancel',
       tone: 'warning',
     });
@@ -811,17 +1027,18 @@ export function createUpdateManagerController(ctx, deps) {
     button.disabled = true;
     button.innerHTML = `
       <i class="bi bi-arrow-repeat spin-inline" aria-hidden="true"></i>
-      <span>Updating ${escapeHtml(pluralLabel)}...</span>
+      <span>Updating ${escapeHtml(actionLabel)}...</span>
     `;
-    syncActionLockState({ activeButton: button });
-    setManagerStatus(`Preparing sequential bulk update for ${targets.length} ${pluralLabel}…`, 'info');
+    activeBatchButtons = new Set([button]);
+    syncActionLockState({ activeButtons: activeBatchButtons });
+    setManagerStatus(`Preparing sequential update for ${targets.length} ${selectionMode === 'selected' ? 'selected ' : ''}${pluralLabel}…`, 'info');
     ensureActionModal()?.show();
 
     try {
       for (let index = 0; index < targets.length; index += 1) {
         const target = targets[index];
         setActionModalState({
-          title: `Updating ${pluralLabel}`,
+          title: `Updating ${actionLabel}`,
           state: 'pending',
           message: `Updating ${index + 1} of ${targets.length}: ${target.name}`,
           detail: [
@@ -837,30 +1054,35 @@ export function createUpdateManagerController(ctx, deps) {
             name: target.name,
             message: payload.message || `${formatTargetType(target.type)} updated successfully.`,
           });
+          applyLocalManagedActionUpdate(target.type, target.target_id, payload.history_entry);
         } catch (error) {
           failures.push({
             name: target.name,
             message: error.message || `Update failed for ${target.name}.`,
           });
+          if (error.historyEntry) {
+            prependHistoryEntry(error.historyEntry);
+            renderPayload(ctx.state.updateManagerPayload || {});
+          }
           setManagerStatus(
-            `Bulk update hit a failure on ${target.name}. Docker Stats will continue with the remaining ${pluralLabel}.`,
+            `Batch update hit a failure on ${target.name}. Docker Stats will continue with the remaining ${pluralLabel}.`,
             'warning',
           );
         }
       }
 
       const refreshWarning = await refreshAfterManagedAction(
-        `Updating ${pluralLabel}`,
+        `Updating ${actionLabel}`,
         `${successes.length} succeeded, ${failures.length} failed.`,
       );
       const detail = formatBulkResultDetail(targetType, successes, failures, refreshWarning);
       const hadFailures = failures.length > 0;
       const summaryMessage = hadFailures
-        ? `Bulk update finished with ${failures.length} failure(s).`
+        ? `Batch update finished with ${failures.length} failure(s).`
         : `Updated ${targets.length} ${completedLabel} successfully.`;
 
       setActionModalState({
-        title: hadFailures ? `Bulk update finished with errors` : 'Bulk update completed',
+        title: hadFailures ? 'Batch update finished with errors' : 'Batch update completed',
         state: hadFailures ? 'failure' : 'success',
         message: summaryMessage,
         detail,
@@ -868,23 +1090,36 @@ export function createUpdateManagerController(ctx, deps) {
       setManagerStatus(summaryMessage, hadFailures ? 'warning' : 'success');
       setStatusMessage(ctx, summaryMessage, hadFailures ? 'warning' : 'success');
     } catch (error) {
-      const failureMessage = error.message || `Unable to update all ${pluralLabel}.`;
+      const failureMessage = error.message || `Unable to update ${actionLabel}.`;
       setActionModalState({
-        title: `Updating ${pluralLabel}`,
+        title: `Updating ${actionLabel}`,
         state: 'failure',
-        message: `Bulk update failed`,
+        message: 'Batch update failed',
         detail: failureMessage,
       });
       setManagerStatus(failureMessage, 'danger');
       setStatusMessage(ctx, failureMessage, 'danger');
     } finally {
       ctx.state.updateManagerActionBusy = false;
+      activeBatchButtons = new Set();
       if (button.isConnected) {
         button.disabled = false;
         button.innerHTML = originalMarkup;
       }
       syncActionLockState();
     }
+  }
+
+  async function executeBulkUpdate(targetType, button) {
+    await executeBatchUpdate(targetType, button, getReadyTargets(targetType), {
+      selectionMode: 'all',
+    });
+  }
+
+  async function executeSelectedUpdate(targetType, button) {
+    await executeBatchUpdate(targetType, button, getSelectedTargets(targetType), {
+      selectionMode: 'selected',
+    });
   }
 
   async function executeRollback(historyId, button) {
@@ -937,6 +1172,13 @@ export function createUpdateManagerController(ctx, deps) {
   }
 
   function handleModalClick(event) {
+    const selectionInput = event.target.closest('[data-update-select-type][data-update-select-id]');
+    if (selectionInput) {
+      event.stopPropagation();
+      handleSelectionToggle(selectionInput, event.shiftKey);
+      return;
+    }
+
     const toggleButton = event.target.closest('[data-update-entry-toggle]');
     if (toggleButton) {
       toggleEntry(toggleButton);
@@ -973,7 +1215,9 @@ export function createUpdateManagerController(ctx, deps) {
       openModal(event);
     });
     ctx.elements.refreshUpdateManagerBtn?.addEventListener('click', () => loadTargets({ refresh: true }));
+    ctx.elements.updateSelectedProjectsBtn?.addEventListener('click', () => executeSelectedUpdate('project', ctx.elements.updateSelectedProjectsBtn));
     ctx.elements.updateAllProjectsBtn?.addEventListener('click', () => executeBulkUpdate('project', ctx.elements.updateAllProjectsBtn));
+    ctx.elements.updateSelectedContainersBtn?.addEventListener('click', () => executeSelectedUpdate('container', ctx.elements.updateSelectedContainersBtn));
     ctx.elements.updateAllContainersBtn?.addEventListener('click', () => executeBulkUpdate('container', ctx.elements.updateAllContainersBtn));
     ctx.elements.updateManagerHideBlocked?.addEventListener('change', () => {
       ctx.state.updateManagerHideBlocked = ctx.elements.updateManagerHideBlocked.checked;
@@ -995,6 +1239,11 @@ export function createUpdateManagerController(ctx, deps) {
     });
     ctx.elements.updateManagerModalEl?.addEventListener('click', handleModalClick);
     ctx.elements.updateManagerModalEl?.addEventListener('hidden.bs.modal', () => {
+      clearSelection('project');
+      clearSelection('container');
+      if (ctx.state.updateManagerPayload) {
+        renderPayload(ctx.state.updateManagerPayload);
+      }
       setManagerStatus('');
     });
     syncActionLockState();

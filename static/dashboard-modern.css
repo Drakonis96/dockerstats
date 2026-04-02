@@ -1133,9 +1133,14 @@ nav.navbar {
   box-shadow: 0 16px 32px rgba(15, 41, 33, 0.08);
 }
 
+.update-entry.is-selected {
+  border-color: rgba(21, 111, 99, 0.28);
+  box-shadow: 0 0 0 1px rgba(21, 111, 99, 0.12), 0 16px 34px rgba(15, 41, 33, 0.08);
+}
+
 .update-entry-head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: stretch;
   gap: 0.75rem;
   padding: 0.8rem 0.9rem;
@@ -1157,6 +1162,18 @@ nav.navbar {
   text-align: left;
   color: inherit;
   padding: 0;
+}
+
+.update-entry-select-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+}
+
+.update-entry-select {
+  margin: 0;
+  cursor: pointer;
 }
 
 .update-entry-toggle:focus-visible {
@@ -2120,7 +2137,12 @@ nav.navbar {
   }
 
   .update-entry-head {
-    grid-template-columns: 1fr;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .update-entry-head .update-target-btn--quick {
+    grid-column: 1 / -1;
+    justify-self: start;
   }
 
   .hero-cards-grid {

@@ -222,6 +222,7 @@ test('handles password change and user creation from settings modal', async ({ p
   await page.locator('#confirmPassword').fill('changed-pass');
   await page.locator('#savePasswordBtn').click();
   await expect(page.locator('#statusMessageArea')).toContainText('Password changed successfully.');
+  await expect(page.locator('#settingsModal')).not.toHaveClass(/show/);
   await expect.poll(async () => page.locator('body').evaluate((node) => node.classList.contains('modal-open'))).toBe(false);
 
   await page.locator('#settingsBtn').click();
@@ -353,7 +354,7 @@ test('opens the update manager, runs update and rollback, and shows load errors'
   await updateButton.click();
   await expect(page.locator('#appDialogModal')).toHaveClass(/show/);
   await page.locator('#appDialogConfirm').click();
-  await expect(page.locator('#appDialogModal')).not.toHaveClass(/show/);
+  await expect(page.locator('#appDialogModal')).toBeHidden();
   await expect(page.locator('#updateManagerActionModal')).toHaveClass(/show/);
   await expect(page.locator('#updateManagerActionState')).toContainText('Success');
   await expect(page.locator('#updateManagerActionMessage')).toContainText('Update completed');
@@ -382,7 +383,7 @@ test('opens the update manager, runs update and rollback, and shows load errors'
   await rollbackButton.click();
   await expect(page.locator('#appDialogModal')).toHaveClass(/show/);
   await page.locator('#appDialogConfirm').click();
-  await expect(page.locator('#appDialogModal')).not.toHaveClass(/show/);
+  await expect(page.locator('#appDialogModal')).toBeHidden();
   await expect(page.locator('#updateManagerActionModal')).toHaveClass(/show/);
   await expect(page.locator('#updateManagerActionState')).toContainText('Success');
   await expect(page.locator('#updateManagerActionMessage')).toContainText('Rollback completed');
@@ -424,12 +425,68 @@ test('updates all stacks and standalone containers sequentially from the update 
   await page.locator('#updateAllContainersBtn').click();
   await expect(page.locator('#appDialogModal')).toHaveClass(/show/);
   await page.locator('#appDialogConfirm').click();
+  await expect(page.locator('#updateManagerActionModal')).toHaveClass(/show/);
   await expect(page.locator('#updateManagerActionState')).toContainText('Success');
-  await expect(page.locator('#updateManagerActionMessage')).toContainText('Updated 1 container successfully.');
   await expect(page.locator('#updateManagerActionDetail')).toContainText('Sequential mode completed 1 container.');
   await expect(page.locator('#updateManagerActionDetail')).toContainText('Updated: cache');
+  await expect(page.locator('#statusMessageArea')).toContainText('Updated 1 container successfully.');
   await expect(page.locator('#updateManagerActionModal')).not.toHaveClass(/show/);
   await expect(page.locator('#updateManagerContainerList')).toContainText('No standalone containers');
   await expect(page.locator('#updateAllContainersBtn')).toBeDisabled();
   await expect(page.locator('#updateAllContainersBtn')).toContainText('Update all containers');
+});
+
+test('updates selected stacks and containers with shift-range selection in the update manager', async ({ page }) => {
+  await page.goto('/');
+
+  await page.locator('#updateManagerToggle').click();
+  await expect(page.locator('#updateManagerModal')).toHaveClass(/show/);
+  await expect(page.locator('#updateSelectedProjectsBtn')).toBeDisabled();
+  await expect(page.locator('#updateSelectedContainersBtn')).toBeDisabled();
+
+  const projectCheckboxes = page.locator('.update-entry-select[data-update-select-type="project"]');
+  await expect(projectCheckboxes).toHaveCount(2);
+  await projectCheckboxes.nth(0).click();
+  await expect(page.locator('#updateSelectedProjectsBtn')).toContainText('Update selected stacks (1)');
+  await projectCheckboxes.nth(1).click({ modifiers: ['Shift'] });
+  await expect(projectCheckboxes.nth(0)).toBeChecked();
+  await expect(projectCheckboxes.nth(1)).toBeChecked();
+  await expect(page.locator('#updateSelectedProjectsBtn')).toContainText('Update selected stacks (2)');
+
+  await page.locator('#updateSelectedProjectsBtn').click();
+  await expect(page.locator('#appDialogModal')).toHaveClass(/show/);
+  await page.locator('#appDialogConfirm').click();
+  await expect(page.locator('#updateManagerActionModal')).toHaveClass(/show/);
+  await expect(page.locator('#updateManagerActionState')).toContainText('Success');
+  await expect(page.locator('#updateManagerActionMessage')).toContainText('Updated 2 stacks successfully.');
+  await expect(page.locator('#updateManagerActionDetail')).toContainText('Updated: demo, jobs');
+  await expect(page.locator('#updateManagerActionModal')).not.toHaveClass(/show/);
+  await expect(page.locator('#updateManagerProjectList')).not.toContainText('demo');
+  await expect(page.locator('#updateManagerProjectList')).not.toContainText('jobs');
+  await expect(page.locator('#updateSelectedProjectsBtn')).toBeDisabled();
+
+  await page.locator('#updateManagerHistoryTab').click();
+  await expect(page.locator('#updateManagerHistoryList')).toContainText('demo');
+  await expect(page.locator('#updateManagerHistoryList')).toContainText('jobs');
+
+  await page.locator('#updateManagerContainersTab').click();
+  const containerCheckbox = page.locator('.update-entry-select[data-update-select-type="container"]').first();
+  await expect(containerCheckbox).toBeVisible();
+  await containerCheckbox.click();
+  await expect(containerCheckbox).toBeChecked();
+  await expect(page.locator('#updateSelectedContainersBtn')).toContainText('Update selected containers (1)');
+
+  await page.locator('#updateSelectedContainersBtn').click();
+  await expect(page.locator('#appDialogModal')).toHaveClass(/show/);
+  await page.locator('#appDialogConfirm').click();
+  await expect(page.locator('#updateManagerActionModal')).toHaveClass(/show/);
+  await expect(page.locator('#updateManagerActionState')).toContainText('Success');
+  await expect(page.locator('#updateManagerActionDetail')).toContainText('Updated: cache');
+  await expect(page.locator('#statusMessageArea')).toContainText('Updated 1 container successfully.');
+  await expect(page.locator('#updateManagerActionModal')).not.toHaveClass(/show/);
+  await expect(page.locator('#updateManagerContainerList')).toContainText('No standalone containers');
+  await expect(page.locator('#updateSelectedContainersBtn')).toBeDisabled();
+
+  await page.locator('#updateManagerHistoryTab').click();
+  await expect(page.locator('#updateManagerHistoryList')).toContainText('cache');
 });
