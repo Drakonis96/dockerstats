@@ -89,6 +89,93 @@ test('renders table, summaries and filters', async ({ page }) => {
   await expect(saveSettingsButton).toContainText('Save Settings');
 });
 
+test('keeps themed buttons readable and modals centered with internal scroll', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto('/');
+
+  const activeTabBackgroundBeforeHover = await page.locator('#dashboardContainersTab').evaluate((el) => getComputedStyle(el).backgroundImage);
+  await page.locator('#dashboardContainersTab').hover();
+  const activeTabStylesOnHover = await page.locator('#dashboardContainersTab').evaluate((el) => {
+    const styles = getComputedStyle(el);
+    const tabs = document.getElementById('dashboardViewTabs');
+    const tabStyles = tabs ? getComputedStyle(tabs) : null;
+    return {
+      color: styles.color,
+      backgroundImage: styles.backgroundImage,
+      alignSelf: tabStyles?.alignSelf ?? '',
+      marginTop: tabStyles?.marginTop ?? '',
+      marginBottom: tabStyles?.marginBottom ?? '',
+    };
+  });
+  expect(activeTabBackgroundBeforeHover).not.toBe('none');
+  expect(activeTabStylesOnHover.backgroundImage).not.toBe('none');
+  expect(activeTabStylesOnHover.color).toBe('rgb(247, 250, 248)');
+  expect(activeTabStylesOnHover.alignSelf).toBe('center');
+  expect(activeTabStylesOnHover.marginTop).toBe(activeTabStylesOnHover.marginBottom);
+
+  await page.locator('#themeToggle').click();
+  await expect.poll(async () => page.locator('body').evaluate((node) => node.getAttribute('data-bs-theme'))).toBe('dark');
+
+  const darkButtonStyles = await page.evaluate(() => {
+    const ids = [
+      'resetFiltersBtn',
+      'toggleRefreshBtn',
+      'notifToggle',
+      'updateManagerToggle',
+      'userInfoBtn',
+      'settingsBtn',
+      'themeToggle',
+    ];
+    return ids.map((id) => {
+      const node = document.getElementById(id);
+      const styles = node ? getComputedStyle(node) : null;
+      return {
+        id,
+        color: styles?.color ?? '',
+        backgroundColor: styles?.backgroundColor ?? '',
+        borderColor: styles?.borderColor ?? '',
+      };
+    });
+  });
+
+  for (const button of darkButtonStyles) {
+    expect(button.color).not.toBe('rgb(108, 117, 125)');
+    expect(button.color).not.toBe('rgb(148, 176, 162)');
+    expect(button.backgroundColor).not.toBe('rgba(0, 0, 0, 0)');
+    expect(button.borderColor).not.toBe('rgba(0, 0, 0, 0)');
+  }
+
+  await page.locator('#notifToggle').click();
+  await page.locator('#notifSettingsBtn').click();
+  await expect(page.locator('#notifSettingsModal')).toHaveClass(/show/);
+  const modalMetrics = await page.locator('#notifSettingsModal .modal-dialog').evaluate((dialog) => {
+    const body = dialog.querySelector('.modal-body');
+    const footer = dialog.querySelector('.modal-footer');
+    const rect = dialog.getBoundingClientRect();
+    const bodyStyles = body ? getComputedStyle(body) : null;
+    if (body) {
+      body.scrollTop = body.scrollHeight;
+    }
+    return {
+      dialogCenterX: rect.left + (rect.width / 2),
+      dialogCenterY: rect.top + (rect.height / 2),
+      viewportCenterX: window.innerWidth / 2,
+      viewportCenterY: window.innerHeight / 2,
+      bodyOverflowY: bodyStyles?.overflowY ?? '',
+      bodyScrollable: body ? body.scrollHeight > body.clientHeight : false,
+      footerBottom: footer ? footer.getBoundingClientRect().bottom : 0,
+      windowScrollY: window.scrollY,
+    };
+  });
+
+  expect(Math.abs(modalMetrics.dialogCenterX - modalMetrics.viewportCenterX)).toBeLessThan(32);
+  expect(Math.abs(modalMetrics.dialogCenterY - modalMetrics.viewportCenterY)).toBeLessThan(32);
+  expect(['auto', 'scroll']).toContain(modalMetrics.bodyOverflowY);
+  expect(modalMetrics.bodyScrollable).toBeTruthy();
+  expect(modalMetrics.footerBottom).toBeLessThanOrEqual(720);
+  expect(modalMetrics.windowScrollY).toBe(0);
+});
+
 test('supports container actions and chart loading', async ({ page }) => {
   await page.goto('/');
 

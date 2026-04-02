@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.9.7
+
+### Changed
+- Rebalanced the main dashboard tabs so the active `Containers` or `Compose Stacks` state keeps a clear accent treatment on hover, with centered spacing and stronger visual hierarchy in both light and dark themes.
+- Refined button theming across the dashboard, settings, notifications, update manager, admin controls, and theme toggles so dark mode keeps readable text, borders, and icons across default, hover, active, and disabled states.
+- Stabilized modal presentation so centered dialogs keep their own internal scroll area and preserve visible action footers without shifting the page background when opened.
+
+### Fixed
+- Removed the global scrollbar gutter regression that was widening the document and breaking the container table layout checks after recent modal changes.
+- Prevented light-mode active tabs from washing out on hover by stopping a later generic tab rule from overriding the intended active treatment.
+
+### Testing
+- Expanded end-to-end coverage for dark-mode button readability, tab hover contrast, centered modal layout, internal modal scrolling, and the existing container overflow constraints.
+
 ## v0.9.6
 
 ### Added

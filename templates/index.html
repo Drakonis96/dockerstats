@@ -752,7 +752,7 @@
         <button type="button" id="themeToggle" class="btn btn-outline-secondary icon-btn icon-btn-only" aria-label="Toggle theme"><i class="bi bi-moon-stars" aria-hidden="true"></i></button>
         <button type="button" id="userInfoBtn" class="btn btn-outline-secondary ms-2" aria-label="User info"><img src="{{ url_for('static', filename='icons/header_user.svg') }}" alt="User" width="16" height="16" style="vertical-align: middle;"></button>
         <button type="button" id="settingsBtn" class="btn btn-outline-secondary ms-2 icon-btn icon-btn-only" aria-label="Settings"><i class="bi bi-sliders2" aria-hidden="true"></i></button>
-        <button type="button" id="logoutBtn" class="btn btn-outline-danger ms-2 icon-btn icon-btn-only" style="color: #B30333; border-color: #6c757d;" aria-label="Logout"><i class="bi bi-power" aria-hidden="true"></i></button>
+        <button type="button" id="logoutBtn" class="btn btn-outline-danger ms-2 icon-btn icon-btn-only" aria-label="Logout"><i class="bi bi-power" aria-hidden="true"></i></button>
       </div>
     </div>
   </nav>
@@ -777,7 +777,7 @@
       <button type="button" id="sidebarThemeToggle" class="btn btn-outline-secondary mb-2 text-start icon-btn" aria-label="Toggle theme"><i class="bi bi-moon-stars" aria-hidden="true"></i><span>Toggle Theme</span></button>
       <button type="button" id="sidebarUserInfoBtn" class="btn btn-outline-secondary mb-2 text-start d-flex align-items-center gap-2" aria-label="User info"><img src="{{ url_for('static', filename='icons/header_user.svg') }}" alt="User" width="16" height="16" style="vertical-align: middle;"> <span id="sidebarUserLabel">User Info</span></button>
       <button type="button" id="sidebarSettingsBtn" class="btn btn-outline-secondary mb-2 text-start icon-btn" aria-label="Settings"><i class="bi bi-sliders2" aria-hidden="true"></i><span>Settings</span></button>
-      <button type="button" id="sidebarLogoutBtn" class="btn btn-outline-danger text-start icon-btn" style="color: #B30333; border-color: #6c757d;" aria-label="Logout"><i class="bi bi-power" aria-hidden="true"></i><span>Logout</span></button>
+      <button type="button" id="sidebarLogoutBtn" class="btn btn-outline-danger text-start icon-btn" aria-label="Logout"><i class="bi bi-power" aria-hidden="true"></i><span>Logout</span></button>
     </div>
   </div>
 
@@ -786,7 +786,7 @@
 
   <!-- Settings Modal -->
       <div class="modal fade" id="settingsModal" tabindex="-1" aria-labelledby="settingsModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered modal-lg settings-dialog">
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg settings-dialog">
           <div class="modal-content settings-modal">
             <div class="modal-header">
               <div>
@@ -823,7 +823,7 @@
                       <input type="password" class="form-control" id="confirmPassword" required autocomplete="new-password">
                     </div>
                     <div id="passwordError" class="text-danger mb-2" style="display:none;"></div>
-                    <button type="submit" id="savePasswordBtn" class="btn" style="background-color: #7a49cd; color: white;">Save</button>
+                    <button type="submit" id="savePasswordBtn" class="btn btn-primary">Save</button>
                   </form>
                 </div>
                 <!-- Manage User Tab -->
@@ -864,7 +864,7 @@
   </div>
 
   <div class="modal fade" id="notifSettingsModal" tabindex="-1" aria-labelledby="notifSettingsModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered modal-lg settings-dialog notif-settings-dialog">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg settings-dialog notif-settings-dialog">
       <div class="modal-content settings-modal notif-settings-modal">
         <div class="modal-header">
           <div>
@@ -990,7 +990,7 @@
   </div>
 
   <div class="modal fade" id="clearNotificationsModal" tabindex="-1" aria-labelledby="clearNotificationsModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered settings-dialog clear-notifications-dialog">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable settings-dialog clear-notifications-dialog">
       <div class="modal-content settings-modal clear-notifications-modal">
         <div class="modal-header">
           <div>
@@ -1014,7 +1014,7 @@
   </div>
 
   <div class="modal fade" id="updateManagerModal" tabindex="-1" aria-labelledby="updateManagerModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered modal-xl settings-dialog update-manager-dialog">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-xl settings-dialog update-manager-dialog">
       <div class="modal-content settings-modal update-manager-modal">
         <div class="modal-header">
           <div>
@@ -1102,7 +1102,7 @@
   </div>
 
   <div class="modal fade" id="updateManagerActionModal" tabindex="-1" aria-labelledby="updateManagerActionModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered modal-sm update-action-dialog">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-sm update-action-dialog">
       <div class="modal-content update-action-modal">
         <div class="modal-header">
           <div>
@@ -1127,7 +1127,7 @@
   </div>
 
   <div class="modal fade" id="appDialogModal" tabindex="-1" aria-labelledby="appDialogTitle" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered app-dialog-wrap">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable app-dialog-wrap">
       <div class="modal-content app-dialog-modal">
         <div class="modal-header">
           <h5 class="modal-title app-dialog-title" id="appDialogTitle">Confirm action</h5>
