@@ -38,12 +38,52 @@ It is designed for self-hosted environments where you want fast operational visi
 
 ## Screenshots
 
-<div align="center">
-  <img src="screenshots/Screenshot 1.png" alt="statainer dashboard overview" width="720">
-  <img src="screenshots/Screenshot 2.png" alt="statainer comparison charts modal" width="720">
-  <img src="screenshots/Screenshot 3.png" alt="statainer live logs modal" width="720">
-  <img src="screenshots/Screenshot 4.png" alt="statainer update manager history modal" width="720">
-</div>
+<table align="center">
+  <tr>
+    <td align="center">
+      <a href="screenshots/screenshot-1.png">
+        <img src="screenshots/screenshot-1.png" alt="screenshot 1" width="180">
+      </a>
+    </td>
+    <td align="center">
+      <a href="screenshots/screenshot-2.png">
+        <img src="screenshots/screenshot-2.png" alt="screenshot 2" width="180">
+      </a>
+    </td>
+    <td align="center">
+      <a href="screenshots/screenshot-3.png">
+        <img src="screenshots/screenshot-3.png" alt="screenshot 3" width="180">
+      </a>
+    </td>
+    <td align="center">
+      <a href="screenshots/screenshot-4.png">
+        <img src="screenshots/screenshot-4.png" alt="screenshot 4" width="180">
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="screenshots/screenshot-5.png">
+        <img src="screenshots/screenshot-5.png" alt="screenshot 5" width="180">
+      </a>
+    </td>
+    <td align="center">
+      <a href="screenshots/screenshot-6.png">
+        <img src="screenshots/screenshot-6.png" alt="screenshot 6" width="180">
+      </a>
+    </td>
+    <td align="center">
+      <a href="screenshots/screenshot-7.png">
+        <img src="screenshots/screenshot-7.png" alt="screenshot 7" width="180">
+      </a>
+    </td>
+    <td align="center">
+      <a href="screenshots/screenshot-8.png">
+        <img src="screenshots/screenshot-8.png" alt="screenshot 8" width="180">
+      </a>
+    </td>
+  </tr>
+</table>
 
 ## Quick Start
 
