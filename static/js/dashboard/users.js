@@ -2,6 +2,7 @@ import { setStatusMessage } from './helpers.js';
 
 export function createUserController(ctx, deps) {
   let hideSettingsModalTimer = null;
+  let pendingSettingsModalOpen = false;
 
   function forceHideModal(modalElement) {
     if (!modalElement?.classList.contains('show')) {
@@ -314,7 +315,31 @@ export function createUserController(ctx, deps) {
       window.clearTimeout(hideSettingsModalTimer);
       hideSettingsModalTimer = null;
     }
-    requestAnimationFrame(() => ctx.state.settingsModal?.show());
+
+    const modalElement = ctx.elements.settingsModalEl;
+    const modal = ctx.state.settingsModal;
+    if (!modalElement || !modal) {
+      return;
+    }
+    if (modalElement.classList.contains('show')) {
+      return;
+    }
+
+    const transitionInProgress = Boolean(modal._isTransitioning) || window.getComputedStyle(modalElement).display !== 'none';
+    if (transitionInProgress) {
+      if (pendingSettingsModalOpen) {
+        return;
+      }
+      pendingSettingsModalOpen = true;
+      modalElement.addEventListener('hidden.bs.modal', () => {
+        pendingSettingsModalOpen = false;
+        requestAnimationFrame(() => modal.show());
+      }, { once: true });
+      return;
+    }
+
+    pendingSettingsModalOpen = false;
+    requestAnimationFrame(() => modal.show());
   }
 
   function init() {
