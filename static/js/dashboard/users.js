@@ -1,6 +1,8 @@
 import { setStatusMessage } from './helpers.js';
 
 export function createUserController(ctx, deps) {
+  let hideSettingsModalTimer = null;
+
   function forceHideModal(modalElement) {
     if (!modalElement?.classList.contains('show')) {
       return;
@@ -24,7 +26,12 @@ export function createUserController(ctx, deps) {
     const modal = bootstrap.Modal.getOrCreateInstance(modalElement);
     modal.hide();
 
-    window.setTimeout(() => {
+    if (hideSettingsModalTimer) {
+      window.clearTimeout(hideSettingsModalTimer);
+    }
+
+    hideSettingsModalTimer = window.setTimeout(() => {
+      hideSettingsModalTimer = null;
       forceHideModal(modalElement);
     }, 250);
   }
@@ -303,6 +310,10 @@ export function createUserController(ctx, deps) {
   }
 
   function openSettings() {
+    if (hideSettingsModalTimer) {
+      window.clearTimeout(hideSettingsModalTimer);
+      hideSettingsModalTimer = null;
+    }
     requestAnimationFrame(() => ctx.state.settingsModal?.show());
   }
 
