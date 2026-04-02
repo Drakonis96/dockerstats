@@ -1086,6 +1086,10 @@ nav.navbar {
 .update-entry-actions-note {
   color: var(--ds-muted);
   font-size: 0.78rem;
+  line-height: 1.45;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .update-entry-actions-note--blocked {
@@ -1174,10 +1178,22 @@ nav.navbar {
 
 .update-action-dialog {
   max-width: 420px;
+  width: min(calc(100vw - 1rem), 420px);
 }
 
 .update-action-modal {
   border-radius: 20px;
+}
+
+.update-action-modal .modal-header,
+.update-action-modal .modal-body,
+.update-action-modal .modal-footer {
+  min-width: 0;
+}
+
+.update-action-modal .settings-subtitle {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .update-action-status {
@@ -1191,6 +1207,8 @@ nav.navbar {
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  max-width: 100%;
+  flex-wrap: wrap;
 }
 
 .update-action-status[data-state="pending"] {
@@ -1212,6 +1230,8 @@ nav.navbar {
   font-size: 0.95rem;
   font-weight: 700;
   color: var(--ds-text);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .update-action-detail {
@@ -1220,6 +1240,9 @@ nav.navbar {
   font-size: 0.84rem;
   line-height: 1.45;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 100%;
 }
 
 .spin-inline {

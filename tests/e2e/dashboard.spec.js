@@ -230,23 +230,24 @@ test('opens the update manager, runs update and rollback, and shows load errors'
   await expect(page.locator('#updateManagerModal')).toContainText('Experimental');
   await expect(page.locator('#updateManagerProjectList')).toContainText('demo');
   await expect(page.locator('#updateManagerProjectList')).toContainText('jobs');
+  await expect(page.locator('#updateManagerProjectList')).toContainText('broken');
   await expect(page.locator('#updateManagerContainerList')).toContainText('No standalone containers');
   await page.locator('#updateManagerHideBlocked').check();
-  await expect(page.locator('#updateManagerProjectList')).not.toContainText('jobs');
+  await expect(page.locator('#updateManagerProjectList')).not.toContainText('broken');
+  await expect(page.locator('#updateManagerProjectList')).toContainText('jobs');
   await page.locator('#updateManagerHideBlocked').uncheck();
 
-  const blockedProjectEntry = page.locator('#updateManagerProjectList .update-entry').filter({ hasText: 'jobs' });
+  const blockedProjectEntry = page.locator('#updateManagerProjectList .update-entry').filter({ hasText: 'broken' });
   await blockedProjectEntry.locator('[data-update-entry-toggle]').click();
-  await expect(blockedProjectEntry).toContainText('Portainer');
-  await expect(blockedProjectEntry).toContainText('/data/compose/42/docker-compose.yml');
-  await expect(blockedProjectEntry).toContainText('Project updates are disabled here because Portainer owns the compose definition.');
+  await expect(blockedProjectEntry).toContainText('Compose metadata is incomplete or inconsistent across services.');
+  await expect(blockedProjectEntry).toContainText('Project updates are disabled until the stack is relinked to a single Compose project on disk.');
   await expect(blockedProjectEntry.locator('.update-target-btn')).toHaveCount(0);
 
-  const projectEntry = page.locator('#updateManagerProjectList .update-entry').first();
+  const projectEntry = page.locator('#updateManagerProjectList .update-entry').filter({ hasText: 'jobs' });
   const projectToggle = projectEntry.locator('[data-update-entry-toggle]');
   const projectPanel = projectEntry.locator('.update-entry-panel');
   const quickUpdateButton = projectEntry.locator('.update-target-btn--quick');
-  await expect(projectToggle).toContainText('demo');
+  await expect(projectToggle).toContainText('jobs');
   await expect(projectToggle).toContainText('New version');
   await expect(quickUpdateButton).toContainText('Quick Update');
   await expect(projectPanel).toBeHidden();
@@ -254,8 +255,12 @@ test('opens the update manager, runs update and rollback, and shows load errors'
   await projectToggle.click();
   await expect(projectToggle).toHaveAttribute('aria-expanded', 'true');
   await expect(projectPanel).toBeVisible();
+  await expect(projectPanel).toContainText('Portainer');
+  await expect(projectPanel).toContainText('External safe recreate');
   await expect(projectPanel).toContainText('Current version');
   await expect(projectPanel).toContainText('Ready');
+  await expect(projectPanel).toContainText('/data/compose/42/docker-compose.yml');
+  await expect(projectPanel).toContainText('Compose files are unavailable, so Docker Stats will update the running services directly.');
 
   const updateButton = projectPanel.locator('.update-target-btn').first();
   await updateButton.click();
@@ -265,8 +270,10 @@ test('opens the update manager, runs update and rollback, and shows load errors'
   await expect(page.locator('#updateManagerActionModal')).toHaveClass(/show/);
   await expect(page.locator('#updateManagerActionState')).toContainText('Success');
   await expect(page.locator('#updateManagerActionMessage')).toContainText('Update completed');
-  await expect(page.locator('#updateManagerActionDetail')).toContainText('Project demo updated with a safe compose workflow.');
-  await expect(page.locator('#updateManagerStatus')).toContainText('Project demo updated with a safe compose workflow.');
+  await expect(page.locator('#updateManagerActionDetail')).toContainText('Project jobs updated safely by recreating the running services without compose files.');
+  await expect(page.locator('#updateManagerStatus')).toContainText('Project jobs updated safely by recreating the running services without compose files.');
+  const actionDetailFits = await page.locator('#updateManagerActionDetail').evaluate((el) => el.scrollWidth <= el.clientWidth + 1);
+  expect(actionDetailFits).toBeTruthy();
   await expect(page.locator('#updateManagerActionModal')).not.toHaveClass(/show/);
 
   await page.locator('#updateManagerHistoryTab').click();
@@ -274,7 +281,7 @@ test('opens the update manager, runs update and rollback, and shows load errors'
   const historyEntry = page.locator('#updateManagerHistoryList .update-entry').first();
   const historyToggle = historyEntry.locator('[data-update-entry-toggle]');
   const historyPanel = historyEntry.locator('.update-entry-panel');
-  await expect(historyToggle).toContainText('demo');
+  await expect(historyToggle).toContainText('jobs');
   await expect(historyToggle).toContainText('New version');
   await expect(historyPanel).toBeHidden();
 

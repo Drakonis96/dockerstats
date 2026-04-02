@@ -147,7 +147,7 @@ def test_list_update_targets_uses_cached_details_without_marking_ready_updates_b
     assert candidate['latest_version'].startswith('redis:7 @ ')
 
 
-def test_list_update_targets_marks_portainer_managed_projects_as_external_when_compose_files_are_missing(temp_db, monkeypatch):
+def test_list_update_targets_marks_portainer_managed_projects_as_ready_for_external_safe_recreate(temp_db, monkeypatch):
     labels = {
         'com.docker.compose.project': 'portainer-demo',
         'com.docker.compose.project.working_dir': '/data/compose/42',
@@ -175,11 +175,15 @@ def test_list_update_targets_marks_portainer_managed_projects_as_external_when_c
 
     assert len(payload['projects']) == 1
     candidate = payload['projects'][0]
-    assert candidate['update_state'] == 'blocked'
-    assert 'Portainer' in candidate['state_reason']
+    assert candidate['update_state'] == 'ready'
+    assert candidate['state_reason'] is None
     assert candidate['meta']['management_mode'] == 'external'
     assert candidate['meta']['manager_key'] == 'portainer'
     assert candidate['meta']['missing_files'] == ['/data/compose/42/docker-compose.yml']
+    assert candidate['meta']['auto_recovery_supported'] is True
+    assert candidate['meta']['update_strategy'] == 'external_project_safe_recreate'
+    assert candidate['meta']['update_mode_label'] == 'External safe recreate'
+    assert any('safe container recreation workflow' in item for item in candidate['meta']['guidance'])
     assert 'Export the stack from Portainer' in candidate['meta']['recovery_hint']
 
 
@@ -372,7 +376,7 @@ def test_update_project_target_records_failure_on_compose_up_error(temp_db, monk
     assert 'Automatic rollback attempt' in result['history_entry']['notes']
 
 
-def test_update_project_target_returns_external_manager_reason_when_compose_files_are_missing(temp_db, monkeypatch):
+def test_update_project_target_uses_external_safe_recreate_when_compose_files_are_missing(temp_db, monkeypatch):
     labels = {
         'com.docker.compose.project': 'portainer-demo',
         'com.docker.compose.project.working_dir': '/data/compose/42',
@@ -380,7 +384,13 @@ def test_update_project_target_returns_external_manager_reason_when_compose_file
         'com.docker.compose.service': 'web',
     }
     container = FakeContainer('cid-web', 'portainer-demo-web-1', 'nginx:1.25', labels=labels, image_id='sha256:web-old')
-    client = FakeDockerClient(FakeContainersManager(list_sequences=[[container]]))
+    images = FakeImagesManager(
+        get_map={'nginx:1.25': FakeImage('sha256:web-new', ['nginx:1.25'])},
+    )
+    client = FakeDockerClient(
+        FakeContainersManager(list_sequences=[[container], [container]], lookup_map={'cid-web': container}),
+        images,
+    )
 
     monkeypatch.setattr(update_manager, 'get_docker_client', lambda: client)
     monkeypatch.setattr(sampler, 'update_check_cache', {'cid-web': True})
@@ -394,13 +404,82 @@ def test_update_project_target_returns_external_manager_reason_when_compose_file
             'current_image_id': 'sha256:web-old',
         },
     })
+    monkeypatch.setattr(update_manager, '_container_version_info', lambda *_args: {
+        'image_ref': 'nginx:1.25',
+        'current_token': 'web-old',
+        'latest_token': 'web-new',
+        'current_version': 'nginx:1.25 @ web-old',
+        'latest_version': 'nginx:1.25 @ web-new',
+        'current_image_id': 'sha256:web-old',
+    })
+    monkeypatch.setattr(update_manager, '_recreate_single_container', lambda container_obj, target_image, **_kwargs: {
+        'ok': container_obj.id == 'cid-web' and target_image == 'sha256:web-new',
+        'target_name': container_obj.name,
+        'previous_version': 'nginx:1.25 @ web-old',
+        'new_version': 'nginx:1.25 @ web-new',
+        'result': 'success',
+        'notes': None,
+        'metadata': {
+            'strategy': 'safe_container_recreate',
+            'current_container_id': 'cid-web-new',
+        },
+    })
 
     result = update_manager.update_project_target('portainer-demo', actor_username='admin')
 
-    assert result['ok'] is False
-    assert 'Portainer' in result['message']
-    assert result['history_entry']['result'] == 'failure'
-    assert 'Portainer' in result['history_entry']['notes']
+    assert result['ok'] is True
+    assert 'without compose files' in result['message']
+    assert result['history_entry']['result'] == 'success'
+    assert result['history_entry']['metadata']['strategy'] == 'external_project_safe_recreate'
+    assert result['history_entry']['metadata']['rollback_ready'] is True
+    assert client.images.pulled == ['nginx:1.25']
+
+
+def test_rollback_update_for_external_project_uses_safe_recreate(temp_db, monkeypatch):
+    history_id = users_db.record_update_history(
+        action='update',
+        target_type='project',
+        target_id='jobs',
+        target_name='jobs',
+        previous_version='worker=python:3.12 @ worker-old',
+        new_version='worker=python:3.13 @ worker-new',
+        result='success',
+        metadata={
+            'rollback_ready': True,
+            'strategy': 'external_project_safe_recreate',
+            'services': [
+                {
+                    'service': 'worker',
+                    'container_name': 'jobs-worker-1',
+                    'previous_image_id': 'sha256:worker-old',
+                },
+            ],
+        },
+        actor_username='admin',
+    )
+    labels = {
+        'com.docker.compose.project': 'jobs',
+        'com.docker.compose.service': 'worker',
+    }
+    container = FakeContainer('cid-worker-current', 'jobs-worker-1', 'python:3.13', labels=labels, image_id='sha256:worker-new')
+    client = FakeDockerClient(FakeContainersManager(list_sequences=[[container]]))
+
+    monkeypatch.setattr(update_manager, 'get_docker_client', lambda: client)
+    monkeypatch.setattr(update_manager, '_recreate_single_container', lambda container_obj, target_image, **_kwargs: {
+        'ok': container_obj.name == 'jobs-worker-1' and target_image == 'sha256:worker-old',
+        'target_name': container_obj.name,
+        'previous_version': 'python:3.13 @ worker-new',
+        'new_version': 'python:3.12 @ worker-old',
+        'result': 'success',
+        'notes': 'Rollback completed.',
+        'metadata': {'strategy': 'safe_container_recreate'},
+    })
+
+    result = update_manager.rollback_update(history_id, actor_username='admin')
+
+    assert result['ok'] is True
+    assert result['history_entry']['action'] == 'rollback'
+    assert result['history_entry']['rollback_of'] == history_id
 
 
 def test_rollback_update_for_container_uses_stable_container_name(temp_db, monkeypatch):

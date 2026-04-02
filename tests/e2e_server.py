@@ -233,13 +233,14 @@ def build_update_manager_payload():
         'type': 'project',
         'current_version': 'worker=python:3.12 @ worker-current',
         'latest_version': 'worker=python:3.13 @ worker-new',
-        'update_state': 'blocked',
-        'state_reason': 'This stack appears to be managed by Portainer. Docker labels point to compose files in Portainer\'s data directory, which Docker Stats cannot access directly from this host.',
+        'update_state': 'ready',
+        'state_reason': None,
         'last_checked_at': BASE_TS - 120,
         'entries': [
             {
                 'service': 'worker',
                 'container_id': 'worker12345678',
+                'container_name': 'worker',
                 'current_version': 'python:3.12 @ worker-current',
                 'latest_version': 'python:3.13 @ worker-new',
             },
@@ -251,12 +252,50 @@ def build_update_manager_payload():
             'block_kind': 'missing_compose_files',
             'missing_files': ['/data/compose/42/docker-compose.yml'],
             'guidance': [
+                'Docker Stats can still update the running services directly with its safe container recreation workflow, which preserves the current mounts, networks, environment, restart policy, and other materialized runtime settings from Docker.',
                 'Docker Stats can only run project updates when it can read the original Compose files from the host filesystem.',
                 'Docker Stats does not reconstruct Compose projects from running containers alone because Docker metadata does not preserve override merge order, env files, build contexts, secrets, configs, or services that are not currently running.',
             ],
-            'action_hint': 'Project updates are disabled here because Portainer owns the compose definition.',
+            'action_hint': 'Compose files are unavailable, so Docker Stats will update the running services directly.',
             'recovery_hint': 'Export the stack from Portainer or recover it from the original Git repository, then redeploy it from a host path that is mounted into Docker Stats if you want this application to manage updates.',
+            'auto_recovery_supported': True,
+            'update_strategy': 'external_project_safe_recreate',
+            'update_mode_label': 'External safe recreate',
+        },
+    })
+    projects.append({
+        'id': 'project:broken',
+        'target_id': 'broken',
+        'name': 'broken',
+        'type': 'project',
+        'current_version': 'api=my-api:1.0 @ api-current',
+        'latest_version': 'api=my-api:1.1 @ api-new',
+        'update_state': 'blocked',
+        'state_reason': 'Compose metadata is incomplete or inconsistent across services.',
+        'last_checked_at': BASE_TS - 75,
+        'entries': [
+            {
+                'service': 'api',
+                'container_id': 'brokenapi123',
+                'container_name': 'broken-api',
+                'current_version': 'my-api:1.0 @ api-current',
+                'latest_version': 'my-api:1.1 @ api-new',
+            },
+        ],
+        'meta': {
+            'management_mode': 'unknown',
+            'manager_key': None,
+            'manager_name': None,
+            'block_kind': 'inconsistent_metadata',
+            'missing_files': [],
+            'guidance': [
+                'Docker Stats could not resolve one canonical Compose project directory and file set from the running services.',
+            ],
+            'action_hint': 'Project updates are disabled until the stack is relinked to a single Compose project on disk.',
+            'recovery_hint': 'Redeploy or import the stack from one canonical Compose project directory so every service advertises the same working directory and config file set.',
             'auto_recovery_supported': False,
+            'update_strategy': None,
+            'update_mode_label': None,
         },
     })
 
@@ -666,6 +705,52 @@ def update_manager_update():
             'history_entry': history_entry,
         })
 
+    if target_type == 'project' and target_id == 'jobs':
+        matching = [container for container in list_containers() if container.get('compose_project') == 'jobs']
+        previous_version = '; '.join(
+            f"{container['compose_service']}={container.get('current_version') or container.get('image')}"
+            for container in matching
+        )
+        new_version = '; '.join(
+            f"{container['compose_service']}={container.get('latest_version') or container.get('image')}"
+            for container in matching
+        )
+        for container in matching:
+            container['current_version'] = container.get('latest_version') or container.get('current_version')
+            container['update_available'] = False
+            container['last_checked_at'] = time.time()
+        history_entry = append_update_history({
+            'id': next_update_history_id(),
+            'created_at': time.time(),
+            'actor_username': 'admin',
+            'action': 'update',
+            'target_type': 'project',
+            'target_id': 'jobs',
+            'target_name': 'jobs',
+            'previous_version': previous_version,
+            'new_version': new_version,
+            'result': 'success',
+            'notes': 'Compose files were unavailable, so Docker Stats updated the running services directly with safe container recreation.',
+            'metadata': {
+                'rollback_ready': True,
+                'strategy': 'external_project_safe_recreate',
+                'services': [
+                    {
+                        'service': 'worker',
+                        'container_name': 'worker',
+                        'previous_image_id': 'sha256:worker-current',
+                    },
+                ],
+            },
+            'rollback_of': None,
+        })
+        publish_metrics()
+        return jsonify({
+            'ok': True,
+            'message': 'Project jobs updated safely by recreating the running services without compose files.',
+            'history_entry': history_entry,
+        })
+
     return jsonify({'ok': False, 'message': 'Update target not supported in the E2E mock.'}), 409
 
 
@@ -703,6 +788,35 @@ def update_manager_rollback():
             'new_version': source.get('previous_version'),
             'result': 'success',
             'notes': 'Rollback completed using the recorded previous image versions.',
+            'metadata': {'rollback_ready': False},
+            'rollback_of': history_id,
+        })
+        publish_metrics()
+        return jsonify({
+            'ok': True,
+            'message': 'Rollback completed.',
+            'history_entry': history_entry,
+        })
+
+    if source.get('target_type') == 'project' and source.get('target_name') == 'jobs':
+        matching = [container for container in list_containers() if container.get('compose_project') == 'jobs']
+        for container in matching:
+            container['current_version'] = 'python:3.12 @ worker-current'
+            container['latest_version'] = 'python:3.13 @ worker-new'
+            container['update_available'] = True
+            container['last_checked_at'] = time.time()
+        history_entry = append_update_history({
+            'id': next_update_history_id(),
+            'created_at': time.time(),
+            'actor_username': 'admin',
+            'action': 'rollback',
+            'target_type': 'project',
+            'target_id': 'jobs',
+            'target_name': 'jobs',
+            'previous_version': source.get('new_version'),
+            'new_version': source.get('previous_version'),
+            'result': 'success',
+            'notes': 'Rollback completed using safe container recreation.',
             'metadata': {'rollback_ready': False},
             'rollback_of': history_id,
         })

@@ -32,6 +32,12 @@ COMPOSE_RECONSTRUCTION_LIMITATION = (
     "merge order, env files, build contexts, secrets, configs, or services "
     "that are not currently running."
 )
+EXTERNAL_SAFE_RECREATE_NOTICE = (
+    "Docker Stats can still update the running services directly with its "
+    "safe container recreation workflow, which preserves the current mounts, "
+    "networks, environment, restart policy, and other materialized runtime "
+    "settings from Docker."
+)
 KNOWN_EXTERNAL_COMPOSE_MANAGERS = (
     {
         'key': 'portainer',
@@ -711,6 +717,8 @@ def _compose_blocked_metadata(
         'action_hint': action_hint,
         'recovery_hint': recovery_hint,
         'auto_recovery_supported': False,
+        'update_strategy': None,
+        'update_mode_label': None,
     }
 
 
@@ -846,11 +854,40 @@ def _project_candidate(project_name, containers, client):
         entries.append({
             'service': service_name,
             'container_id': container.id,
+            'container_name': container.name,
             'current_version': version_info['current_version'],
             'latest_version': version_info['latest_version'],
             'image_ref': version_info['image_ref'],
             'current_image_id': version_info['current_image_id'],
         })
+
+    metadata = dict(metadata)
+    ready = bool(metadata.get('ready'))
+    state_reason = None if ready else metadata.get('reason')
+
+    if not ready and metadata.get('block_kind') == 'missing_compose_files':
+        unsupported_reason = None
+        for container in containers:
+            supported, reason = _container_support_check(container)
+            if not supported:
+                unsupported_reason = reason
+                break
+        if unsupported_reason is None:
+            guidance = list(metadata.get('guidance') or [])
+            guidance.insert(0, EXTERNAL_SAFE_RECREATE_NOTICE)
+            metadata.update({
+                'ready': True,
+                'auto_recovery_supported': True,
+                'update_strategy': 'external_project_safe_recreate',
+                'update_mode_label': 'External safe recreate',
+                'guidance': guidance,
+                'action_hint': (
+                    "Compose files are unavailable, so Docker Stats will "
+                    "update the running services directly."
+                ),
+            })
+            ready = True
+            state_reason = None
 
     return {
         'id': f'project:{project_name}',
@@ -859,12 +896,24 @@ def _project_candidate(project_name, containers, client):
         'type': 'project',
         'current_version': '; '.join(f"{entry['service']}={entry['current_version']}" for entry in entries),
         'latest_version': '; '.join(f"{entry['service']}={entry['latest_version']}" for entry in entries),
-        'update_state': 'ready' if metadata.get('ready') else 'blocked',
-        'state_reason': None if metadata.get('ready') else metadata.get('reason'),
+        'update_state': 'ready' if ready else 'blocked',
+        'state_reason': state_reason,
         'last_checked_at': checked_at,
         'entries': entries,
         'meta': metadata,
     }
+
+
+def _find_project_service_container(client, project_name, service_name, fallback_name=None):
+    for container in client.containers.list(all=True):
+        labels = container.attrs.get('Config', {}).get('Labels', {}) or {}
+        if labels.get('com.docker.compose.project') != project_name:
+            continue
+        if (labels.get('com.docker.compose.service') or container.name) == service_name:
+            return container
+    if fallback_name:
+        return client.containers.get(fallback_name)
+    raise docker.errors.NotFound(f"Service {service_name} was not found for project {project_name}.")
 
 
 def _sanitize_repo_fragment(value):
@@ -1057,6 +1106,176 @@ def update_container_target(container_id, actor_username=None):
     }
 
 
+def _update_external_project_target(project_name, project_containers, candidate, actor_username=None):
+    client = get_docker_client()
+    services = []
+    target_images = {}
+
+    for entry in candidate['entries']:
+        container = next((item for item in project_containers if item.id == entry['container_id']), None)
+        if container is None:
+            return {
+                'ok': False,
+                'message': f"Service {entry['service']} is no longer available for project {project_name}.",
+                'history_entry': None,
+            }
+
+        supported, reason = _container_support_check(container)
+        if not supported:
+            return {
+                'ok': False,
+                'message': reason or f"Service {entry['service']} cannot be updated safely.",
+                'history_entry': None,
+            }
+
+        version_info = _container_version_info(container, client)
+        if not version_info['latest_token'] or version_info['latest_token'] == version_info['current_token']:
+            return {
+                'ok': False,
+                'message': f"No newer image digest is currently available for service {entry['service']}.",
+                'history_entry': None,
+            }
+
+        services.append({
+            'service': entry['service'],
+            'container_id': container.id,
+            'container_name': container.name,
+            'image_ref': version_info['image_ref'],
+            'previous_version': version_info['current_version'],
+            'latest_version': version_info['latest_version'],
+            'previous_image_id': version_info['current_image_id'],
+        })
+
+    try:
+        for service in services:
+            client.images.pull(service['image_ref'])
+            pulled_image = client.images.get(service['image_ref'])
+            new_image_id = getattr(pulled_image, 'id', None)
+            if not new_image_id or new_image_id == service['previous_image_id']:
+                raise RuntimeError(
+                    f"The image pull for service {service['service']} completed, but Docker is still reporting the same local image."
+                )
+            target_images[service['service']] = new_image_id
+    except Exception as exc:
+        history_id = record_update_history(
+            action='update',
+            target_type='project',
+            target_id=project_name,
+            target_name=project_name,
+            previous_version=candidate['current_version'],
+            new_version=candidate['latest_version'],
+            result='failure',
+            notes=str(exc),
+            metadata={'rollback_ready': False, 'strategy': 'external_project_safe_recreate', 'services': services},
+            actor_username=actor_username,
+        )
+        return {'ok': False, 'message': str(exc), 'history_entry': get_update_history_entry(history_id)}
+
+    updated_services = []
+    touched_container_ids = []
+    failure_notes = []
+
+    for service in services:
+        container = client.containers.get(service['container_id'])
+        result = _recreate_single_container(container, target_images[service['service']], actor_username=actor_username)
+        if not result['ok']:
+            failure_notes.append(result.get('notes') or f"Service {service['service']} failed to update.")
+            for updated in reversed(updated_services):
+                try:
+                    current_container = _find_project_service_container(
+                        client,
+                        project_name,
+                        updated['service'],
+                        fallback_name=updated.get('container_name'),
+                    )
+                    rollback_result = _recreate_single_container(current_container, updated['previous_image_id'], actor_username=actor_username)
+                    if not rollback_result['ok']:
+                        failure_notes.append(
+                            f"Automatic rollback for service {updated['service']} also failed: "
+                            f"{rollback_result.get('notes') or 'unknown error'}"
+                        )
+                except Exception as rollback_exc:
+                    failure_notes.append(
+                        f"Automatic rollback for service {updated['service']} also failed: {rollback_exc}"
+                    )
+
+            history_id = record_update_history(
+                action='update',
+                target_type='project',
+                target_id=project_name,
+                target_name=project_name,
+                previous_version=candidate['current_version'],
+                new_version=candidate['latest_version'],
+                result='failure',
+                notes='\n'.join(note for note in failure_notes if note),
+                metadata={'rollback_ready': False, 'strategy': 'external_project_safe_recreate', 'services': services},
+                actor_username=actor_username,
+            )
+            return {
+                'ok': False,
+                'message': failure_notes[0] if failure_notes else f"Project {project_name} update failed.",
+                'history_entry': get_update_history_entry(history_id),
+            }
+
+        updated_services.append({
+            **service,
+            'new_image_id': target_images[service['service']],
+            'new_container_id': result['metadata'].get('current_container_id'),
+            'new_version': result['new_version'],
+        })
+        if result['metadata'].get('current_container_id'):
+            touched_container_ids.append(result['metadata']['current_container_id'])
+
+    refreshed_containers = client.containers.list(all=True)
+    refreshed_versions = []
+    for refreshed in refreshed_containers:
+        labels = refreshed.attrs.get('Config', {}).get('Labels', {}) or {}
+        if labels.get('com.docker.compose.project') != project_name:
+            continue
+        service_name = labels.get('com.docker.compose.service') or refreshed.name
+        if service_name not in {service['service'] for service in updated_services}:
+            continue
+        version_info = _container_version_info(refreshed, client)
+        refreshed_versions.append({
+            'service': service_name,
+            'new_version': version_info['current_version'],
+        })
+
+    _refresh_update_checks(touched_container_ids)
+    previous_version = '; '.join(f"{service['service']}={service['previous_version']}" for service in services)
+    new_version = '; '.join(
+        f"{entry['service']}={entry['new_version']}"
+        for entry in sorted(refreshed_versions, key=lambda item: item['service'])
+    )
+    history_id = record_update_history(
+        action='update',
+        target_type='project',
+        target_id=project_name,
+        target_name=project_name,
+        previous_version=previous_version,
+        new_version=new_version,
+        result='success',
+        notes=(
+            "Compose files were unavailable, so Docker Stats updated the running "
+            "services directly with safe container recreation."
+        ),
+        metadata={
+            'rollback_ready': True,
+            'strategy': 'external_project_safe_recreate',
+            'services': updated_services,
+        },
+        actor_username=actor_username,
+    )
+    return {
+        'ok': True,
+        'message': (
+            f"Project {project_name} updated safely by recreating the running services "
+            "without compose files."
+        ),
+        'history_entry': get_update_history_entry(history_id),
+    }
+
+
 def update_project_target(project_name, actor_username=None):
     client = get_docker_client()
     all_containers = client.containers.list(all=True)
@@ -1071,6 +1290,13 @@ def update_project_target(project_name, actor_username=None):
 
     candidate = _project_candidate(project_name, project_containers, client)
     metadata = candidate.get('meta') or {}
+    if metadata.get('update_strategy') == 'external_project_safe_recreate':
+        return _update_external_project_target(
+            project_name,
+            project_containers,
+            candidate,
+            actor_username=actor_username,
+        )
     if not metadata.get('ready'):
         history_id = record_update_history(
             action='update',
@@ -1237,6 +1463,58 @@ def rollback_update(history_id, actor_username=None):
 
     if entry['target_type'] == 'project':
         services = metadata.get('services') or []
+        strategy = metadata.get('strategy')
+        if strategy == 'external_project_safe_recreate':
+            rollback_notes = []
+            success = True
+            for service in services:
+                previous_image_id = service.get('previous_image_id')
+                if not previous_image_id:
+                    success = False
+                    rollback_notes.append(f"Missing previous image for service {service.get('service')}.")
+                    continue
+                try:
+                    container = _find_project_service_container(
+                        client,
+                        entry['target_name'],
+                        service.get('service'),
+                        fallback_name=service.get('container_name'),
+                    )
+                    result = _recreate_single_container(container, previous_image_id, actor_username=actor_username)
+                    if not result['ok']:
+                        success = False
+                        rollback_notes.append(
+                            result.get('notes') or f"Rollback failed for service {service.get('service')}."
+                        )
+                except Exception as exc:
+                    success = False
+                    rollback_notes.append(
+                        f"Rollback failed for service {service.get('service')}: {exc}"
+                    )
+
+            rollback_entry_id = record_update_history(
+                action='rollback',
+                target_type='project',
+                target_id=entry['target_id'],
+                target_name=entry['target_name'],
+                previous_version=entry['new_version'],
+                new_version=entry['previous_version'],
+                result='success' if success else 'failure',
+                notes=(
+                    '\n'.join(rollback_notes)
+                    if rollback_notes
+                    else 'Rollback completed using safe container recreation.'
+                ),
+                metadata={'rollback_ready': False, 'strategy': 'external_project_safe_recreate'},
+                rollback_of=entry['id'],
+                actor_username=actor_username,
+            )
+            return {
+                'ok': success,
+                'message': 'Rollback completed.' if success else ('\n'.join(rollback_notes) or 'Rollback failed.'),
+                'history_entry': get_update_history_entry(rollback_entry_id),
+            }
+
         working_dir = metadata.get('working_dir')
         config_files = metadata.get('config_files')
         if not services or not working_dir or not config_files:

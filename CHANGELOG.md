@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.9.6
+
+### Added
+- Added a safe external stack update path for Compose projects whose original files are no longer accessible on disk, allowing Portainer/Yacht-style stacks to be updated by recreating the running services directly from Docker's current runtime metadata.
+- Added rollback support for those externally managed stack updates using the recorded previous image versions and the same safe container recreation workflow.
+
+### Changed
+- Externally managed stacks with missing compose files now surface as updateable when Docker Stats can safely operate on the running services, with explicit `External safe recreate` labeling and guidance in the Update Manager UI.
+
+### Fixed
+- Constrained Update Manager action modal copy so long progress and result messages wrap inside the modal instead of overflowing.
+- Preserved all-or-nothing behavior for external stack updates by pulling required images first and automatically reverting already-updated services if a later service fails.
+
+### Testing
+- Expanded backend and end-to-end coverage for external stack updates, external stack rollback, blocked stack filtering, and action modal text containment.
+
 ## v0.9.5
 
 ### Added

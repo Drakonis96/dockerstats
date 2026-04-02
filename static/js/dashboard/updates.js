@@ -161,9 +161,10 @@ function renderTargetEntry(item, index, groupKey) {
   const state = String(item.update_state || '').toLowerCase() || 'pending';
   const meta = item.meta || {};
   const panelId = `update-entry-panel-${groupKey}-${index}`;
+  const isExternalSafeUpdate = meta.update_strategy === 'external_project_safe_recreate';
   const quickAction = state === 'ready'
     ? `
-      <button type="button" class="btn btn-outline-primary btn-sm update-target-btn update-target-btn--quick" data-update-target-type="${escapeHtml(item.type)}" data-update-target-id="${escapeHtml(item.target_id)}">
+      <button type="button" class="btn btn-outline-primary btn-sm update-target-btn update-target-btn--quick" data-update-target-type="${escapeHtml(item.type)}" data-update-target-id="${escapeHtml(item.target_id)}" data-update-strategy="${escapeHtml(meta.update_strategy || '')}">
         <i class="bi bi-lightning-charge" aria-hidden="true"></i>
         <span>Quick Update</span>
       </button>
@@ -176,12 +177,15 @@ function renderTargetEntry(item, index, groupKey) {
   const managementBadge = renderManagementBadge(meta);
   const actionMarkup = state === 'ready'
     ? `
-      <button type="button" class="btn btn-primary btn-sm update-target-btn" data-update-target-type="${escapeHtml(item.type)}" data-update-target-id="${escapeHtml(item.target_id)}">
+      <button type="button" class="btn btn-primary btn-sm update-target-btn" data-update-target-type="${escapeHtml(item.type)}" data-update-target-id="${escapeHtml(item.target_id)}" data-update-strategy="${escapeHtml(meta.update_strategy || '')}">
         <i class="bi bi-arrow-repeat" aria-hidden="true"></i>
-        <span>Update</span>
+        <span>${isExternalSafeUpdate ? 'Update safely' : 'Update'}</span>
       </button>
     `
     : `<span class="update-entry-actions-note update-entry-actions-note--blocked">${escapeHtml(meta.action_hint || 'Update is unavailable for this target.')}</span>`;
+  const actionNote = state === 'ready' && meta.action_hint
+    ? `<span class="update-entry-actions-note">${escapeHtml(meta.action_hint)}</span>`
+    : '';
 
   return `
     <article class="update-entry" data-target-type="${escapeHtml(item.type)}" data-update-state="${escapeHtml(state)}">
@@ -217,11 +221,13 @@ function renderTargetEntry(item, index, groupKey) {
             ${renderKeyValue('Status', `<span class="update-target-state" data-state="${escapeHtml(state)}">${escapeHtml(formatStateLabel(state))}</span>`)}
             ${renderKeyValue('Last check', escapeHtml(formatTimestamp(item.last_checked_at)))}
             ${managementLabel ? renderKeyValue('Management', escapeHtml(managementLabel)) : ''}
+            ${meta.update_mode_label ? renderKeyValue('Update mode', escapeHtml(meta.update_mode_label)) : ''}
           </div>
           ${reason}
           ${renderGuidance(meta)}
           ${renderServiceEntries(item.entries)}
           <div class="update-entry-actions">
+            ${actionNote}
             ${actionMarkup}
           </div>
         </div>
@@ -647,12 +653,15 @@ export function createUpdateManagerController(ctx, deps) {
     }
   }
 
-  async function executeUpdate(targetType, targetId, button) {
+  async function executeUpdate(targetType, targetId, button, strategy = '') {
     const typeLabel = formatTargetType(targetType);
+    const safeExternalMode = String(strategy || '').toLowerCase() === 'external_project_safe_recreate';
     const confirmed = await deps.confirmAction({
-      title: 'Apply update',
-      message: `Update ${typeLabel.toLowerCase()} "${targetId}" with the experimental safe workflow? Docker Stats will preserve volumes, configuration, networks and environment where possible, but you should still review the change carefully before continuing.`,
-      confirmLabel: 'Apply update',
+      title: safeExternalMode ? 'Apply safe external update' : 'Apply update',
+      message: safeExternalMode
+        ? `Update ${typeLabel.toLowerCase()} "${targetId}" without compose files? Docker Stats will recreate only the running services that have a newer image available while preserving their current volumes, configuration, networks and environment where possible.`
+        : `Update ${typeLabel.toLowerCase()} "${targetId}" with the experimental safe workflow? Docker Stats will preserve volumes, configuration, networks and environment where possible, but you should still review the change carefully before continuing.`,
+      confirmLabel: safeExternalMode ? 'Update safely' : 'Apply update',
       cancelLabel: 'Cancel',
       tone: 'warning',
     });
@@ -664,7 +673,9 @@ export function createUpdateManagerController(ctx, deps) {
       title: `Updating ${targetId}`,
       button,
       busyMarkup: '<i class="bi bi-arrow-repeat spin-inline" aria-hidden="true"></i><span>Updating...</span>',
-      pendingMessage: `Applying update for ${targetId}…`,
+      pendingMessage: safeExternalMode
+        ? `Applying safe external update for ${targetId}…`
+        : `Applying update for ${targetId}…`,
       successHeading: 'Update completed',
       failureHeading: 'Update failed',
       request: async () => {
@@ -740,7 +751,12 @@ export function createUpdateManagerController(ctx, deps) {
 
     const updateButton = event.target.closest('[data-update-target-type][data-update-target-id]');
     if (updateButton) {
-      executeUpdate(updateButton.dataset.updateTargetType, updateButton.dataset.updateTargetId, updateButton);
+      executeUpdate(
+        updateButton.dataset.updateTargetType,
+        updateButton.dataset.updateTargetId,
+        updateButton,
+        updateButton.dataset.updateStrategy,
+      );
       return;
     }
 
