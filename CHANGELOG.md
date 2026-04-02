@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.9.11
+
+- Added a dedicated Auto-Update Management tab to the Update Manager with per-item enable and disable controls, support-aware inventory, and last update timestamps.
+- Added background auto-update execution for opted-in standalone containers and Compose stacks when a newly detected update becomes available.
+- Improved update notifications so they identify the updated container or stack and include the recorded version transition whenever it is available.
+
 ## v0.9.10
 
 ### Added

@@ -3,12 +3,13 @@ import { escapeHtml, setStatusMessage } from './helpers.js';
 const UPDATE_MANAGER_TAB_IDS = {
   projects: 'updateManagerProjectsTab',
   containers: 'updateManagerContainersTab',
+  autoUpdates: 'updateManagerAutoUpdatesTab',
   history: 'updateManagerHistoryTab',
 };
 
-function formatTimestamp(value) {
+function formatTimestamp(value, fallback = 'Not checked yet') {
   if (!value) {
-    return 'Not checked yet';
+    return fallback;
   }
   const date = new Date(Number(value) * 1000);
   if (Number.isNaN(date.getTime())) {
@@ -27,6 +28,10 @@ function formatStateLabel(value) {
       return 'Success';
     case 'failure':
       return 'Failed';
+    case 'enabled':
+      return 'Enabled';
+    case 'disabled':
+      return 'Disabled';
     default:
       return 'Pending';
   }
@@ -61,6 +66,10 @@ function renderManagementBadge(meta = {}) {
     return '<span class="update-entry-summary-badge" data-kind="host">Host compose</span>';
   }
   return '';
+}
+
+function renderTargetTypeBadge(value) {
+  return `<span class="update-entry-summary-badge update-entry-summary-badge--type">${escapeHtml(formatTargetType(value))}</span>`;
 }
 
 function renderVersion(value, className = 'update-version-code') {
@@ -148,10 +157,10 @@ function renderGuidance(meta = {}) {
   return `${missingMarkup}${guidanceMarkup}${recoveryMarkup}`;
 }
 
-function renderSummaryVersion(value) {
+function renderSummaryVersion(value, label = 'New version') {
   return `
     <span class="update-entry-summary-version-copy">
-      <span class="update-entry-summary-version-label">New version</span>
+      <span class="update-entry-summary-version-label">${escapeHtml(label)}</span>
       ${renderVersion(value, 'update-version-code update-version-code--summary')}
     </span>
   `;
@@ -311,6 +320,83 @@ function renderHistoryEntry(entry, index) {
   `;
 }
 
+function renderAutoUpdateEntry(item, index, options = {}) {
+  const {
+    buttonsDisabled = false,
+  } = options;
+  const enabled = Boolean(item.auto_update_enabled);
+  const availabilityState = item.update_available ? 'ready' : 'pending';
+  const availabilityLabel = item.update_available ? 'Update detected' : 'Monitoring';
+  const autoUpdateState = enabled ? 'enabled' : 'disabled';
+  const meta = item.meta || {};
+  const managementLabel = formatManagementLabel(meta);
+  const managementBadge = renderManagementBadge(meta);
+  const panelId = `update-entry-panel-auto-${index}`;
+  const buttonLabel = enabled ? 'Disable auto-update' : 'Enable auto-update';
+  const buttonClass = enabled ? 'btn-outline-danger' : 'btn-primary';
+  const buttonIcon = enabled ? 'bi-pause-circle' : 'bi-play-circle';
+
+  return `
+    <article class="update-entry" data-target-type="${escapeHtml(item.type)}" data-update-state="${escapeHtml(autoUpdateState)}">
+      <div class="update-entry-head">
+        <button
+          type="button"
+          class="update-entry-toggle"
+          data-update-entry-toggle
+          aria-expanded="false"
+          aria-controls="${panelId}"
+        >
+          <span class="update-entry-summary">
+            <span class="update-entry-summary-copy">
+              <span class="update-entry-summary-name-row">
+                <span class="update-entry-summary-name">${escapeHtml(item.name)}</span>
+                ${renderTargetTypeBadge(item.type)}
+                ${managementBadge}
+              </span>
+              <span class="update-entry-summary-version">${renderSummaryVersion(item.latest_version, item.update_available ? 'Update target' : 'Latest known')}</span>
+            </span>
+          </span>
+          <span class="update-entry-chevron" aria-hidden="true">
+            <i class="bi bi-chevron-down"></i>
+          </span>
+        </button>
+        <button
+          type="button"
+          class="btn ${buttonClass} btn-sm auto-update-toggle-btn"
+          data-auto-update-toggle="true"
+          data-auto-update-target-type="${escapeHtml(item.type)}"
+          data-auto-update-target-name="${escapeHtml(item.auto_update_key || item.name)}"
+          data-auto-update-enabled="${enabled ? 'true' : 'false'}"
+          ${buttonsDisabled ? 'disabled' : ''}
+        >
+          <i class="bi ${buttonIcon}" aria-hidden="true"></i>
+          <span>${buttonLabel}</span>
+        </button>
+      </div>
+      <div id="${panelId}" class="update-entry-panel" aria-hidden="true" hidden>
+        <div class="update-entry-panel-inner">
+          <div class="update-entry-details-grid">
+            ${renderKeyValue('Type', escapeHtml(formatTargetType(item.type)))}
+            ${renderKeyValue('Auto-update', `<span class="update-target-state" data-state="${escapeHtml(autoUpdateState)}">${escapeHtml(formatStateLabel(autoUpdateState))}</span>`)}
+            ${renderKeyValue('Availability', `<span class="update-target-state" data-state="${escapeHtml(availabilityState)}">${escapeHtml(availabilityLabel)}</span>`)}
+            ${renderKeyValue('Last updated', escapeHtml(formatTimestamp(item.last_updated_at, 'Never updated')))}
+            ${renderKeyValue('Current version', renderVersion(item.current_version))}
+            ${renderKeyValue('Latest version', renderVersion(item.latest_version))}
+            ${renderKeyValue('Last check', escapeHtml(formatTimestamp(item.last_checked_at)))}
+            ${managementLabel ? renderKeyValue('Management', escapeHtml(managementLabel)) : ''}
+            ${meta.update_mode_label ? renderKeyValue('Update mode', escapeHtml(meta.update_mode_label)) : ''}
+          </div>
+          ${renderGuidance(meta)}
+          ${renderServiceEntries(item.entries)}
+          <div class="update-entry-actions">
+            <span class="update-entry-actions-note">${enabled ? 'Newly detected updates for this target will be applied automatically when they are found.' : 'Auto-update is currently off for this target.'}</span>
+          </div>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
 function renderTargetList(items = [], emptyMessage, groupKey, options = {}) {
   const {
     isSelected = () => false,
@@ -334,6 +420,17 @@ function renderHistoryList(items = [], emptyMessage) {
   return `
     <div class="update-entry-stack">
       ${items.map((entry, index) => renderHistoryEntry(entry, index)).join('')}
+    </div>
+  `;
+}
+
+function renderAutoUpdateList(items = [], emptyMessage, options = {}) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return renderPlaceholder(emptyMessage);
+  }
+  return `
+    <div class="update-entry-stack">
+      ${items.map((item, index) => renderAutoUpdateEntry(item, index, options)).join('')}
     </div>
   `;
 }
@@ -490,6 +587,14 @@ export function createUpdateManagerController(ctx, deps) {
     if (ctx.elements.updateManagerHideBlocked) {
       ctx.elements.updateManagerHideBlocked.disabled = ctx.state.updateManagerActionBusy;
     }
+    if (ctx.elements.updateManagerAutoList) {
+      ctx.elements.updateManagerAutoList.querySelectorAll('[data-auto-update-toggle="true"]').forEach((button) => {
+        if (button.dataset.autoUpdateSaving === 'true') {
+          return;
+        }
+        button.disabled = ctx.state.updateManagerLoading || ctx.state.updateManagerActionBusy;
+      });
+    }
     syncBatchActionButtons(options);
   }
 
@@ -576,6 +681,7 @@ export function createUpdateManagerController(ctx, deps) {
     }
     ctx.elements.updateManagerProjectList.innerHTML = renderPlaceholder(message);
     ctx.elements.updateManagerContainerList.innerHTML = renderPlaceholder(message);
+    ctx.elements.updateManagerAutoList.innerHTML = renderPlaceholder('Loading auto-update targets...');
     ctx.elements.updateManagerHistoryList.innerHTML = renderPlaceholder('Loading update history...');
   }
 
@@ -587,6 +693,7 @@ export function createUpdateManagerController(ctx, deps) {
     pruneSelections();
     const projects = Array.isArray(payload.projects) ? payload.projects : [];
     const containers = Array.isArray(payload.containers) ? payload.containers : [];
+    const autoUpdates = Array.isArray(payload.auto_updates) ? payload.auto_updates : [];
     const history = Array.isArray(payload.history) ? payload.history : [];
     const visibleProjects = ctx.state.updateManagerHideBlocked
       ? projects.filter((item) => String(item.update_state || '').toLowerCase() !== 'blocked')
@@ -598,8 +705,14 @@ export function createUpdateManagerController(ctx, deps) {
     const metaSuffix = ctx.state.updateManagerHideBlocked && hiddenBlockedCount > 0
       ? ` • ${hiddenBlockedCount} blocked entr${hiddenBlockedCount === 1 ? 'y hidden' : 'ies hidden'}`
       : '';
+    const enabledAutoUpdates = autoUpdates.filter((item) => Boolean(item.auto_update_enabled)).length;
 
-    ctx.elements.updateManagerMeta.textContent = `${visibleProjects.length} Compose stack(s), ${visibleContainers.length} standalone container(s), ${history.length} history entr${history.length === 1 ? 'y' : 'ies'}${metaSuffix}`;
+    ctx.elements.updateManagerMeta.textContent = `${visibleProjects.length} Compose stack(s), ${visibleContainers.length} standalone container(s), ${autoUpdates.length} auto-update target(s), ${history.length} history entr${history.length === 1 ? 'y' : 'ies'}${metaSuffix}`;
+    if (ctx.elements.updateManagerAutoMeta) {
+      ctx.elements.updateManagerAutoMeta.textContent = autoUpdates.length > 0
+        ? `${enabledAutoUpdates} enabled, ${autoUpdates.length - enabledAutoUpdates} disabled. Automatic updates use the same safe workflow and history tracking as manual updates.`
+        : 'No stacks or containers currently support auto-updates.';
+    }
     ctx.elements.updateManagerProjectList.innerHTML = renderTargetList(
       visibleProjects,
       ctx.state.updateManagerHideBlocked
@@ -620,6 +733,13 @@ export function createUpdateManagerController(ctx, deps) {
         isSelected: (item) => getSelectionSet('container').has(item.target_id),
       },
     );
+    ctx.elements.updateManagerAutoList.innerHTML = renderAutoUpdateList(
+      autoUpdates,
+      'No stacks or containers currently support auto-updates.',
+      {
+        buttonsDisabled: ctx.state.updateManagerLoading || ctx.state.updateManagerActionBusy,
+      },
+    );
     ctx.elements.updateManagerHistoryList.innerHTML = renderHistoryList(history, 'No updates or rollbacks have been recorded yet.');
     syncActionLockState();
   }
@@ -635,6 +755,19 @@ export function createUpdateManagerController(ctx, deps) {
       const error = new Error(payload.message || `Update failed for ${targetId}.`);
       error.historyEntry = payload.history_entry || null;
       throw error;
+    }
+    return payload;
+  }
+
+  async function requestAutoUpdatePreference(targetType, targetName, enabled) {
+    const response = await fetch('/api/update-manager/auto-update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_type: targetType, target_name: targetName, enabled }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.message || `Unable to update auto-update settings for ${targetName}.`);
     }
     return payload;
   }
@@ -768,6 +901,7 @@ export function createUpdateManagerController(ctx, deps) {
       ctx.elements.updateManagerMeta.textContent = 'Update manager unavailable';
       ctx.elements.updateManagerProjectList.innerHTML = renderPlaceholder('Unable to load update candidates.');
       ctx.elements.updateManagerContainerList.innerHTML = renderPlaceholder('Unable to load update candidates.');
+      ctx.elements.updateManagerAutoList.innerHTML = renderPlaceholder('Unable to load auto-update targets.');
       ctx.elements.updateManagerHistoryList.innerHTML = renderPlaceholder('Unable to load update history.');
       setManagerStatus(error.message || 'Unable to load update manager.', 'danger');
       if (options.throwOnError) {
@@ -1159,6 +1293,39 @@ export function createUpdateManagerController(ctx, deps) {
     });
   }
 
+  async function toggleAutoUpdate(targetType, targetName, enabled, button) {
+    if (ctx.state.updateManagerLoading || ctx.state.updateManagerActionBusy) {
+      return;
+    }
+
+    const originalMarkup = button.innerHTML;
+    button.dataset.autoUpdateSaving = 'true';
+    button.disabled = true;
+    button.innerHTML = `
+      <i class="bi bi-arrow-repeat spin-inline" aria-hidden="true"></i>
+      <span>Saving...</span>
+    `;
+    setManagerStatus(`${enabled ? 'Enabling' : 'Disabling'} auto-update for ${targetName}…`, 'info');
+
+    try {
+      const payload = await requestAutoUpdatePreference(targetType, targetName, enabled);
+      setStatusMessage(ctx, payload.message || `Auto-update updated for ${targetName}.`, 'success');
+      setManagerStatus(payload.message || `Auto-update updated for ${targetName}.`, 'success');
+      await loadTargets();
+    } catch (error) {
+      const failureMessage = error.message || `Unable to update auto-update settings for ${targetName}.`;
+      setStatusMessage(ctx, failureMessage, 'danger');
+      setManagerStatus(failureMessage, 'danger');
+    } finally {
+      if (button.isConnected) {
+        button.disabled = false;
+        button.innerHTML = originalMarkup;
+        delete button.dataset.autoUpdateSaving;
+      }
+      syncActionLockState();
+    }
+  }
+
   function openModal(event) {
     event?.preventDefault();
     event?.stopPropagation();
@@ -1175,6 +1342,19 @@ export function createUpdateManagerController(ctx, deps) {
   }
 
   function handleModalClick(event) {
+    const autoUpdateButton = event.target.closest('[data-auto-update-toggle="true"]');
+    if (autoUpdateButton) {
+      event.stopPropagation();
+      const nextEnabled = autoUpdateButton.dataset.autoUpdateEnabled !== 'true';
+      toggleAutoUpdate(
+        autoUpdateButton.dataset.autoUpdateTargetType,
+        autoUpdateButton.dataset.autoUpdateTargetName,
+        nextEnabled,
+        autoUpdateButton,
+      );
+      return;
+    }
+
     const selectionInput = event.target.closest('[data-update-select-type][data-update-select-id]');
     if (selectionInput) {
       event.stopPropagation();

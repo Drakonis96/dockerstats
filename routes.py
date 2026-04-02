@@ -10,6 +10,7 @@ import json  # Add json import for embedding data
 import secrets
 import multiprocessing  # Add for CPU core detection
 from functools import wraps
+from update_notifications import build_update_result_event
 from users_db import (
     validate_user, change_password, create_user_with_columns, list_users_with_columns,
     update_user_columns, delete_user, get_user_columns, get_user_role, user_exists,
@@ -96,16 +97,15 @@ def sanitize_download_filename(value, fallback='container'):
     return cleaned or fallback
 
 
-def emit_update_result_notification(target_type, target_id, target_name, message, ok):
-    event = {
-        'type': 'update',
-        'scope': 'update_success' if ok else 'update_failure',
-        'timestamp': time.time(),
-        'cid': target_id if target_type == 'container' else None,
-        'container': target_name if target_type == 'container' else '',
-        'project': target_name if target_type == 'project' else '',
-        'msg': message,
-    }
+def emit_update_result_notification(target_type, target_id, target_name, message, ok, history_entry=None):
+    event = build_update_result_event(
+        target_type,
+        target_id,
+        target_name,
+        bool(ok),
+        history_entry=history_entry,
+        fallback_message=message,
+    )
     try:
         sampler.emit_notification(event)
     except Exception as exc:
@@ -1304,32 +1304,34 @@ def container_action(container_id, action):
     try:
         client = get_docker_client()
         container = client.containers.get(container_id)
-        container_name = escape(container.name)
+        container_name = str(container.name)
+        container_name_safe = escape(container_name)
 
         if action == 'start':
             container.start()
-            audit_event('container.start', 'container', 'success', target_id=container_id, details={'name': str(container_name)})
-            return jsonify({'status': f'Container {container_name} started'})
+            audit_event('container.start', 'container', 'success', target_id=container_id, details={'name': container_name})
+            return jsonify({'status': f'Container {container_name_safe} started'})
         elif action == 'stop':
             container.stop()
-            audit_event('container.stop', 'container', 'success', target_id=container_id, details={'name': str(container_name)})
-            return jsonify({'status': f'Container {container_name} stopped'})
+            audit_event('container.stop', 'container', 'success', target_id=container_id, details={'name': container_name})
+            return jsonify({'status': f'Container {container_name_safe} stopped'})
         elif action == 'restart':
             container.restart()
-            audit_event('container.restart', 'container', 'success', target_id=container_id, details={'name': str(container_name)})
-            return jsonify({'status': f'Container {container_name} restarted'})
+            audit_event('container.restart', 'container', 'success', target_id=container_id, details={'name': container_name})
+            return jsonify({'status': f'Container {container_name_safe} restarted'})
         elif action == 'update':
             result = update_manager.update_container_target(container_id, actor_username=get_request_username())
             emit_update_result_notification(
                 'container',
                 container_id,
-                str(container_name),
+                container_name,
                 result.get('message') or (
                     f"Container {container_name} updated successfully."
                     if result.get('ok')
                     else f"Container {container_name} update failed."
                 ),
                 bool(result.get('ok')),
+                history_entry=result.get('history_entry'),
             )
             audit_event(
                 'container.update',
@@ -1337,7 +1339,7 @@ def container_action(container_id, action):
                 'success' if result.get('ok') else 'failure',
                 target_id=container_id,
                 details={
-                    'name': str(container_name),
+                    'name': container_name,
                     'message': result.get('message'),
                     'history_entry_id': (result.get('history_entry') or {}).get('id'),
                 },
@@ -1459,13 +1461,14 @@ def api_update_manager_update():
     emit_update_result_notification(
         target_type,
         target_id,
-        target_id,
+        (result.get('history_entry') or {}).get('target_name') or target_id,
         result.get('message') or (
             f"{target_type.title()} {target_id} updated successfully."
             if result.get('ok')
             else f"{target_type.title()} {target_id} update failed."
         ),
         bool(result.get('ok')),
+        history_entry=result.get('history_entry'),
     )
     audit_event(
         'update-manager.update',
@@ -1477,6 +1480,22 @@ def api_update_manager_update():
             'history_entry_id': (result.get('history_entry') or {}).get('id'),
         },
     )
+    return jsonify(result), 200 if result.get('ok') else 409
+
+
+@main_routes.route('/api/update-manager/auto-update', methods=['POST'])
+@admin_required
+@csrf_protect
+def api_update_manager_auto_update():
+    """Enable or disable automatic updates for a supported target."""
+    data = request.get_json(force=True) or {}
+    target_type = str(data.get('target_type') or '').strip().lower()
+    target_name = str(data.get('target_name') or '').strip()
+    enabled = bool(data.get('enabled'))
+    if target_type not in {'container', 'project'} or not target_name:
+        return jsonify({'ok': False, 'message': 'target_type and target_name are required.'}), 400
+
+    result = update_manager.configure_auto_update_target(target_type, target_name, enabled)
     return jsonify(result), 200 if result.get('ok') else 409
 
 

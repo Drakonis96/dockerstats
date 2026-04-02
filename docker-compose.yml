@@ -6,7 +6,7 @@ services:
     image: drakonis96/statainer:latest
     container_name: statainer
     environment:
-      APP_VERSION: ${APP_VERSION:-v0.9.10}
+      APP_VERSION: ${APP_VERSION:-}
       APP_SECRET_KEY: ${APP_SECRET_KEY}
       AUTH_ENABLED: ${AUTH_ENABLED:-true}
       AUTH_USER: ${AUTH_USER:-}

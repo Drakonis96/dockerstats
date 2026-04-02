@@ -104,8 +104,11 @@ def test_list_update_targets_groups_projects_and_standalone_containers(temp_db, 
         metadata={'rollback_ready': True},
         actor_username='admin',
     )
+    users_db.set_auto_update_target('project', 'demo', True)
+    users_db.set_auto_update_target('container', 'cache', True)
 
     payload = update_manager.list_update_targets(history_limit=5)
+    auto_updates = {(item['type'], item['name']): item for item in payload['auto_updates']}
 
     assert payload['experimental_notice'] == update_manager.EXPERIMENTAL_NOTICE
     assert payload['history_notice'] == update_manager.UPDATE_HISTORY_NOTICE
@@ -117,6 +120,10 @@ def test_list_update_targets_groups_projects_and_standalone_containers(temp_db, 
     assert len(payload['containers']) == 1
     assert payload['containers'][0]['name'] == 'cache'
     assert payload['containers'][0]['type'] == 'container'
+    assert len(payload['auto_updates']) == 2
+    assert auto_updates[('project', 'demo')]['auto_update_enabled'] is True
+    assert auto_updates[('project', 'demo')]['last_updated_at'] is not None
+    assert auto_updates[('container', 'cache')]['auto_update_enabled'] is True
     assert payload['history'][0]['id'] == history_id
     assert payload['history'][0]['can_rollback'] is True
 
@@ -187,6 +194,37 @@ def test_list_update_targets_marks_portainer_managed_projects_as_ready_for_exter
     assert candidate['meta']['update_mode_label'] == 'External safe recreate'
     assert any('safe container recreation workflow' in item for item in candidate['meta']['guidance'])
     assert 'Export the stack from Portainer' in candidate['meta']['recovery_hint']
+
+
+def test_configure_auto_update_target_persists_supported_container(temp_db, monkeypatch):
+    container = FakeContainer('cid-cache', 'cache', 'redis:7')
+    client = FakeDockerClient(FakeContainersManager(list_sequences=[[container]]))
+
+    monkeypatch.setattr(update_manager, 'get_docker_client', lambda: client)
+    monkeypatch.setattr(sampler, 'update_check_cache', {})
+    monkeypatch.setattr(sampler, 'update_check_time', {'cid-cache': 150.0})
+    monkeypatch.setattr(sampler, 'update_check_details_cache', {
+        'cid-cache': {
+            'image_ref': 'redis:7',
+            'current_token': 'cache-old',
+            'latest_token': 'cache-new',
+            'current_version': 'redis:7 @ cache-old',
+            'latest_version': 'redis:7 @ cache-new',
+            'current_image_id': 'sha256:cache-old',
+        },
+    })
+
+    enabled = update_manager.configure_auto_update_target('container', 'cache', True)
+
+    assert enabled['ok'] is True
+    assert enabled['item']['auto_update_enabled'] is True
+    assert users_db.get_auto_update_settings()['containers']['cache'] is True
+
+    disabled = update_manager.configure_auto_update_target('container', 'cache', False)
+
+    assert disabled['ok'] is True
+    assert disabled['item']['auto_update_enabled'] is False
+    assert users_db.get_auto_update_settings()['containers'] == {}
 
 
 def test_refresh_candidate_checks_deduplicates_registry_lookups_by_image_ref(temp_db, monkeypatch):

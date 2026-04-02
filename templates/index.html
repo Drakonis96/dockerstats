@@ -1102,6 +1102,9 @@
               <button class="nav-link" id="updateManagerContainersTab" data-bs-toggle="tab" data-bs-target="#updateManagerContainersPane" type="button" role="tab" aria-controls="updateManagerContainersPane" aria-selected="false">Containers</button>
             </li>
             <li class="nav-item" role="presentation">
+              <button class="nav-link" id="updateManagerAutoUpdatesTab" data-bs-toggle="tab" data-bs-target="#updateManagerAutoUpdatesPane" type="button" role="tab" aria-controls="updateManagerAutoUpdatesPane" aria-selected="false">Auto-Update</button>
+            </li>
+            <li class="nav-item" role="presentation">
               <button class="nav-link" id="updateManagerHistoryTab" data-bs-toggle="tab" data-bs-target="#updateManagerHistoryPane" type="button" role="tab" aria-controls="updateManagerHistoryPane" aria-selected="false">History</button>
             </li>
           </ul>
@@ -1149,6 +1152,20 @@
                 </div>
                 <div id="updateManagerContainerList" class="update-manager-list">
                   <div class="update-manager-empty">Loading available updates...</div>
+                </div>
+              </section>
+            </div>
+            <div class="tab-pane fade" id="updateManagerAutoUpdatesPane" role="tabpanel" aria-labelledby="updateManagerAutoUpdatesTab">
+              <section class="settings-pane update-manager-pane">
+                <div class="update-manager-pane-head">
+                  <div>
+                    <p class="update-target-eyebrow">Auto-update management</p>
+                    <h6 class="mb-0">Supported stacks and containers</h6>
+                    <p class="update-history-retention-note mb-0" id="updateManagerAutoMeta">Loading auto-update targets...</p>
+                  </div>
+                </div>
+                <div id="updateManagerAutoList" class="update-manager-list">
+                  <div class="update-manager-empty">Loading auto-update targets...</div>
                 </div>
               </section>
             </div>
@@ -1704,7 +1721,7 @@
 
   <!-- Footer -->
   <footer class="footer container-fluid">
-    <p>statainer. Version {{ app_version }}</p>
+    <p>statainer. Version <span id="appVersionText">{{ app_version }}</span></p>
   </footer>
   <!-- End Footer -->
   <!-- Bootstrap Bundle with Popper -->
@@ -1712,7 +1729,8 @@
   <script>
     window.STATAINER_CONFIG = {
       csrfToken: {{ csrf_token|tojson }},
-      maxCpuPercent: {{ max_cpu_percent|tojson }}
+      maxCpuPercent: {{ max_cpu_percent|tojson }},
+      appVersion: {{ app_version|tojson }}
     };
   </script>
   <script type="module" src="{{ url_for('static', filename='js/dashboard/app.js') }}"></script>

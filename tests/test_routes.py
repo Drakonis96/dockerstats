@@ -254,7 +254,14 @@ def test_update_manager_update_endpoint_emits_success_notification(client, monke
     monkeypatch.setattr(routes.update_manager, "update_target", lambda target_type, target_id, actor_username=None: {
         "ok": True,
         "message": f"{target_type}:{target_id} updated",
-        "history_entry": {"id": 11, "target_type": target_type, "target_id": target_id},
+        "history_entry": {
+            "id": 11,
+            "target_type": target_type,
+            "target_id": target_id,
+            "target_name": "demo",
+            "previous_version": "web=nginx:1.25.3",
+            "new_version": "web=nginx:1.25.4",
+        },
     })
     monkeypatch.setattr(routes.sampler, "emit_notification", lambda event: emitted.append(event))
 
@@ -272,7 +279,11 @@ def test_update_manager_update_endpoint_emits_success_notification(client, monke
         "cid": None,
         "container": "",
         "project": "demo",
-        "msg": "project:demo updated",
+        "target_type": "project",
+        "target_name": "demo",
+        "previous_version": "web=nginx:1.25.3",
+        "new_version": "web=nginx:1.25.4",
+        "msg": 'Stack "demo" updated from web=nginx:1.25.3 -> web=nginx:1.25.4',
     }]
 
 
@@ -284,7 +295,7 @@ def test_update_manager_update_endpoint_emits_failure_notification(client, monke
     monkeypatch.setattr(routes.update_manager, "update_target", lambda target_type, target_id, actor_username=None: {
         "ok": False,
         "message": f"{target_type}:{target_id} failed",
-        "history_entry": {"id": 12, "target_type": target_type, "target_id": target_id},
+        "history_entry": {"id": 12, "target_type": target_type, "target_id": target_id, "target_name": "cache"},
     })
     monkeypatch.setattr(routes.sampler, "emit_notification", lambda event: emitted.append(event))
 
@@ -300,10 +311,40 @@ def test_update_manager_update_endpoint_emits_failure_notification(client, monke
         "scope": "update_failure",
         "timestamp": emitted[0]["timestamp"],
         "cid": "cache-standalone",
-        "container": "cache-standalone",
+        "container": "cache",
         "project": "",
-        "msg": "container:cache-standalone failed",
+        "target_type": "container",
+        "target_name": "cache",
+        "previous_version": None,
+        "new_version": None,
+        "msg": 'Container "cache" failed to update. container:cache-standalone failed',
     }]
+
+
+def test_update_manager_auto_update_endpoint_updates_target(client, monkeypatch):
+    set_auth_mode(client, "page")
+    csrf_token = set_page_session(client)
+
+    monkeypatch.setattr(routes.update_manager, "configure_auto_update_target", lambda target_type, target_name, enabled: {
+        "ok": True,
+        "message": f"Auto-update {'enabled' if enabled else 'disabled'} for {target_type} {target_name}",
+        "item": {
+            "type": target_type,
+            "name": target_name,
+            "auto_update_enabled": enabled,
+        },
+    })
+
+    response = client.post(
+        "/api/update-manager/auto-update",
+        json={"target_type": "project", "target_name": "demo", "enabled": True},
+        headers={"X-CSRFToken": csrf_token},
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["ok"] is True
+    assert payload["item"]["auto_update_enabled"] is True
 
 
 def test_update_manager_rollback_endpoint_reports_failure_state(client, monkeypatch):
@@ -545,7 +586,14 @@ def test_container_update_action_emits_update_notification(client, monkeypatch):
     monkeypatch.setattr(routes.update_manager, "update_container_target", lambda container_id, actor_username=None: {
         "ok": True,
         "message": "Container cache updated safely.",
-        "history_entry": {"id": 14, "target_type": "container", "target_id": container_id},
+        "history_entry": {
+            "id": 14,
+            "target_type": "container",
+            "target_id": container_id,
+            "target_name": "cache",
+            "previous_version": "redis:7 @ cache-old",
+            "new_version": "redis:7 @ cache-new",
+        },
     })
     monkeypatch.setattr(routes.sampler, "emit_notification", lambda event: emitted.append(event))
 
@@ -562,7 +610,11 @@ def test_container_update_action_emits_update_notification(client, monkeypatch):
         "cid": "abc123",
         "container": "cache",
         "project": "",
-        "msg": "Container cache updated safely.",
+        "target_type": "container",
+        "target_name": "cache",
+        "previous_version": "redis:7 @ cache-old",
+        "new_version": "redis:7 @ cache-new",
+        "msg": 'Container "cache" updated from redis:7 @ cache-old -> redis:7 @ cache-new',
     }]
 
 

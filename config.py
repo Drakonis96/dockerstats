@@ -3,6 +3,10 @@ import os
 import secrets
 
 
+APP_DIR = os.path.dirname(__file__)
+VERSION_FILE = os.path.join(APP_DIR, "VERSION")
+
+
 def _get_bool(name, default=False):
     value = os.environ.get(name)
     if value is None:
@@ -25,7 +29,19 @@ def _read_secret(env_name, file_env_name=None, default=""):
     return os.environ.get(env_name, default).strip()
 
 
-APP_VERSION = os.environ.get("APP_VERSION", "v0.9.10").strip() or "v0.9.10"
+def _read_default_app_version(default="v0.9.11"):
+    try:
+        with open(VERSION_FILE, "r", encoding="utf-8") as handle:
+            value = handle.read().strip()
+            if value:
+                return value
+    except OSError:
+        pass
+    return default
+
+
+DEFAULT_APP_VERSION = _read_default_app_version()
+APP_VERSION = os.environ.get("APP_VERSION", DEFAULT_APP_VERSION).strip() or DEFAULT_APP_VERSION
 APP_HOST = os.environ.get("APP_HOST", "0.0.0.0")
 APP_PORT = _get_int("APP_PORT", 5000)
 WAITRESS_THREADS = _get_int("WAITRESS_THREADS", 8)

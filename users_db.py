@@ -10,6 +10,7 @@ DEFAULT_DB_PATH = os.path.join(APP_DIR, 'data', 'users.db')
 LEGACY_DB_PATH = os.path.join(APP_DIR, 'users.db')
 UPDATE_HISTORY_RETENTION_DAYS = 15
 UPDATE_HISTORY_RETENTION_SECONDS = UPDATE_HISTORY_RETENTION_DAYS * 24 * 60 * 60
+AUTO_UPDATE_SETTINGS_KEY = 'auto_update_settings'
 
 
 def _normalize_db_path(path):
@@ -310,6 +311,55 @@ def set_notification_settings(settings):
     set_global_setting('notification_settings', settings)
 
 
+def normalize_auto_update_settings(settings=None):
+    raw = settings if isinstance(settings, dict) else {}
+    normalized = {
+        'containers': {},
+        'projects': {},
+    }
+
+    for key, bucket_name in (('containers', 'containers'), ('projects', 'projects')):
+        bucket = raw.get(key)
+        if not isinstance(bucket, dict):
+            continue
+        for target_name, enabled in bucket.items():
+            normalized_name = str(target_name or '').strip()
+            if not normalized_name:
+                continue
+            if isinstance(enabled, dict):
+                enabled_value = bool(enabled.get('enabled'))
+            else:
+                enabled_value = bool(enabled)
+            if enabled_value:
+                normalized[bucket_name][normalized_name] = True
+
+    return normalized
+
+
+def get_auto_update_settings(default=None):
+    baseline = normalize_auto_update_settings(default or {'containers': {}, 'projects': {}})
+    return normalize_auto_update_settings(get_global_setting(AUTO_UPDATE_SETTINGS_KEY, baseline))
+
+
+def set_auto_update_settings(settings):
+    normalized = normalize_auto_update_settings(settings)
+    set_global_setting(AUTO_UPDATE_SETTINGS_KEY, normalized)
+    return normalized
+
+
+def set_auto_update_target(target_type, target_name, enabled):
+    normalized_type = 'projects' if str(target_type or '').strip().lower() == 'project' else 'containers'
+    normalized_name = str(target_name or '').strip()
+    settings = get_auto_update_settings()
+    if not normalized_name:
+        return settings
+    if enabled:
+        settings[normalized_type][normalized_name] = True
+    else:
+        settings[normalized_type].pop(normalized_name, None)
+    return set_auto_update_settings(settings)
+
+
 def purge_expired_update_history(now_ts=None, retention_seconds=UPDATE_HISTORY_RETENTION_SECONDS):
     effective_now = float(now_ts if now_ts is not None else time.time())
     cutoff = effective_now - max(0, int(retention_seconds))
@@ -438,5 +488,25 @@ def list_update_history(limit=100):
             'metadata': metadata,
             'rollback_of': row['rollback_of'],
         })
+    conn.close()
+    return rows
+
+
+def list_latest_successful_update_timestamps():
+    purge_expired_update_history()
+    conn = get_db()
+    c = conn.cursor()
+    c.execute(
+        '''
+        SELECT target_type, target_name, MAX(created_at) AS last_updated_at
+        FROM update_history
+        WHERE action='update' AND result='success'
+        GROUP BY target_type, target_name
+        '''
+    )
+    rows = {
+        (row['target_type'], row['target_name']): row['last_updated_at']
+        for row in c.fetchall()
+    }
     conn.close()
     return rows

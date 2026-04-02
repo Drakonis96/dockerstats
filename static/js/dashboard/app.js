@@ -24,6 +24,10 @@ import { createUserController } from './users.js';
 const ctx = createDashboardContext(window.STATAINER_CONFIG || {});
 const dialogs = createDialogController(ctx);
 
+if (ctx.elements.appVersionText && ctx.config.appVersion) {
+  ctx.elements.appVersionText.textContent = ctx.config.appVersion;
+}
+
 function patchFetchWithCsrf() {
   const originalFetch = window.fetch.bind(window);
   window.fetch = (input, init = {}) => {

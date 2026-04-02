@@ -15,9 +15,12 @@ import sampler
 from docker_client import get_api_client, get_docker_client
 from users_db import (
     UPDATE_HISTORY_RETENTION_DAYS,
+    get_auto_update_settings,
     get_update_history_entry,
+    list_latest_successful_update_timestamps,
     list_update_history,
     record_update_history,
+    set_auto_update_target,
 )
 
 
@@ -591,7 +594,8 @@ def _container_candidate(container, client):
     version_info = _container_version_info_for_list(container, client)
     checked_at = sampler.update_check_time.get(container.id)
     supported, support_reason = _container_support_check(container)
-    ready = supported and sampler.update_check_cache.get(container.id) is True
+    update_available = sampler.update_check_cache.get(container.id) is True
+    ready = supported
     return {
         'id': f'container:{container.id}',
         'target_id': container.id,
@@ -599,6 +603,7 @@ def _container_candidate(container, client):
         'type': 'container',
         'current_version': version_info['current_version'],
         'latest_version': version_info['latest_version'],
+        'update_available': update_available,
         'update_state': 'ready' if ready else 'blocked',
         'state_reason': None if ready else support_reason or 'This container cannot be updated safely with the current metadata.',
         'last_checked_at': checked_at,
@@ -848,6 +853,7 @@ def _project_candidate(project_name, containers, client):
     metadata = _compose_paths_from_labels(project_name, containers)
     entries = []
     checked_at = None
+    update_available = False
 
     for container in containers:
         version_info = _container_version_info_for_list(container, client)
@@ -856,6 +862,8 @@ def _project_candidate(project_name, containers, client):
         checked_value = sampler.update_check_time.get(container.id)
         if checked_value is not None:
             checked_at = checked_value if checked_at is None else max(checked_at, checked_value)
+        if sampler.update_check_cache.get(container.id) is True:
+            update_available = True
         entries.append({
             'service': service_name,
             'container_id': container.id,
@@ -901,6 +909,7 @@ def _project_candidate(project_name, containers, client):
         'type': 'project',
         'current_version': '; '.join(f"{entry['service']}={entry['current_version']}" for entry in entries),
         'latest_version': '; '.join(f"{entry['service']}={entry['latest_version']}" for entry in entries),
+        'update_available': update_available,
         'update_state': 'ready' if ready else 'blocked',
         'state_reason': state_reason,
         'last_checked_at': checked_at,
@@ -978,30 +987,79 @@ def _run_compose(metadata, project_name, extra_args, override_file=None):
     )
 
 
+def _build_candidate_collections(containers, client, only_update_available=False):
+    project_groups = {}
+    container_items = []
+
+    for container in containers:
+        labels = container.attrs.get('Config', {}).get('Labels', {}) or {}
+        project_name = labels.get('com.docker.compose.project')
+        has_update = sampler.update_check_cache.get(container.id) is True
+        if only_update_available and not has_update:
+            if project_name:
+                continue
+            continue
+
+        if project_name:
+            project_groups.setdefault(project_name, []).append(container)
+            continue
+
+        container_items.append(_container_candidate(container, client))
+
+    project_items = []
+    for project_name, grouped_containers in sorted(project_groups.items()):
+        if only_update_available and not any(sampler.update_check_cache.get(container.id) is True for container in grouped_containers):
+            continue
+        project_items.append(_project_candidate(project_name, grouped_containers, client))
+
+    return project_items, container_items
+
+
+def _auto_update_key_for_candidate(candidate):
+    if str(candidate.get('type') or '').lower() == 'project':
+        return str(candidate.get('target_id') or candidate.get('name') or '').strip()
+    return str(candidate.get('name') or '').strip()
+
+
+def _attach_auto_update_metadata(candidate, settings, last_updated_lookup):
+    candidate = dict(candidate)
+    normalized_type = 'projects' if str(candidate.get('type') or '').lower() == 'project' else 'containers'
+    auto_update_key = _auto_update_key_for_candidate(candidate)
+    candidate['auto_update_key'] = auto_update_key
+    candidate['auto_update_enabled'] = bool(settings.get(normalized_type, {}).get(auto_update_key))
+    candidate['last_updated_at'] = last_updated_lookup.get((candidate.get('type'), auto_update_key))
+    return candidate
+
+
+def _list_auto_update_targets(containers, client):
+    project_items, container_items = _build_candidate_collections(containers, client, only_update_available=False)
+    eligible = [item for item in [*project_items, *container_items] if str(item.get('update_state') or '').lower() == 'ready']
+    return sorted(
+        eligible,
+        key=lambda item: (0 if str(item.get('type') or '').lower() == 'project' else 1, str(item.get('name') or '').lower()),
+    )
+
+
 def list_update_targets(history_limit=20, force_refresh=False):
     client = get_docker_client()
     containers = client.containers.list(all=True)
-    project_groups = {}
-    container_items = []
 
     if force_refresh:
         refreshed = _refresh_candidate_checks(containers)
     else:
         refreshed = [(container, sampler.update_check_cache.get(container.id)) for container in containers]
 
-    for container, update_available in refreshed:
-        if update_available is not True:
-            continue
-        labels = container.attrs.get('Config', {}).get('Labels', {}) or {}
-        project_name = labels.get('com.docker.compose.project')
-        if project_name:
-            project_groups.setdefault(project_name, []).append(container)
-        else:
-            container_items.append(_container_candidate(container, client))
+    if force_refresh:
+        containers = [container for container, _update_available in refreshed]
 
-    project_items = [
-        _project_candidate(project_name, grouped_containers, client)
-        for project_name, grouped_containers in sorted(project_groups.items())
+    project_items, container_items = _build_candidate_collections(containers, client, only_update_available=True)
+    auto_update_settings = get_auto_update_settings()
+    last_updated_lookup = list_latest_successful_update_timestamps()
+    project_items = [_attach_auto_update_metadata(item, auto_update_settings, last_updated_lookup) for item in project_items]
+    container_items = [_attach_auto_update_metadata(item, auto_update_settings, last_updated_lookup) for item in container_items]
+    auto_update_items = [
+        _attach_auto_update_metadata(item, auto_update_settings, last_updated_lookup)
+        for item in _list_auto_update_targets(containers, client)
     ]
 
     rollback_sources = {entry['rollback_of'] for entry in list_update_history(limit=history_limit * 3) if entry.get('rollback_of')}
@@ -1022,7 +1080,37 @@ def list_update_targets(history_limit=20, force_refresh=False):
         'history_retention_days': UPDATE_HISTORY_RETENTION_DAYS,
         'projects': project_items,
         'containers': container_items,
+        'auto_updates': auto_update_items,
         'history': history_entries,
+    }
+
+
+def configure_auto_update_target(target_type, target_name, enabled):
+    normalized_type = 'project' if str(target_type or '').strip().lower() == 'project' else 'container'
+    normalized_name = str(target_name or '').strip()
+    if not normalized_name:
+        return {'ok': False, 'message': 'target_name is required.'}
+
+    client = get_docker_client()
+    containers = client.containers.list(all=True)
+    eligible_targets = {
+        (str(item.get('type') or '').lower(), _auto_update_key_for_candidate(item)): item
+        for item in _list_auto_update_targets(containers, client)
+    }
+    selected = eligible_targets.get((normalized_type, normalized_name))
+    if not selected:
+        return {
+            'ok': False,
+            'message': f'{normalized_type.title()} "{normalized_name}" does not currently support auto-updates.',
+        }
+
+    settings = set_auto_update_target(normalized_type, normalized_name, bool(enabled))
+    item = _attach_auto_update_metadata(selected, settings, list_latest_successful_update_timestamps())
+    state_label = 'enabled' if item['auto_update_enabled'] else 'disabled'
+    return {
+        'ok': True,
+        'item': item,
+        'message': f'Auto-update {state_label} for {normalized_type} "{item["name"]}".',
     }
 
 

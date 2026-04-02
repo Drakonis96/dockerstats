@@ -29,7 +29,8 @@ from metrics_utils import (
     calc_block_io
 )
 from pushover_client import send as push_notify
-from users_db import get_notification_settings, set_notification_settings
+from update_notifications import build_update_available_message, build_update_result_event
+from users_db import get_auto_update_settings, get_notification_settings, set_notification_settings
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -81,6 +82,8 @@ NOTIFICATION_SETTINGS_DEFAULTS = {
 }
 
 notifications = collections.deque(maxlen=500)  # Store recent notification events
+auto_update_in_progress = set()
+auto_update_lock = threading.Lock()
 
 
 def _to_bool(value, default=False):
@@ -545,6 +548,90 @@ def dispatch_external_notification(event):
     push_notify(event.get('msg', 'statainer notification'), title=title, priority=priority, event=event)
 
 
+def resolve_auto_update_target(container, settings=None):
+    effective_settings = settings or {'containers': {}, 'projects': {}}
+    project_name = extract_compose_project(container)
+    if project_name and effective_settings.get('projects', {}).get(project_name):
+        return ('project', project_name, project_name)
+
+    container_name = str(getattr(container, 'name', '') or '').strip()
+    container_id = getattr(container, 'id', None)
+    if container_name and container_id and effective_settings.get('containers', {}).get(container_name):
+        return ('container', container_id, container_name)
+    return None
+
+
+def build_update_available_event(container, details=None, timestamp=None):
+    update_details = details or {}
+    container_name = str(getattr(container, 'name', '') or '').strip() or 'unknown'
+    return {
+        'type': 'update',
+        'scope': 'update_available',
+        'cid': getattr(container, 'id', None),
+        'container': container_name,
+        'project': extract_compose_project(container),
+        'target_type': 'container',
+        'target_name': container_name,
+        'previous_version': update_details.get('current_version'),
+        'new_version': update_details.get('latest_version'),
+        'timestamp': float(timestamp if timestamp is not None else time.time()),
+        'msg': build_update_available_message(
+            'container',
+            container_name,
+            previous_version=update_details.get('current_version'),
+            new_version=update_details.get('latest_version'),
+        ),
+    }
+
+
+def _run_auto_update_job(target_type, target_id, target_name, job_key):
+    try:
+        import update_manager
+
+        result = update_manager.update_target(target_type, target_id, actor_username='auto-update')
+        emit_notification(build_update_result_event(
+            target_type,
+            target_id,
+            target_name,
+            bool(result.get('ok')),
+            history_entry=result.get('history_entry'),
+            fallback_message=result.get('message'),
+        ))
+    except Exception as exc:
+        logging.exception("Auto-update worker failed for %s %s", target_type, target_name)
+        emit_notification(build_update_result_event(
+            target_type,
+            target_id,
+            target_name,
+            False,
+            fallback_message=str(exc),
+        ))
+    finally:
+        with auto_update_lock:
+            auto_update_in_progress.discard(job_key)
+
+
+def queue_auto_update(target_type, target_id, target_name):
+    normalized_type = 'project' if str(target_type or '').strip().lower() == 'project' else 'container'
+    normalized_name = str(target_name or '').strip()
+    if not normalized_name or not target_id:
+        return False
+
+    job_key = (normalized_type, normalized_name)
+    with auto_update_lock:
+        if job_key in auto_update_in_progress:
+            return False
+        auto_update_in_progress.add(job_key)
+
+    worker = threading.Thread(
+        target=_run_auto_update_job,
+        args=(normalized_type, target_id, normalized_name, job_key),
+        daemon=True,
+    )
+    worker.start()
+    return True
+
+
 def get_metrics_sequence():
     with stream_condition:
         return metrics_sequence
@@ -775,6 +862,11 @@ def sample_metrics():
 
         processed_cids = set()
         now = time.time()
+        try:
+            auto_update_settings = get_auto_update_settings()
+        except Exception as exc:
+            logging.warning("Unable to load auto-update settings: %s", exc)
+            auto_update_settings = {'containers': {}, 'projects': {}}
         for cid, container_name in containers_to_sample:
             processed_cids.add(cid)
             cpu = 0.0
@@ -917,16 +1009,12 @@ def sample_metrics():
                             pass
                     
                     if is_new_update:
-                        n = {
-                            'type': 'update',
-                            'cid': cid,
-                            'container': container_name,
-                            'project': container_project,
-                            'value': True,
-                            'timestamp': now,
-                            'msg': f"{container_name}: Update available for this container"
-                        }
-                        emit_notification(n)
+                        auto_update_target = resolve_auto_update_target(container, settings=auto_update_settings)
+                        if auto_update_target:
+                            queue_auto_update(*auto_update_target)
+                        else:
+                            details = update_check_details_cache.get(cid) or {}
+                            emit_notification(build_update_available_event(container, details=details, timestamp=now))
 
                 time.sleep(0.2)  # Stagger requests to avoid throttling
 

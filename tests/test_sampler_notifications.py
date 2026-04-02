@@ -205,3 +205,44 @@ def test_get_new_security_notifications_only_emits_new_findings_and_respects_tog
     assert {finding["finding"] for finding in first} == {"privileged", "latest_tag"}
     assert second == []
     assert {finding["finding"] for finding in muted} == {"latest_tag"}
+
+
+def test_build_update_available_event_includes_target_name_and_versions():
+    container = DummyContainer({
+        "Config": {
+            "Image": "nginx:1.25",
+            "Labels": {"com.docker.compose.project": "demo"},
+        },
+    }, cid="nginx123", name="nginx")
+
+    event = sampler.build_update_available_event(container, details={
+        "current_version": "1.25.3",
+        "latest_version": "1.25.4",
+    }, timestamp=1000)
+
+    assert event["scope"] == "update_available"
+    assert event["container"] == "nginx"
+    assert event["project"] == "demo"
+    assert event["msg"] == 'Update available for container "nginx": 1.25.3 -> 1.25.4'
+
+
+def test_resolve_auto_update_target_prefers_project_over_container_setting():
+    project_container = DummyContainer({
+        "Config": {
+            "Labels": {"com.docker.compose.project": "demo"},
+        },
+    }, cid="web123", name="web")
+    standalone_container = DummyContainer({
+        "Config": {
+            "Labels": {},
+        },
+    }, cid="cache123", name="cache")
+
+    assert sampler.resolve_auto_update_target(project_container, settings={
+        "projects": {"demo": True},
+        "containers": {"web": True},
+    }) == ("project", "demo", "demo")
+    assert sampler.resolve_auto_update_target(standalone_container, settings={
+        "projects": {},
+        "containers": {"cache": True},
+    }) == ("container", "cache123", "cache")
