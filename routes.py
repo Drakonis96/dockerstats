@@ -52,6 +52,10 @@ def get_request_role():
     return get_user_role(username)
 
 
+def get_request_remote_addr():
+    return request.remote_addr or (request.access_route[0] if request.access_route else None)
+
+
 def audit_event(action, target_type, status, target_id=None, details=None):
     record_audit_event(
         action=action,
@@ -60,7 +64,7 @@ def audit_event(action, target_type, status, target_id=None, details=None):
         actor_username=get_request_username(),
         actor_role=get_request_role(),
         target_id=target_id,
-        remote_addr=request.headers.get('X-Forwarded-For', request.remote_addr),
+        remote_addr=get_request_remote_addr(),
         details=details,
     )
 
@@ -113,6 +117,7 @@ def emit_update_result_notification(target_type, target_id, target_name, message
 
 # --- CSRF Token Utilities ---
 def generate_csrf_token():
+    session.permanent = True
     if 'csrf_token' not in session:
         session['csrf_token'] = secrets.token_urlsafe(32)
     return session['csrf_token']
@@ -175,6 +180,7 @@ def login():
         password = request.form.get('password')
         
         if validate_user(username, password):
+            session.permanent = True
             session['authenticated'] = True
             session['username'] = username
             audit_event('login', 'session', 'success', target_id=username, details={'mode': 'page'})
@@ -187,7 +193,7 @@ def login():
                 actor_username=username,
                 actor_role=get_user_role(username) if username and user_exists(username) else None,
                 target_id=username,
-                remote_addr=request.headers.get('X-Forwarded-For', request.remote_addr),
+                remote_addr=get_request_remote_addr(),
                 details={'mode': 'page', 'reason': 'invalid_credentials'},
             )
             error = "Invalid username or password"
@@ -211,7 +217,12 @@ def logout():
     response.headers['Expires'] = '0'
     
     # Add a cookie expiration header to force removal of the session cookie
-    response.delete_cookie('session')
+    response.delete_cookie(
+        current_app.config.get('SESSION_COOKIE_NAME', 'session'),
+        secure=current_app.config.get('SESSION_COOKIE_SECURE', False),
+        httponly=current_app.config.get('SESSION_COOKIE_HTTPONLY', True),
+        samesite=current_app.config.get('SESSION_COOKIE_SAMESITE', 'Lax'),
+    )
     if username:
         record_audit_event(
             action='logout',
@@ -220,7 +231,7 @@ def logout():
             actor_username=username,
             actor_role=get_user_role(username),
             target_id=username,
-            remote_addr=request.headers.get('X-Forwarded-For', request.remote_addr),
+            remote_addr=get_request_remote_addr(),
             details={'mode': login_mode()},
         )
     
@@ -232,6 +243,10 @@ def require_auth():
     # Skip authentication for static files and login page
     if request.path.startswith('/static/') or request.path == '/login' or request.path == '/favicon.ico':
         return
+
+    if auth_enabled() and login_mode() == 'page' and is_authenticated():
+        session.permanent = True
+        session.modified = True
         
     # If credentials are not set, skip authentication
     if not auth_enabled():

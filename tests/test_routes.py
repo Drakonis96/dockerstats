@@ -1,5 +1,7 @@
 import base64
 
+import app as app_module
+import pytest
 import routes
 import sampler
 import users_db
@@ -23,6 +25,21 @@ def set_auth_mode(client, mode="page", enabled=True):
     client.application.config["LOGIN_MODE"] = mode
 
 
+def make_test_client(**overrides):
+    test_app = app_module.create_app({
+        "TESTING": True,
+        "SECRET_KEY": "test-secret",
+        "APP_SECRET_KEY_EPHEMERAL": False,
+        "APP_VERSION": "test-version",
+        "AUTH_ENABLED": True,
+        "AUTH_USER": "admin",
+        "AUTH_PASSWORD": "adminpass",
+        "LOGIN_MODE": "page",
+        **overrides,
+    })
+    return test_app.test_client()
+
+
 def test_change_password_works_with_page_login_session(client, monkeypatch):
     set_auth_mode(client, "page")
     csrf_token = set_page_session(client)
@@ -44,11 +61,70 @@ def test_login_and_index_pages_render(client, monkeypatch):
     login_response = client.get("/login")
     assert login_response.status_code == 200
     assert b"statainer" in login_response.data
+    assert b"test-version" in login_response.data
 
     set_page_session(client)
     index_response = client.get("/")
     assert index_response.status_code == 200
     assert b"One cockpit for containers, updates and alerts." in index_response.data
+    assert b"test-version" in index_response.data
+
+
+def test_login_sets_secure_cookie_attributes_and_session_expiry(temp_db):
+    client = make_test_client(
+        SESSION_COOKIE_SECURE=True,
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Lax",
+        SESSION_IDLE_MINUTES=15,
+    )
+
+    response = client.get("/login")
+
+    assert response.status_code == 200
+    cookie_header = response.headers["Set-Cookie"]
+    assert "Secure" in cookie_header
+    assert "HttpOnly" in cookie_header
+    assert "SameSite=Lax" in cookie_header
+    assert "Expires=" in cookie_header
+    assert client.application.config["PERMANENT_SESSION_LIFETIME"].total_seconds() == 900
+
+
+def test_security_headers_add_hsts_only_when_proxy_fix_marks_request_secure(temp_db):
+    insecure_client = make_test_client(AUTH_ENABLED=False, ENABLE_PROXY_FIX=False)
+    secure_client = make_test_client(
+        AUTH_ENABLED=False,
+        ENABLE_PROXY_FIX=True,
+        PROXY_FIX_X_PROTO=1,
+        PROXY_FIX_X_HOST=1,
+    )
+
+    insecure_response = insecure_client.get(
+        "/api/system-status",
+        headers={"X-Forwarded-Proto": "https", "X-Forwarded-Host": "statainer.example.com"},
+    )
+    secure_response = secure_client.get(
+        "/api/system-status",
+        headers={"X-Forwarded-Proto": "https", "X-Forwarded-Host": "statainer.example.com"},
+    )
+
+    assert insecure_response.status_code == 200
+    assert secure_response.status_code == 200
+    assert insecure_response.headers.get("Strict-Transport-Security") is None
+    assert secure_response.headers["Strict-Transport-Security"].startswith("max-age=31536000")
+    assert secure_response.headers["X-Content-Type-Options"] == "nosniff"
+    assert secure_response.headers["X-Frame-Options"] == "DENY"
+    assert secure_response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+    assert "default-src 'self'" in secure_response.headers["Content-Security-Policy"]
+
+
+def test_production_requires_explicit_secret_key():
+    with pytest.raises(RuntimeError, match="APP_SECRET_KEY or APP_SECRET_KEY_FILE is required"):
+        app_module.create_app({
+            "TESTING": True,
+            "APP_ENV": "production",
+            "REQUIRE_EXPLICIT_SECRET_KEY": True,
+            "APP_SECRET_KEY_EPHEMERAL": True,
+        })
 
 
 def test_logout_clears_session_and_redirects_to_login(client):

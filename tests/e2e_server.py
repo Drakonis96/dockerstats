@@ -15,6 +15,7 @@ STATIC_DIR = os.path.join(ROOT_DIR, 'static')
 app = Flask(__name__, template_folder=TEMPLATES_DIR, static_folder=STATIC_DIR)
 app.secret_key = 'e2e-secret'
 
+E2E_APP_VERSION = 'test-version'
 DEFAULT_PASSWORD = 'adminpass'
 CURRENT_PASSWORD = DEFAULT_PASSWORD
 NOTIFICATION_SETTINGS = {
@@ -184,9 +185,23 @@ def initial_standalone_update_targets():
             'type': 'container',
             'current_version': 'redis:7 @ cache-old',
             'latest_version': 'redis:7 @ cache-new',
+            'update_available': True,
             'update_state': 'ready',
             'state_reason': None,
             'last_checked_at': BASE_TS - 60,
+            'entries': [],
+        },
+        'observer-standalone': {
+            'id': 'observer-standalone',
+            'target_id': 'observer-standalone',
+            'name': 'observer',
+            'type': 'container',
+            'current_version': 'ghcr.io/example/observer:2026.03.1 @ observer-current',
+            'latest_version': 'ghcr.io/example/observer:2026.04.0-build.145+sha.1234567890abcdef',
+            'update_available': False,
+            'update_state': 'ready',
+            'state_reason': None,
+            'last_checked_at': BASE_TS - 30,
             'entries': [],
         },
     }
@@ -204,6 +219,7 @@ def initial_external_project_targets():
             'type': 'project',
             'current_version': 'worker=python:3.12 @ worker-current',
             'latest_version': 'worker=python:3.13 @ worker-new',
+            'update_available': True,
             'update_state': 'ready',
             'state_reason': None,
             'last_checked_at': BASE_TS - 120,
@@ -238,6 +254,24 @@ def initial_external_project_targets():
 
 
 EXTERNAL_PROJECT_TARGETS = initial_external_project_targets()
+
+
+def initial_auto_update_settings():
+    return {
+        'projects': {'jobs': True},
+        'containers': {},
+    }
+
+
+def initial_auto_update_last_updated():
+    return {
+        ('project', 'jobs'): BASE_TS - 3600,
+        ('container', 'cache'): BASE_TS - 7200,
+    }
+
+
+AUTO_UPDATE_SETTINGS = initial_auto_update_settings()
+AUTO_UPDATE_LAST_UPDATED = initial_auto_update_last_updated()
 
 
 def list_containers():
@@ -307,6 +341,23 @@ def publish_log(container_id, line):
         LOG_CONDITION.notify_all()
 
 
+def auto_update_key_for_candidate(candidate):
+    if str(candidate.get('type') or '').lower() == 'project':
+        return str(candidate.get('target_id') or candidate.get('name') or '').strip()
+    return str(candidate.get('name') or candidate.get('target_id') or '').strip()
+
+
+def attach_auto_update_metadata(candidate):
+    item = dict(candidate)
+    target_type = 'project' if str(item.get('type') or '').lower() == 'project' else 'container'
+    settings_key = 'projects' if target_type == 'project' else 'containers'
+    auto_update_key = auto_update_key_for_candidate(item)
+    item['auto_update_key'] = auto_update_key
+    item['auto_update_enabled'] = bool(AUTO_UPDATE_SETTINGS.get(settings_key, {}).get(auto_update_key))
+    item['last_updated_at'] = AUTO_UPDATE_LAST_UPDATED.get((target_type, auto_update_key))
+    return item
+
+
 def build_update_manager_payload():
     purge_expired_update_history()
     rollback_sources = {entry['rollback_of'] for entry in UPDATE_HISTORY if entry.get('rollback_of')}
@@ -328,16 +379,22 @@ def build_update_manager_payload():
                 'type': 'container',
                 'current_version': container.get('current_version') or container.get('image'),
                 'latest_version': container.get('latest_version') or container.get('image'),
+                'update_available': True,
                 'update_state': 'ready',
                 'state_reason': None,
                 'last_checked_at': container.get('last_checked_at') or BASE_TS,
                 'entries': [],
             })
 
-    standalone.extend([
+    ready_standalone_targets = [
         dict(target)
         for target in sorted(STANDALONE_UPDATE_TARGETS.values(), key=lambda item: item['name'])
         if str(target.get('update_state') or '').lower() == 'ready'
+    ]
+    standalone.extend([
+        dict(target)
+        for target in ready_standalone_targets
+        if target.get('update_available')
     ])
 
     for project_name in sorted(grouped):
@@ -358,6 +415,7 @@ def build_update_manager_payload():
             'type': 'project',
             'current_version': '; '.join(f"{entry['service']}={entry['current_version']}" for entry in entries),
             'latest_version': '; '.join(f"{entry['service']}={entry['latest_version']}" for entry in entries),
+            'update_available': True,
             'update_state': 'ready',
             'state_reason': None,
             'last_checked_at': max(container.get('last_checked_at') or BASE_TS for container in containers),
@@ -376,6 +434,7 @@ def build_update_manager_payload():
         'type': 'project',
         'current_version': 'api=my-api:1.0 @ api-current',
         'latest_version': 'api=my-api:1.1 @ api-new',
+        'update_available': True,
         'update_state': 'blocked',
         'state_reason': 'Compose metadata is incomplete or inconsistent across services.',
         'last_checked_at': BASE_TS - 75,
@@ -404,6 +463,16 @@ def build_update_manager_payload():
             'update_mode_label': None,
         },
     })
+    auto_update_targets = sorted(
+        [
+            attach_auto_update_metadata(item)
+            for item in [*projects, *ready_standalone_targets]
+            if str(item.get('update_state') or '').lower() == 'ready'
+        ],
+        key=lambda item: (0 if item.get('type') == 'project' else 1, str(item.get('name') or '').lower()),
+    )
+    projects = [attach_auto_update_metadata(item) for item in projects]
+    standalone = [attach_auto_update_metadata(item) for item in standalone]
 
     history = []
     for entry in UPDATE_HISTORY:
@@ -422,6 +491,7 @@ def build_update_manager_payload():
         'history_retention_days': UPDATE_HISTORY_RETENTION_DAYS,
         'projects': projects,
         'containers': standalone,
+        'auto_updates': auto_update_targets,
         'history': history,
     }
 
@@ -535,7 +605,7 @@ def build_project_summaries(rows):
 def index():
     return render_template(
         'index.html',
-        app_version='test-version',
+        app_version=E2E_APP_VERSION,
         csrf_token='e2e-token',
         cpu_cores=8,
         max_cpu_percent=800,
@@ -545,7 +615,7 @@ def index():
 
 @app.route('/login', methods=['GET'])
 def login():
-    return render_template('login.html', app_version='test-version', csrf_token='e2e-token', error=None)
+    return render_template('login.html', app_version=E2E_APP_VERSION, csrf_token='e2e-token', error=None)
 
 
 @app.route('/logout')
@@ -571,6 +641,7 @@ def system_status():
             'webhook': {'configured': False},
         },
         'auth': {'mode': 'page', 'username': 'admin', 'role': 'admin'},
+        'app': {'version': E2E_APP_VERSION, 'ephemeral_secret_key': False},
     })
 
 
@@ -628,7 +699,7 @@ def stream():
 
     def generate():
         nonlocal last_metrics_seq, last_notification_seq
-        yield format_event('connected', {'transport': 'sse', 'version': 'test-version'})
+        yield format_event('connected', {'transport': 'sse', 'version': E2E_APP_VERSION})
         yield format_event('metrics', snapshot_payload())
         if NOTIFICATION_EVENTS:
             yield format_event('notifications', {'items': list(NOTIFICATION_EVENTS)})
@@ -1020,6 +1091,41 @@ def update_manager_update():
     return jsonify({'ok': False, 'message': 'Update target not supported in the E2E mock.'}), 409
 
 
+@app.route('/api/update-manager/auto-update', methods=['POST'])
+def update_manager_auto_update():
+    payload = request.get_json(silent=True) or {}
+    target_type = 'project' if str(payload.get('target_type') or '').strip().lower() == 'project' else 'container'
+    target_name = str(payload.get('target_name') or '').strip()
+    enabled = bool(payload.get('enabled'))
+    if not target_name:
+        return jsonify({'ok': False, 'message': 'target_type and target_name are required.'}), 400
+
+    eligible_targets = {
+        (str(item.get('type') or '').lower(), str(item.get('auto_update_key') or '').strip()): item
+        for item in build_update_manager_payload().get('auto_updates', [])
+    }
+    selected = eligible_targets.get((target_type, target_name))
+    if not selected:
+        return jsonify({
+            'ok': False,
+            'message': f'{target_type.title()} "{target_name}" does not currently support auto-updates.',
+        }), 409
+
+    settings_key = 'projects' if target_type == 'project' else 'containers'
+    if enabled:
+        AUTO_UPDATE_SETTINGS[settings_key][target_name] = True
+    else:
+        AUTO_UPDATE_SETTINGS[settings_key].pop(target_name, None)
+
+    item = attach_auto_update_metadata(selected)
+    state_label = 'enabled' if item['auto_update_enabled'] else 'disabled'
+    return jsonify({
+        'ok': True,
+        'item': item,
+        'message': f'Auto-update {state_label} for {target_type} "{item["name"]}".',
+    })
+
+
 @app.route('/api/update-manager/rollback', methods=['POST'])
 def update_manager_rollback():
     payload = request.get_json(silent=True) or {}
@@ -1205,6 +1311,10 @@ def test_reset():
     STANDALONE_UPDATE_TARGETS.update(initial_standalone_update_targets())
     EXTERNAL_PROJECT_TARGETS.clear()
     EXTERNAL_PROJECT_TARGETS.update(initial_external_project_targets())
+    AUTO_UPDATE_SETTINGS.clear()
+    AUTO_UPDATE_SETTINGS.update(initial_auto_update_settings())
+    AUTO_UPDATE_LAST_UPDATED.clear()
+    AUTO_UPDATE_LAST_UPDATED.update(initial_auto_update_last_updated())
     CONTAINER_LOGS.clear()
     CONTAINER_LOGS.update(initial_container_logs())
     with STREAM_CONDITION:

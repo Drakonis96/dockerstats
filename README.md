@@ -128,13 +128,18 @@ It also mounts:
 | `AUTH_USER` | Admin username | empty |
 | `AUTH_PASSWORD` | Admin password | empty |
 | `AUTH_PASSWORD_FILE` | Password file alternative | empty |
-| `APP_SECRET_KEY` | Session secret | generated if missing |
+| `APP_SECRET_KEY` | Session secret | generated if missing outside production |
 | `APP_SECRET_KEY_FILE` | Secret file alternative | empty |
+| `APP_ENV` | Runtime mode. Use `production` behind a reverse proxy | `development` |
+| `REQUIRE_EXPLICIT_SECRET_KEY` | Refuses startup with an ephemeral secret | `true` in production |
 | `LOGIN_MODE` | Login flow: `popup` or `page` | `popup` |
-| `APP_VERSION` | Version shown in the UI footer | repository `VERSION` file (`v0.9.12`) |
+| `APP_VERSION` | Version shown in the UI footer | repository `VERSION` file (`v0.9.13`) |
 | `DOCKER_SOCKET_URL` | Docker socket URL | `unix:///var/run/docker.sock` |
 | `CADVISOR_URL` | cAdvisor endpoint | `http://cadvisor:8080` |
 | `GPU_METRICS_ENABLED` | Enables GPU collection | `true` in bundled compose |
+| `SESSION_IDLE_MINUTES` | Inactivity timeout for page sessions | `30` |
+| `SESSION_COOKIE_SECURE` | Marks the session cookie as HTTPS-only | `true` in production |
+| `TRUSTED_PROXY_HOPS` | Number of trusted proxy hops for forwarded headers | `0` |
 
 ### Authentication Recommendations
 
@@ -142,6 +147,21 @@ It also mounts:
 - Set `AUTH_USER` and either `AUTH_PASSWORD` or `AUTH_PASSWORD_FILE` before exposing the app.
 - Set `APP_SECRET_KEY` or `APP_SECRET_KEY_FILE` to keep sessions stable across restarts.
 - If you want no authentication, set `AUTH_ENABLED=false` explicitly.
+
+### Reverse Proxy Hardening
+
+For Internet exposure behind Cloudflare and a reverse proxy, set at least:
+
+```yaml
+APP_ENV: "production"
+APP_SECRET_KEY_FILE: "/run/secrets/statainer_app_secret"
+LOGIN_MODE: "page"
+SESSION_IDLE_MINUTES: "30"
+SESSION_COOKIE_SECURE: "true"
+TRUSTED_PROXY_HOPS: "1"
+```
+
+If your reverse proxy appends to `X-Forwarded-For` on top of Cloudflare's header chain, set `PROXY_FIX_X_FOR` to match the real number of trusted hops instead of relying on the default. statainer now sends a restrictive baseline CSP, frame protection, referrer policy, permission policy, and HSTS when the request reaches the app as HTTPS.
 
 ### Login Mode
 

@@ -3,19 +3,55 @@ html {
   font-family: "Space Grotesk", "Segoe UI", sans-serif;
 }
 
+#login-background {
+  background:
+    radial-gradient(circle at top left, rgba(22, 111, 99, 0.16), transparent 30%),
+    radial-gradient(circle at top right, rgba(230, 134, 47, 0.12), transparent 28%),
+    linear-gradient(180deg, #f9fbf8 0%, #f4f7f1 100%);
+  overflow: hidden;
+}
+
+#login-background::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(21, 111, 99, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(21, 111, 99, 0.08) 1px, transparent 1px);
+  background-size: 32px 32px;
+  opacity: 0.35;
+  pointer-events: none;
+}
+
 #login-background::after {
   content: "";
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(140deg, rgba(8, 24, 22, 0.35), rgba(12, 29, 25, 0.82)),
-    radial-gradient(circle at top right, rgba(21, 111, 99, 0.24), transparent 28%),
-    radial-gradient(circle at bottom left, rgba(230, 134, 47, 0.18), transparent 24%);
+    radial-gradient(circle at top right, rgba(21, 111, 99, 0.16), transparent 28%),
+    radial-gradient(circle at bottom left, rgba(230, 134, 47, 0.12), transparent 24%);
+  pointer-events: none;
 }
 
 .login-shell {
   position: relative;
   z-index: 1;
+}
+
+.login-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0.35rem;
+}
+
+.login-logo {
+  width: 88px;
+  height: 88px;
+  object-fit: contain;
+  margin-bottom: 0.9rem;
+  filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.18));
 }
 
 .login-form {
@@ -26,22 +62,10 @@ html {
   border-radius: 24px;
 }
 
-.login-kicker {
-  display: inline-flex;
-  padding: 0.45rem 0.85rem;
-  border-radius: 999px;
-  background: rgba(21, 111, 99, 0.22);
-  color: #d6f1e8;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: 0.74rem;
-  font-weight: 700;
-}
-
 .login-title {
-  margin-top: 1rem;
   margin-bottom: 0.6rem;
   line-height: 0.95;
+  letter-spacing: 0.04em;
 }
 
 .login-subtitle {
@@ -82,4 +106,20 @@ html {
   font-size: 0.82rem;
   color: rgba(255, 255, 255, 0.8);
   background: rgba(255, 255, 255, 0.08);
+}
+
+@media (max-width: 575.98px) {
+  #login-background {
+    padding: 16px;
+  }
+
+  .login-logo {
+    width: 74px;
+    height: 74px;
+    margin-bottom: 0.75rem;
+  }
+
+  .login-title {
+    font-size: 2.15rem;
+  }
 }

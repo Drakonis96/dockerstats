@@ -228,6 +228,24 @@ test('uses four-tab mobile navigation and keeps mobile modals inside the viewpor
   await page.locator('#sidebarUpdateManagerToggle').click();
   await expect(page.locator('#updateManagerModal')).toHaveClass(/show/);
 
+  const mobileUpdateTabState = await page.locator('#updateManagerTabs .nav-link').evaluateAll((nodes) => nodes.map((node) => {
+    const label = node.querySelector('.update-manager-tab-label');
+    return {
+      id: node.id,
+      selected: node.getAttribute('aria-selected'),
+      labelOpacity: label ? Number(getComputedStyle(label).opacity) : 0,
+    };
+  }));
+
+  expect(mobileUpdateTabState.find((tab) => tab.id === 'updateManagerProjectsTab')?.selected).toBe('true');
+  expect(mobileUpdateTabState.find((tab) => tab.id === 'updateManagerProjectsTab')?.labelOpacity ?? 0).toBeGreaterThan(0.9);
+  expect(mobileUpdateTabState.find((tab) => tab.id === 'updateManagerContainersTab')?.labelOpacity ?? 1).toBeLessThan(0.2);
+
+  await page.locator('#updateManagerAutoUpdatesTab').click();
+  await expect(page.locator('#updateManagerAutoUpdatesTab')).toHaveAttribute('aria-selected', 'true');
+  await expect.poll(async () => page.locator('#updateManagerAutoUpdatesTab .update-manager-tab-label').evaluate((node) => Number(getComputedStyle(node).opacity))).toBeGreaterThan(0.9);
+  await expect.poll(async () => page.locator('#updateManagerProjectsTab .update-manager-tab-label').evaluate((node) => Number(getComputedStyle(node).opacity))).toBeLessThan(0.2);
+
   const mobileModalMetrics = await page.locator('#updateManagerModal .modal-dialog').evaluate((dialog) => {
     const body = dialog.querySelector('.modal-body');
     const footer = dialog.querySelector('.modal-footer');
@@ -349,6 +367,37 @@ test('updates the table through realtime SSE without polling', async ({ page, re
   });
 
   await expect(workerRow.locator('.col-status')).toContainText('running');
+});
+
+test('keeps version text consistent across footer, system status, and SSE', async ({ page, request }) => {
+  await page.goto('/');
+  await expect(page.locator('#appVersionText')).toHaveText('test-version');
+
+  const systemStatusResponse = await request.get('http://127.0.0.1:5100/api/system-status');
+  const systemStatus = await systemStatusResponse.json();
+  expect(systemStatus.app.version).toBe('test-version');
+
+  const streamVersion = await page.evaluate(() => new Promise((resolve, reject) => {
+    const source = new EventSource('/api/stream');
+    const timeoutId = window.setTimeout(() => {
+      source.close();
+      reject(new Error('Timed out waiting for the SSE connected event.'));
+    }, 5000);
+
+    source.addEventListener('connected', (event) => {
+      window.clearTimeout(timeoutId);
+      source.close();
+      resolve(JSON.parse(event.data).version);
+    }, { once: true });
+
+    source.addEventListener('error', () => {
+      window.clearTimeout(timeoutId);
+      source.close();
+      reject(new Error('Unable to connect to the SSE stream.'));
+    }, { once: true });
+  }));
+
+  expect(streamVersion).toBe(systemStatus.app.version);
 });
 
 test('handles password change and user creation from settings modal', async ({ page }) => {
@@ -762,7 +811,7 @@ test('updates selected stacks and containers with shift-range selection in the u
   await expect(page.locator('#updateSelectedProjectsBtn')).toBeDisabled();
   await expect(page.locator('#updateSelectedContainersBtn')).toBeDisabled();
 
-  const projectCheckboxes = page.locator('.update-entry-select[data-update-select-type="project"]');
+  const projectCheckboxes = page.locator('#updateManagerProjectList .update-entry-select[data-update-select-type="project"]');
   await expect(projectCheckboxes).toHaveCount(2);
   await projectCheckboxes.nth(0).click();
   await expect(page.locator('#updateSelectedProjectsBtn')).toContainText('Update selected stacks (1)');
@@ -788,7 +837,7 @@ test('updates selected stacks and containers with shift-range selection in the u
   await expect(page.locator('#updateManagerHistoryList')).toContainText('jobs');
 
   await page.locator('#updateManagerContainersTab').click();
-  const containerCheckbox = page.locator('.update-entry-select[data-update-select-type="container"]').first();
+  const containerCheckbox = page.locator('#updateManagerContainerList .update-entry-select[data-update-select-type="container"]').first();
   await expect(containerCheckbox).toBeVisible();
   await containerCheckbox.click();
   await expect(containerCheckbox).toBeChecked();
@@ -807,4 +856,56 @@ test('updates selected stacks and containers with shift-range selection in the u
 
   await page.locator('#updateManagerHistoryTab').click();
   await expect(page.locator('#updateManagerHistoryList')).toContainText('cache');
+});
+
+test('filters sorts and bulk-enables auto-update targets without resizing the action buttons', async ({ page }) => {
+  await page.goto('/');
+
+  await page.locator('#updateManagerToggle').click();
+  await expect(page.locator('#updateManagerModal')).toHaveClass(/show/);
+  await page.locator('#updateManagerAutoUpdatesTab').click();
+  await expect(page.locator('#updateManagerAutoList')).toContainText('demo');
+  await expect(page.locator('#updateManagerAutoList')).toContainText('jobs');
+  await expect(page.locator('#updateManagerAutoList')).toContainText('cache');
+  await expect(page.locator('#updateManagerAutoList')).toContainText('observer');
+
+  await expect(page.locator('#updateManagerAutoUpdatesTab')).toHaveAttribute('aria-selected', 'true');
+  await expect.poll(async () => page.locator('#updateManagerAutoUpdatesTab .update-manager-tab-label').evaluate((node) => Number(getComputedStyle(node).opacity))).toBeGreaterThan(0.9);
+  await expect.poll(async () => page.locator('#updateManagerProjectsTab .update-manager-tab-label').evaluate((node) => Number(getComputedStyle(node).opacity))).toBeLessThan(0.2);
+
+  const buttonWidths = await page.locator('#updateManagerAutoList .auto-update-toggle-btn').evaluateAll((nodes) => (
+    nodes.map((node) => Math.round(node.getBoundingClientRect().width))
+  ));
+  expect(Math.max(...buttonWidths) - Math.min(...buttonWidths)).toBeLessThanOrEqual(2);
+
+  const observerSummaryTruncates = await page.locator('#updateManagerAutoList .update-entry').filter({ hasText: 'observer' }).locator('.update-version-code--summary').evaluate((node) => node.scrollWidth > node.clientWidth);
+  expect(observerSummaryTruncates).toBeTruthy();
+
+  await page.selectOption('#updateManagerSortSelect', 'desc');
+  await page.locator('#updateManagerSearchInput').fill('o');
+  const filteredNames = await page.locator('#updateManagerAutoList .update-entry .update-entry-summary-name').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim()));
+  expect(filteredNames).toEqual(['observer', 'jobs', 'demo']);
+  await expect(page.locator('#updateManagerAutoList')).not.toContainText('cache');
+
+  await page.locator('#updateManagerSearchInput').fill('');
+  await page.selectOption('#updateManagerSortSelect', 'asc');
+
+  const demoEntry = page.locator('#updateManagerAutoList .update-entry').filter({ hasText: 'demo' });
+  const cacheEntry = page.locator('#updateManagerAutoList .update-entry').filter({ hasText: 'cache' });
+  await demoEntry.locator('.update-entry-select').click();
+  await cacheEntry.locator('.update-entry-select').click();
+  await expect(page.locator('#autoupdateSelectedBtn')).toContainText('Autoupdate Selected (2)');
+
+  await page.locator('#autoupdateSelectedBtn').click();
+  await expect(page.locator('#appDialogModal')).toHaveClass(/show/);
+  await page.locator('#appDialogConfirm').click();
+  await expect(page.locator('#updateManagerActionModal')).toHaveClass(/show/);
+  await expect(page.locator('#updateManagerActionState')).toContainText('Success');
+  await expect(page.locator('#updateManagerActionMessage')).toContainText('Enabled auto-update for 2 targets.');
+  await expect(page.locator('#updateManagerActionDetail')).toContainText('Enabled: demo, cache');
+  await expect(page.locator('#statusMessageArea')).toContainText('Enabled auto-update for 2 targets.');
+  await expect(page.locator('#updateManagerActionModal')).not.toHaveClass(/show/);
+  await expect(demoEntry.locator('.auto-update-toggle-btn')).toContainText('Disable auto-update');
+  await expect(cacheEntry.locator('.auto-update-toggle-btn')).toContainText('Disable auto-update');
+  await expect(page.locator('#autoupdateSelectedBtn')).toBeDisabled();
 });

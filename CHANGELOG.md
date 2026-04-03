@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.9.13
+
+### Added
+- Added Update Manager search, per-tab A-Z sorting, `Autoupdate selected`, and mobile-style icon tabs that reveal labels only for the active section.
+- Added stricter backend deployment hardening with optional trusted-proxy support, secure session cookies, inactivity-based page-session expiry, and baseline security headers for reverse-proxy deployments.
+
+### Changed
+- Unified the app version surfaces on `v0.9.13`, including the UI footer, rendered pages, diagnostics payloads, SSE test fixtures, and release documentation.
+- Reworked the login screen so desktop and mobile now share the dashboard-style background and a simpler centered brand block.
+
+### Testing
+- Expanded route and end-to-end coverage for Update Manager filtering, sorting, bulk auto-update, button sizing, version consistency, login rendering, and the new backend security headers and session policy.
+
 ## v0.9.12
 
 - Prevented Update Manager inventory rendering from falling back to live registry lookups when sampler cache details are missing, which keeps the modal responsive on slow or unreachable registries.

@@ -6,6 +6,15 @@ const UPDATE_MANAGER_TAB_IDS = {
   autoUpdates: 'updateManagerAutoUpdatesTab',
   history: 'updateManagerHistoryTab',
 };
+const UPDATE_MANAGER_TAB_KEYS = Object.fromEntries(
+  Object.entries(UPDATE_MANAGER_TAB_IDS).map(([key, id]) => [id, key]),
+);
+const UPDATE_MANAGER_SEARCH_PLACEHOLDERS = {
+  projects: 'Search compose stacks',
+  containers: 'Search containers',
+  autoUpdates: 'Search auto-update targets',
+  history: 'Search unavailable in History',
+};
 const UPDATE_MANAGER_REQUEST_TIMEOUT_MS = 15000;
 
 function formatTimestamp(value, fallback = 'Not checked yet') {
@@ -40,6 +49,38 @@ function formatStateLabel(value) {
 
 function formatTargetType(value) {
   return String(value || '').toLowerCase() === 'project' ? 'Compose stack' : 'Container';
+}
+
+function normalizeSearchTerm(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function sortNamedItems(items = [], direction = 'asc') {
+  const sortDirection = direction === 'desc' ? 'desc' : 'asc';
+  return [...items].sort((left, right) => {
+    const comparison = String(left?.name || '').localeCompare(String(right?.name || ''), undefined, {
+      sensitivity: 'base',
+      numeric: true,
+    });
+    return sortDirection === 'desc' ? comparison * -1 : comparison;
+  });
+}
+
+function filterAndSortNamedItems(items = [], searchTerm = '', direction = 'asc') {
+  const normalizedSearch = normalizeSearchTerm(searchTerm);
+  const filtered = normalizedSearch
+    ? items.filter((item) => String(item?.name || '').toLowerCase().includes(normalizedSearch))
+    : [...items];
+  return sortNamedItems(filtered, direction);
+}
+
+function getAutoUpdateTargetName(item = {}) {
+  return String(item.auto_update_key || item.name || item.target_id || item.id || '').trim();
+}
+
+function getAutoUpdateSelectionId(item = {}) {
+  const targetType = String(item.type || '').toLowerCase() === 'project' ? 'project' : 'container';
+  return `${targetType}:${getAutoUpdateTargetName(item)}`;
 }
 
 function formatManagementLabel(meta = {}) {
@@ -159,10 +200,11 @@ function renderGuidance(meta = {}) {
 }
 
 function renderSummaryVersion(value, label = 'New version') {
+  const safeValue = escapeHtml(value || 'Unknown');
   return `
     <span class="update-entry-summary-version-copy">
       <span class="update-entry-summary-version-label">${escapeHtml(label)}</span>
-      ${renderVersion(value, 'update-version-code update-version-code--summary')}
+      <code class="update-version-code update-version-code--summary" title="${safeValue}">${safeValue}</code>
     </span>
   `;
 }
@@ -181,6 +223,7 @@ function renderTargetEntry(item, index, groupKey, options = {}) {
         <input
           type="checkbox"
           class="form-check-input update-entry-select"
+          data-update-select-group="${escapeHtml(groupKey)}"
           data-update-select-type="${escapeHtml(item.type)}"
           data-update-select-id="${escapeHtml(item.target_id)}"
           aria-label="Select ${escapeHtml(formatTargetType(item.type).toLowerCase())} ${escapeHtml(item.name)} for batch update"
@@ -324,6 +367,7 @@ function renderHistoryEntry(entry, index) {
 function renderAutoUpdateEntry(item, index, options = {}) {
   const {
     buttonsDisabled = false,
+    selected = false,
   } = options;
   const enabled = Boolean(item.auto_update_enabled);
   const availabilityState = item.update_available ? 'ready' : 'pending';
@@ -336,10 +380,27 @@ function renderAutoUpdateEntry(item, index, options = {}) {
   const buttonLabel = enabled ? 'Disable auto-update' : 'Enable auto-update';
   const buttonClass = enabled ? 'btn-outline-danger' : 'btn-primary';
   const buttonIcon = enabled ? 'bi-pause-circle' : 'bi-play-circle';
+  const targetName = getAutoUpdateTargetName(item);
+  const selectionId = getAutoUpdateSelectionId(item);
+  const selectionControl = `
+    <div class="update-entry-select-slot">
+      <input
+        type="checkbox"
+        class="form-check-input update-entry-select"
+        data-update-select-group="auto"
+        data-update-select-type="${escapeHtml(item.type)}"
+        data-update-select-id="${escapeHtml(selectionId)}"
+        aria-label="Select ${escapeHtml(formatTargetType(item.type).toLowerCase())} ${escapeHtml(item.name)} for bulk auto-update"
+        ${selected ? 'checked' : ''}
+        ${buttonsDisabled ? 'disabled' : ''}
+      >
+    </div>
+  `;
 
   return `
-    <article class="update-entry" data-target-type="${escapeHtml(item.type)}" data-update-state="${escapeHtml(autoUpdateState)}">
+    <article class="update-entry ${selected ? 'is-selected' : ''}" data-target-type="${escapeHtml(item.type)}" data-update-state="${escapeHtml(autoUpdateState)}">
       <div class="update-entry-head">
+        ${selectionControl}
         <button
           type="button"
           class="update-entry-toggle"
@@ -366,8 +427,10 @@ function renderAutoUpdateEntry(item, index, options = {}) {
           class="btn ${buttonClass} btn-sm auto-update-toggle-btn"
           data-auto-update-toggle="true"
           data-auto-update-target-type="${escapeHtml(item.type)}"
-          data-auto-update-target-name="${escapeHtml(item.auto_update_key || item.name)}"
+          data-auto-update-target-name="${escapeHtml(targetName)}"
           data-auto-update-enabled="${enabled ? 'true' : 'false'}"
+          aria-pressed="${enabled ? 'true' : 'false'}"
+          title="${escapeHtml(buttonLabel)}"
           ${buttonsDisabled ? 'disabled' : ''}
         >
           <i class="bi ${buttonIcon}" aria-hidden="true"></i>
@@ -426,12 +489,18 @@ function renderHistoryList(items = [], emptyMessage) {
 }
 
 function renderAutoUpdateList(items = [], emptyMessage, options = {}) {
+  const {
+    isSelected = () => false,
+  } = options;
   if (!Array.isArray(items) || items.length === 0) {
     return renderPlaceholder(emptyMessage);
   }
   return `
     <div class="update-entry-stack">
-      ${items.map((item, index) => renderAutoUpdateEntry(item, index, options)).join('')}
+      ${items.map((item, index) => renderAutoUpdateEntry(item, index, {
+        ...options,
+        selected: isSelected(item),
+      })).join('')}
     </div>
   `;
 }
@@ -443,11 +512,75 @@ export function createUpdateManagerController(ctx, deps) {
   const selectionState = {
     project: new Set(),
     container: new Set(),
+    auto: new Set(),
   };
   const selectionAnchors = {
     project: null,
     container: null,
+    auto: null,
   };
+
+  function getSelectionGroupKey(value) {
+    if (String(value || '').toLowerCase() === 'auto') {
+      return 'auto';
+    }
+    return String(value || '').toLowerCase() === 'project' ? 'project' : 'container';
+  }
+
+  function getCurrentTabKey() {
+    return UPDATE_MANAGER_TAB_IDS[ctx.state.updateManagerActiveTab]
+      ? ctx.state.updateManagerActiveTab
+      : 'projects';
+  }
+
+  function isListControlTab(tabKey) {
+    return ['projects', 'containers', 'autoUpdates'].includes(tabKey);
+  }
+
+  function shouldApplyListControls(tabKey) {
+    return isListControlTab(tabKey) && getCurrentTabKey() === tabKey;
+  }
+
+  function applyListControls(items, tabKey) {
+    if (!Array.isArray(items)) {
+      return [];
+    }
+    if (!shouldApplyListControls(tabKey)) {
+      return [...items];
+    }
+    return filterAndSortNamedItems(items, ctx.state.updateManagerSearchTerm, ctx.state.updateManagerSortDirection);
+  }
+
+  function getSearchEmptyMessage(tabKey, fallbackMessage) {
+    const rawSearch = String(ctx.state.updateManagerSearchTerm || '').trim();
+    if (!rawSearch || !shouldApplyListControls(tabKey)) {
+      return fallbackMessage;
+    }
+    switch (tabKey) {
+      case 'projects':
+        return `No Compose stacks match "${rawSearch}".`;
+      case 'containers':
+        return `No standalone containers match "${rawSearch}".`;
+      case 'autoUpdates':
+        return `No auto-update targets match "${rawSearch}".`;
+      default:
+        return fallbackMessage;
+    }
+  }
+
+  function syncListControlAvailability() {
+    const activeTab = getCurrentTabKey();
+    const controlsDisabled = !isListControlTab(activeTab) || ctx.state.updateManagerLoading || ctx.state.updateManagerActionBusy;
+    if (ctx.elements.updateManagerSearchInput) {
+      const placeholder = UPDATE_MANAGER_SEARCH_PLACEHOLDERS[activeTab] || UPDATE_MANAGER_SEARCH_PLACEHOLDERS.projects;
+      ctx.elements.updateManagerSearchInput.disabled = controlsDisabled;
+      ctx.elements.updateManagerSearchInput.placeholder = placeholder;
+      ctx.elements.updateManagerSearchInput.setAttribute('aria-label', placeholder);
+    }
+    if (ctx.elements.updateManagerSortSelect) {
+      ctx.elements.updateManagerSortSelect.disabled = controlsDisabled;
+    }
+  }
 
   function getCollectionLabel(targetType, { plural = false } = {}) {
     if (targetType === 'project') {
@@ -457,15 +590,15 @@ export function createUpdateManagerController(ctx, deps) {
   }
 
   function getSelectionSet(targetType) {
-    return selectionState[targetType === 'project' ? 'project' : 'container'];
+    return selectionState[getSelectionGroupKey(targetType)];
   }
 
   function getSelectionAnchor(targetType) {
-    return selectionAnchors[targetType === 'project' ? 'project' : 'container'];
+    return selectionAnchors[getSelectionGroupKey(targetType)];
   }
 
   function setSelectionAnchor(targetType, targetId) {
-    selectionAnchors[targetType === 'project' ? 'project' : 'container'] = targetId || null;
+    selectionAnchors[getSelectionGroupKey(targetType)] = targetId || null;
   }
 
   function clearSelection(targetType) {
@@ -498,6 +631,8 @@ export function createUpdateManagerController(ctx, deps) {
     if (!tabButton) {
       return;
     }
+    ctx.state.updateManagerActiveTab = tabKey;
+    syncListControlAvailability();
     bootstrap.Tab.getOrCreateInstance(tabButton).show();
   }
 
@@ -520,9 +655,23 @@ export function createUpdateManagerController(ctx, deps) {
     return (Array.isArray(source) ? source : []).filter((item) => String(item.update_state || '').toLowerCase() === 'ready');
   }
 
+  function getAutoUpdateTargets() {
+    const payload = ctx.state.updateManagerPayload || {};
+    return Array.isArray(payload.auto_updates) ? payload.auto_updates : [];
+  }
+
   function getSelectedTargets(targetType) {
     const selectedIds = getSelectionSet(targetType);
     return getReadyTargets(targetType).filter((item) => selectedIds.has(item.target_id));
+  }
+
+  function getSelectedAutoUpdateTargets() {
+    const selectedIds = getSelectionSet('auto');
+    return getAutoUpdateTargets().filter((item) => selectedIds.has(getAutoUpdateSelectionId(item)));
+  }
+
+  function getPendingAutoUpdateTargets() {
+    return getSelectedAutoUpdateTargets().filter((item) => !Boolean(item.auto_update_enabled));
   }
 
   function pruneSelections() {
@@ -538,6 +687,17 @@ export function createUpdateManagerController(ctx, deps) {
         setSelectionAnchor(targetType, null);
       }
     });
+
+    const validAutoIds = new Set(getAutoUpdateTargets().map((item) => getAutoUpdateSelectionId(item)));
+    const autoSelection = getSelectionSet('auto');
+    Array.from(autoSelection).forEach((selectionId) => {
+      if (!validAutoIds.has(selectionId)) {
+        autoSelection.delete(selectionId);
+      }
+    });
+    if (!validAutoIds.has(getSelectionAnchor('auto'))) {
+      setSelectionAnchor('auto', null);
+    }
   }
 
   function renderBulkButtonMarkup(targetType, count) {
@@ -555,6 +715,14 @@ export function createUpdateManagerController(ctx, deps) {
     return `
       <i class="bi bi-check2-square" aria-hidden="true"></i>
       <span>Update selected ${escapeHtml(pluralLabel)}${escapeHtml(suffix)}</span>
+    `;
+  }
+
+  function renderAutoupdateSelectedButtonMarkup(count) {
+    const suffix = count > 0 ? ` (${count})` : '';
+    return `
+      <i class="bi bi-check2-square" aria-hidden="true"></i>
+      <span>Autoupdate Selected${escapeHtml(suffix)}</span>
     `;
   }
 
@@ -579,6 +747,18 @@ export function createUpdateManagerController(ctx, deps) {
         : renderBulkButtonMarkup(targetType, count);
       button.disabled = count === 0 || ctx.state.updateManagerLoading || ctx.state.updateManagerActionBusy;
     });
+
+    const autoUpdateButton = ctx.elements.autoupdateSelectedBtn;
+    if (autoUpdateButton && !lockedButtons.has(autoUpdateButton)) {
+      const actionableCount = getPendingAutoUpdateTargets().length;
+      autoUpdateButton.innerHTML = renderAutoupdateSelectedButtonMarkup(actionableCount);
+      autoUpdateButton.disabled = actionableCount === 0 || ctx.state.updateManagerLoading || ctx.state.updateManagerActionBusy;
+      if (getSelectedAutoUpdateTargets().length > 0 && actionableCount === 0) {
+        autoUpdateButton.title = 'All selected targets already have auto-update enabled.';
+      } else {
+        autoUpdateButton.removeAttribute('title');
+      }
+    }
   }
 
   function syncActionLockState(options = {}) {
@@ -596,6 +776,10 @@ export function createUpdateManagerController(ctx, deps) {
         button.disabled = ctx.state.updateManagerLoading || ctx.state.updateManagerActionBusy;
       });
     }
+    ctx.elements.updateManagerModalEl?.querySelectorAll('.update-entry-select').forEach((input) => {
+      input.disabled = ctx.state.updateManagerLoading || ctx.state.updateManagerActionBusy;
+    });
+    syncListControlAvailability();
     syncBatchActionButtons(options);
   }
 
@@ -707,38 +891,66 @@ export function createUpdateManagerController(ctx, deps) {
       ? ` • ${hiddenBlockedCount} blocked entr${hiddenBlockedCount === 1 ? 'y hidden' : 'ies hidden'}`
       : '';
     const enabledAutoUpdates = autoUpdates.filter((item) => Boolean(item.auto_update_enabled)).length;
+    const displayedProjects = applyListControls(visibleProjects, 'projects');
+    const displayedContainers = applyListControls(visibleContainers, 'containers');
+    const displayedAutoUpdates = applyListControls(autoUpdates, 'autoUpdates');
+    const activeTab = getCurrentTabKey();
+    const rawSearch = String(ctx.state.updateManagerSearchTerm || '').trim();
+    const searchMatchCount = rawSearch
+      ? (
+        activeTab === 'projects'
+          ? displayedProjects.length
+          : activeTab === 'containers'
+            ? displayedContainers.length
+            : activeTab === 'autoUpdates'
+              ? displayedAutoUpdates.length
+              : 0
+      )
+      : 0;
+    const searchMetaSuffix = rawSearch && isListControlTab(activeTab)
+      ? ` • ${searchMatchCount} match${searchMatchCount === 1 ? '' : 'es'} in current view`
+      : '';
+    const selectedAutoUpdates = getSelectedAutoUpdateTargets();
+    const pendingAutoUpdates = getPendingAutoUpdateTargets();
 
-    ctx.elements.updateManagerMeta.textContent = `${visibleProjects.length} Compose stack(s), ${visibleContainers.length} standalone container(s), ${autoUpdates.length} auto-update target(s), ${history.length} history entr${history.length === 1 ? 'y' : 'ies'}${metaSuffix}`;
+    ctx.elements.updateManagerMeta.textContent = `${visibleProjects.length} Compose stack(s), ${visibleContainers.length} standalone container(s), ${autoUpdates.length} auto-update target(s), ${history.length} history entr${history.length === 1 ? 'y' : 'ies'}${metaSuffix}${searchMetaSuffix}`;
     if (ctx.elements.updateManagerAutoMeta) {
       ctx.elements.updateManagerAutoMeta.textContent = autoUpdates.length > 0
-        ? `${enabledAutoUpdates} enabled, ${autoUpdates.length - enabledAutoUpdates} disabled. Automatic updates use the same safe workflow and history tracking as manual updates.`
+        ? `${enabledAutoUpdates} enabled, ${autoUpdates.length - enabledAutoUpdates} disabled.${selectedAutoUpdates.length > 0 ? ` ${selectedAutoUpdates.length} selected, ${pendingAutoUpdates.length} ready to enable.` : ''} Automatic updates use the same safe workflow and history tracking as manual updates.`
         : 'No stacks or containers currently support auto-updates.';
     }
     ctx.elements.updateManagerProjectList.innerHTML = renderTargetList(
-      visibleProjects,
-      ctx.state.updateManagerHideBlocked
+      displayedProjects,
+      getSearchEmptyMessage(
+        'projects',
+        ctx.state.updateManagerHideBlocked
         ? 'No unblocked Compose stacks currently have a confirmed update available.'
         : 'No Compose stacks currently have a confirmed update available.',
-      'projects',
+      ),
+      'project',
       {
         isSelected: (item) => getSelectionSet('project').has(item.target_id),
       },
     );
     ctx.elements.updateManagerContainerList.innerHTML = renderTargetList(
-      visibleContainers,
-      ctx.state.updateManagerHideBlocked
+      displayedContainers,
+      getSearchEmptyMessage(
+        'containers',
+        ctx.state.updateManagerHideBlocked
         ? 'No unblocked standalone containers currently have a confirmed update available.'
         : 'No standalone containers currently have a confirmed update available.',
-      'containers',
+      ),
+      'container',
       {
         isSelected: (item) => getSelectionSet('container').has(item.target_id),
       },
     );
     ctx.elements.updateManagerAutoList.innerHTML = renderAutoUpdateList(
-      autoUpdates,
-      'No stacks or containers currently support auto-updates.',
+      displayedAutoUpdates,
+      getSearchEmptyMessage('autoUpdates', 'No stacks or containers currently support auto-updates.'),
       {
         buttonsDisabled: ctx.state.updateManagerLoading || ctx.state.updateManagerActionBusy,
+        isSelected: (item) => getSelectionSet('auto').has(getAutoUpdateSelectionId(item)),
       },
     );
     ctx.elements.updateManagerHistoryList.innerHTML = renderHistoryList(history, 'No updates or rollbacks have been recorded yet.');
@@ -872,6 +1084,36 @@ export function createUpdateManagerController(ctx, deps) {
     return lines.join('\n');
   }
 
+  function formatAutoUpdateBatchResultDetail(selectedCount, successes, failures, alreadyEnabledTargets = [], refreshWarning = '') {
+    const lines = [
+      `Sequential mode evaluated ${selectedCount} auto-update target${selectedCount === 1 ? '' : 's'}.`,
+      `${successes.length} enabled, ${failures.length} failed, ${alreadyEnabledTargets.length} already enabled.`,
+    ];
+
+    if (successes.length > 0) {
+      lines.push(`Enabled: ${successes.map((item) => item.name).join(', ')}`);
+    }
+
+    if (alreadyEnabledTargets.length > 0) {
+      lines.push(`Already enabled: ${alreadyEnabledTargets.map((item) => item.name).join(', ')}`);
+    }
+
+    if (failures.length > 0) {
+      failures.slice(0, 5).forEach((item) => {
+        lines.push(`Failed: ${item.name} - ${item.message}`);
+      });
+      if (failures.length > 5) {
+        lines.push(`${failures.length - 5} additional failure(s) omitted.`);
+      }
+    }
+
+    if (refreshWarning) {
+      lines.push(`Inventory refresh warning: ${refreshWarning}`);
+    }
+
+    return lines.join('\n');
+  }
+
   async function loadTargets(options = {}) {
     const token = ++requestToken;
     const refresh = options.refresh === true;
@@ -984,25 +1226,29 @@ export function createUpdateManagerController(ctx, deps) {
     setEntryExpanded(toggleButton, !expanded);
   }
 
-  function getListElementForType(targetType) {
-    return targetType === 'project'
+  function getListElementForSelectionGroup(targetType) {
+    if (getSelectionGroupKey(targetType) === 'auto') {
+      return ctx.elements.updateManagerAutoList;
+    }
+    return getSelectionGroupKey(targetType) === 'project'
       ? ctx.elements.updateManagerProjectList
       : ctx.elements.updateManagerContainerList;
   }
 
   function getVisibleSelectableIds(targetType) {
-    const listElement = getListElementForType(targetType);
+    const selectionGroup = getSelectionGroupKey(targetType);
+    const listElement = getListElementForSelectionGroup(selectionGroup);
     if (!listElement) {
       return [];
     }
-    return Array.from(listElement.querySelectorAll(`.update-entry-select[data-update-select-type="${targetType}"]`))
+    return Array.from(listElement.querySelectorAll(`.update-entry-select[data-update-select-group="${selectionGroup}"]`))
       .filter((checkbox) => !checkbox.disabled)
       .map((checkbox) => checkbox.dataset.updateSelectId)
       .filter(Boolean);
   }
 
   function handleSelectionToggle(checkbox, shiftKey) {
-    const targetType = checkbox.dataset.updateSelectType;
+    const targetType = checkbox.dataset.updateSelectGroup || checkbox.dataset.updateSelectType;
     const targetId = checkbox.dataset.updateSelectId;
     if (!targetType || !targetId) {
       return;
@@ -1277,6 +1523,137 @@ export function createUpdateManagerController(ctx, deps) {
     });
   }
 
+  async function executeSelectedAutoUpdate(button) {
+    if (ctx.state.updateManagerActionBusy) {
+      return;
+    }
+
+    const selectedTargets = getSelectedAutoUpdateTargets();
+    const actionableTargets = selectedTargets.filter((item) => !Boolean(item.auto_update_enabled));
+    const alreadyEnabledTargets = selectedTargets.filter((item) => Boolean(item.auto_update_enabled));
+
+    if (selectedTargets.length === 0) {
+      setManagerStatus('No auto-update targets are currently selected.', 'warning');
+      return;
+    }
+
+    if (actionableTargets.length === 0) {
+      setManagerStatus('All selected targets already have auto-update enabled.', 'warning');
+      return;
+    }
+
+    const confirmed = await deps.confirmAction({
+      title: 'Enable auto-update for selected targets',
+      message: `statainer will enable auto-update for ${actionableTargets.length} selected target${actionableTargets.length === 1 ? '' : 's'} sequentially. Targets that already have auto-update enabled will be skipped.`,
+      confirmLabel: 'Autoupdate selected',
+      cancelLabel: 'Cancel',
+      tone: 'warning',
+    });
+    if (!confirmed) {
+      return;
+    }
+
+    const originalMarkup = button.innerHTML;
+    const successes = [];
+    const failures = [];
+    ctx.state.updateManagerActionBusy = true;
+    button.disabled = true;
+    button.innerHTML = `
+      <i class="bi bi-arrow-repeat spin-inline" aria-hidden="true"></i>
+      <span>Autoupdating selected...</span>
+    `;
+    activeBatchButtons = new Set([button]);
+    syncActionLockState({ activeButtons: activeBatchButtons });
+    setManagerStatus(`Enabling auto-update for ${actionableTargets.length} selected target${actionableTargets.length === 1 ? '' : 's'}…`, 'info');
+    ensureActionModal()?.show();
+
+    try {
+      for (let index = 0; index < actionableTargets.length; index += 1) {
+        const target = actionableTargets[index];
+        setActionModalState({
+          title: 'Enabling auto-update',
+          state: 'pending',
+          message: `Applying ${index + 1} of ${actionableTargets.length}: ${target.name}`,
+          detail: [
+            'Sequential mode for reliable feedback.',
+            `${successes.length} enabled so far.`,
+            `${failures.length} failed so far.`,
+            alreadyEnabledTargets.length > 0 ? `${alreadyEnabledTargets.length} already enabled and skipped.` : '',
+          ].filter(Boolean).join('\n'),
+        });
+
+        try {
+          const payload = await requestAutoUpdatePreference(target.type, getAutoUpdateTargetName(target), true);
+          successes.push({
+            name: target.name,
+            message: payload.message || `Auto-update enabled for ${target.name}.`,
+          });
+        } catch (error) {
+          failures.push({
+            name: target.name,
+            message: error.message || `Unable to update auto-update settings for ${target.name}.`,
+          });
+          setManagerStatus(
+            `Autoupdate batch hit a failure on ${target.name}. statainer will continue with the remaining targets.`,
+            'warning',
+          );
+        }
+      }
+
+      let refreshWarning = '';
+      setActionModalState({
+        title: 'Enabling auto-update',
+        state: 'pending',
+        message: 'Reloading auto-update inventory…',
+        detail: `${successes.length} enabled, ${failures.length} failed.`,
+      });
+      try {
+        await loadTargets({ throwOnError: true });
+      } catch (error) {
+        refreshWarning = error.message || 'Unable to reload the auto-update inventory after the batch completed.';
+      }
+
+      const detail = formatAutoUpdateBatchResultDetail(
+        selectedTargets.length,
+        successes,
+        failures,
+        alreadyEnabledTargets,
+        refreshWarning,
+      );
+      const tone = failures.length > 0 || refreshWarning ? 'warning' : 'success';
+      const summaryMessage = failures.length > 0
+        ? `Autoupdate batch finished with ${failures.length} failure(s).`
+        : `Enabled auto-update for ${successes.length} target${successes.length === 1 ? '' : 's'}.`;
+
+      setActionModalState({
+        title: failures.length > 0 ? 'Autoupdate finished with errors' : 'Autoupdate completed',
+        state: failures.length > 0 ? 'failure' : 'success',
+        message: summaryMessage,
+        detail,
+      });
+      setManagerStatus(summaryMessage, tone);
+      setStatusMessage(ctx, summaryMessage, tone);
+    } catch (error) {
+      const failureMessage = error.message || 'Unable to enable auto-update for the selected targets.';
+      setActionModalState({
+        title: 'Enabling auto-update',
+        state: 'failure',
+        message: 'Autoupdate batch failed',
+        detail: failureMessage,
+      });
+      setManagerStatus(failureMessage, 'danger');
+      setStatusMessage(ctx, failureMessage, 'danger');
+    } finally {
+      ctx.state.updateManagerActionBusy = false;
+      activeBatchButtons = new Set();
+      if (button.isConnected) {
+        button.disabled = false;
+        button.innerHTML = originalMarkup;
+      }
+      syncActionLockState();
+    }
+  }
+
   async function executeRollback(historyId, button) {
     const confirmed = await deps.confirmAction({
       title: 'Rollback update',
@@ -1373,7 +1750,7 @@ export function createUpdateManagerController(ctx, deps) {
       return;
     }
 
-    const selectionInput = event.target.closest('[data-update-select-type][data-update-select-id]');
+    const selectionInput = event.target.closest('.update-entry-select[data-update-select-id]');
     if (selectionInput) {
       event.stopPropagation();
       handleSelectionToggle(selectionInput, event.shiftKey);
@@ -1406,20 +1783,51 @@ export function createUpdateManagerController(ctx, deps) {
   function init() {
     ensureModal();
     ensureActionModal();
+    ctx.state.updateManagerActiveTab = 'projects';
+    ctx.state.updateManagerSearchTerm = '';
+    ctx.state.updateManagerSortDirection = 'asc';
     ctx.state.updateManagerHideBlocked = localStorage.getItem('updateManagerHideBlocked') === 'true';
     if (ctx.elements.updateManagerHideBlocked) {
       ctx.elements.updateManagerHideBlocked.checked = ctx.state.updateManagerHideBlocked;
+    }
+    if (ctx.elements.updateManagerSearchInput) {
+      ctx.elements.updateManagerSearchInput.value = ctx.state.updateManagerSearchTerm;
+    }
+    if (ctx.elements.updateManagerSortSelect) {
+      ctx.elements.updateManagerSortSelect.value = ctx.state.updateManagerSortDirection;
     }
     ctx.elements.updateManagerToggle?.addEventListener('click', openModal);
     ctx.elements.sidebarUpdateManagerToggle?.addEventListener('click', (event) => {
       deps.closeMobileMenu?.();
       openModal(event);
     });
+    Object.entries(UPDATE_MANAGER_TAB_IDS).forEach(([tabKey, elementName]) => {
+      ctx.elements[elementName]?.addEventListener('shown.bs.tab', () => {
+        ctx.state.updateManagerActiveTab = tabKey;
+        syncListControlAvailability();
+        if (ctx.state.updateManagerPayload) {
+          renderPayload(ctx.state.updateManagerPayload);
+        }
+      });
+    });
     ctx.elements.refreshUpdateManagerBtn?.addEventListener('click', () => loadTargets({ refresh: true }));
+    ctx.elements.updateManagerSearchInput?.addEventListener('input', () => {
+      ctx.state.updateManagerSearchTerm = ctx.elements.updateManagerSearchInput.value || '';
+      if (ctx.state.updateManagerPayload) {
+        renderPayload(ctx.state.updateManagerPayload);
+      }
+    });
+    ctx.elements.updateManagerSortSelect?.addEventListener('change', () => {
+      ctx.state.updateManagerSortDirection = ctx.elements.updateManagerSortSelect.value === 'desc' ? 'desc' : 'asc';
+      if (ctx.state.updateManagerPayload) {
+        renderPayload(ctx.state.updateManagerPayload);
+      }
+    });
     ctx.elements.updateSelectedProjectsBtn?.addEventListener('click', () => executeSelectedUpdate('project', ctx.elements.updateSelectedProjectsBtn));
     ctx.elements.updateAllProjectsBtn?.addEventListener('click', () => executeBulkUpdate('project', ctx.elements.updateAllProjectsBtn));
     ctx.elements.updateSelectedContainersBtn?.addEventListener('click', () => executeSelectedUpdate('container', ctx.elements.updateSelectedContainersBtn));
     ctx.elements.updateAllContainersBtn?.addEventListener('click', () => executeBulkUpdate('container', ctx.elements.updateAllContainersBtn));
+    ctx.elements.autoupdateSelectedBtn?.addEventListener('click', () => executeSelectedAutoUpdate(ctx.elements.autoupdateSelectedBtn));
     ctx.elements.updateManagerHideBlocked?.addEventListener('change', () => {
       ctx.state.updateManagerHideBlocked = ctx.elements.updateManagerHideBlocked.checked;
       localStorage.setItem('updateManagerHideBlocked', String(ctx.state.updateManagerHideBlocked));
@@ -1442,6 +1850,7 @@ export function createUpdateManagerController(ctx, deps) {
     ctx.elements.updateManagerModalEl?.addEventListener('hidden.bs.modal', () => {
       clearSelection('project');
       clearSelection('container');
+      clearSelection('auto');
       if (ctx.state.updateManagerPayload) {
         renderPayload(ctx.state.updateManagerPayload);
       }

@@ -8,8 +8,10 @@ print("***********************************")
 import threading
 import time
 import warnings
+from datetime import timedelta
 
-from flask import Flask
+from flask import Flask, request
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 try:
     from waitress import serve
@@ -22,6 +24,7 @@ except ImportError:  # waitress not installed
 from config import (
     APP_HOST,
     APP_PORT,
+    APP_ENV,
     APP_SECRET_KEY,
     APP_SECRET_KEY_EPHEMERAL,
     APP_VERSION,
@@ -30,9 +33,26 @@ from config import (
     AUTH_USER,
     CADVISOR_URL,
     DOCKER_SOCKET_URL,
+    ENABLE_PROXY_FIX,
     LOGIN_MODE,
     MAX_SECONDS,
+    PROXY_FIX_X_FOR,
+    PROXY_FIX_X_HOST,
+    PROXY_FIX_X_PORT,
+    PROXY_FIX_X_PREFIX,
+    PROXY_FIX_X_PROTO,
+    REQUIRE_EXPLICIT_SECRET_KEY,
     SAMPLE_INTERVAL,
+    SECURITY_CSP_ENABLED,
+    SECURITY_HEADERS_ENABLED,
+    SECURITY_HSTS_INCLUDE_SUBDOMAINS,
+    SECURITY_HSTS_MAX_AGE,
+    SECURITY_HSTS_PRELOAD,
+    SECURITY_REFERRER_POLICY,
+    SESSION_COOKIE_HTTPONLY,
+    SESSION_COOKIE_SAMESITE,
+    SESSION_COOKIE_SECURE,
+    SESSION_IDLE_MINUTES,
     STREAM_HEARTBEAT_SECONDS,
     WAITRESS_THREADS,
 )
@@ -42,28 +62,132 @@ from sampler import sample_metrics
 from users_db import count_users, init_db
 
 
+def build_content_security_policy():
+    directives = {
+        "default-src": ["'self'"],
+        "base-uri": ["'self'"],
+        "form-action": ["'self'"],
+        "frame-ancestors": ["'none'"],
+        "object-src": ["'none'"],
+        "img-src": ["'self'", "data:"],
+        "font-src": ["'self'", "data:", "https://cdn.jsdelivr.net", "https://fonts.gstatic.com"],
+        "style-src": ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://fonts.googleapis.com"],
+        "script-src": ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
+        "connect-src": ["'self'"],
+    }
+    return "; ".join(
+        f"{directive} {' '.join(sources)}"
+        for directive, sources in directives.items()
+    )
+
+
+def build_hsts_header(config):
+    value = f"max-age={int(config.get('SECURITY_HSTS_MAX_AGE', 31536000))}"
+    if config.get("SECURITY_HSTS_INCLUDE_SUBDOMAINS"):
+        value += "; includeSubDomains"
+    if config.get("SECURITY_HSTS_PRELOAD"):
+        value += "; preload"
+    return value
+
+
+def apply_proxy_fix(flask_app):
+    if not flask_app.config.get("ENABLE_PROXY_FIX"):
+        return
+    proxy_args = {
+        "x_for": int(flask_app.config.get("PROXY_FIX_X_FOR", 0)),
+        "x_proto": int(flask_app.config.get("PROXY_FIX_X_PROTO", 0)),
+        "x_host": int(flask_app.config.get("PROXY_FIX_X_HOST", 0)),
+        "x_port": int(flask_app.config.get("PROXY_FIX_X_PORT", 0)),
+        "x_prefix": int(flask_app.config.get("PROXY_FIX_X_PREFIX", 0)),
+    }
+    if not any(proxy_args.values()):
+        return
+    flask_app.wsgi_app = ProxyFix(flask_app.wsgi_app, **proxy_args)
+
+
+def configure_security(flask_app):
+    if flask_app.config.get("REQUIRE_EXPLICIT_SECRET_KEY") and flask_app.config.get("APP_SECRET_KEY_EPHEMERAL"):
+        raise RuntimeError(
+            "APP_SECRET_KEY or APP_SECRET_KEY_FILE is required when APP_ENV=production. "
+            "Set REQUIRE_EXPLICIT_SECRET_KEY=false only if you intentionally accept ephemeral sessions."
+        )
+
+    flask_app.config.update(
+        SESSION_COOKIE_SECURE=bool(flask_app.config.get("SESSION_COOKIE_SECURE", False)),
+        SESSION_COOKIE_HTTPONLY=bool(flask_app.config.get("SESSION_COOKIE_HTTPONLY", True)),
+        SESSION_COOKIE_SAMESITE=flask_app.config.get("SESSION_COOKIE_SAMESITE", "Lax"),
+        PERMANENT_SESSION_LIFETIME=timedelta(minutes=int(flask_app.config.get("SESSION_IDLE_MINUTES", 30))),
+        SESSION_REFRESH_EACH_REQUEST=True,
+    )
+
+
 def create_app(test_config=None):
     """Application factory used by runtime and tests."""
     flask_app = Flask(__name__, static_url_path='/static', static_folder='static')
     flask_app.config.from_mapping(
         SECRET_KEY=APP_SECRET_KEY,
         APP_VERSION=APP_VERSION,
+        APP_ENV=APP_ENV,
         APP_SECRET_KEY_EPHEMERAL=APP_SECRET_KEY_EPHEMERAL,
         AUTH_ENABLED=AUTH_ENABLED,
         AUTH_USER=AUTH_USER,
         AUTH_PASSWORD=AUTH_PASSWORD,
         CADVISOR_URL=CADVISOR_URL,
         DOCKER_SOCKET_URL=DOCKER_SOCKET_URL,
+        ENABLE_PROXY_FIX=ENABLE_PROXY_FIX,
         LOGIN_MODE=LOGIN_MODE,
         SAMPLE_INTERVAL=SAMPLE_INTERVAL,
         MAX_SECONDS=MAX_SECONDS,
+        PROXY_FIX_X_FOR=PROXY_FIX_X_FOR,
+        PROXY_FIX_X_PROTO=PROXY_FIX_X_PROTO,
+        PROXY_FIX_X_HOST=PROXY_FIX_X_HOST,
+        PROXY_FIX_X_PORT=PROXY_FIX_X_PORT,
+        PROXY_FIX_X_PREFIX=PROXY_FIX_X_PREFIX,
+        REQUIRE_EXPLICIT_SECRET_KEY=REQUIRE_EXPLICIT_SECRET_KEY,
+        SECURITY_HEADERS_ENABLED=SECURITY_HEADERS_ENABLED,
+        SECURITY_CSP_ENABLED=SECURITY_CSP_ENABLED,
+        SECURITY_HSTS_MAX_AGE=SECURITY_HSTS_MAX_AGE,
+        SECURITY_HSTS_INCLUDE_SUBDOMAINS=SECURITY_HSTS_INCLUDE_SUBDOMAINS,
+        SECURITY_HSTS_PRELOAD=SECURITY_HSTS_PRELOAD,
+        SECURITY_REFERRER_POLICY=SECURITY_REFERRER_POLICY,
+        SESSION_COOKIE_SECURE=SESSION_COOKIE_SECURE,
+        SESSION_COOKIE_HTTPONLY=SESSION_COOKIE_HTTPONLY,
+        SESSION_COOKIE_SAMESITE=SESSION_COOKIE_SAMESITE,
+        SESSION_IDLE_MINUTES=SESSION_IDLE_MINUTES,
         STREAM_HEARTBEAT_SECONDS=STREAM_HEARTBEAT_SECONDS,
     )
     if test_config:
         flask_app.config.update(test_config)
 
+    if test_config and test_config.get("SECRET_KEY"):
+        flask_app.config["APP_SECRET_KEY_EPHEMERAL"] = False
+
+    configure_security(flask_app)
+    apply_proxy_fix(flask_app)
+
     flask_app.secret_key = flask_app.config["SECRET_KEY"]
     flask_app.register_blueprint(main_routes)
+
+    @flask_app.after_request
+    def add_security_headers(response):
+        if not flask_app.config.get("SECURITY_HEADERS_ENABLED", True):
+            return response
+
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault(
+            "Referrer-Policy",
+            flask_app.config.get("SECURITY_REFERRER_POLICY", "strict-origin-when-cross-origin"),
+        )
+        response.headers.setdefault("Permissions-Policy", "camera=(), geolocation=(), microphone=()")
+
+        if flask_app.config.get("SECURITY_CSP_ENABLED", True):
+            response.headers.setdefault("Content-Security-Policy", build_content_security_policy())
+
+        if request.is_secure:
+            response.headers.setdefault("Strict-Transport-Security", build_hsts_header(flask_app.config))
+
+        return response
 
     @flask_app.context_processor
     def inject_template_globals():
