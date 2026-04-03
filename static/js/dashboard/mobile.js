@@ -167,10 +167,12 @@ export function createMobileController(ctx, deps) {
       overflowY: 'auto',
       zIndex: '2000',
     });
+    ctx.elements.notifPanel.classList.add('mobile-notif-visible');
     mobileNotifOverlay.style.display = 'block';
   }
 
   function closeMobileNotifications() {
+    ctx.elements.notifPanel.classList.remove('mobile-notif-visible');
     ctx.elements.notifPanel.style.display = 'none';
     ctx.elements.notifPanel.style.position = '';
     ctx.elements.notifPanel.style.top = '';
@@ -214,7 +216,8 @@ export function createMobileController(ctx, deps) {
     ctx.elements.sidebarClose?.addEventListener('click', closeSidebarMenu);
     ctx.elements.sidebarOverlay?.addEventListener('click', closeSidebarMenu);
 
-    ctx.elements.sidebarNotifToggle?.addEventListener('click', () => {
+    ctx.elements.sidebarNotifToggle?.addEventListener('click', (event) => {
+      event.stopPropagation();
       closeSidebarMenu();
       openMobileNotifications();
     });

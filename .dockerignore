@@ -21,6 +21,13 @@ tests
 users.db
 templates/users.db
 README.md
+CHANGELOG.md
+LICENSE
+logo.png
+docker-compose*.yml
+package.json
 package-lock.json
 package-lock.json.bak
+playwright.config.mjs
+.dockerignore
 reload.txt

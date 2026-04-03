@@ -2773,20 +2773,137 @@ nav.navbar {
 
   .update-manager-toolbar {
     flex-direction: column;
+    gap: 0.35rem;
+    margin-bottom: 0.35rem;
+  }
+
+  .update-manager-warning {
+    display: none !important;
+  }
+
+  .update-manager-toolbar-copy h6 {
+    display: none;
+  }
+
+  .update-manager-toolbar-copy {
+    flex: none;
+    width: 100%;
+  }
+
+  .update-manager-toolbar-meta {
+    font-size: 0.78rem;
+    padding: 0.35rem 0.65rem;
+    border-radius: 12px;
+    background: rgba(21, 111, 99, 0.08);
+    border: 1px solid rgba(21, 111, 99, 0.12);
   }
 
   .update-manager-toolbar-actions {
+    flex: none;
     width: 100%;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.35rem;
     justify-content: stretch;
+  }
+
+  .update-manager-search {
+    width: 100%;
+    flex-basis: 100%;
+  }
+
+  .update-manager-sort,
+  .update-manager-filter {
+    width: auto;
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .update-manager-sort select {
+    width: auto;
+    min-width: 0;
+    flex: 1;
+  }
+
+  #refreshUpdateManagerBtn {
+    flex: 0 0 auto;
+    padding: 0.25rem 0.65rem;
+    font-size: 0.78rem;
+  }
+
+  .update-manager-tabs {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr);
+    flex-wrap: unset;
+    overflow-x: visible;
+    padding-bottom: 0;
+    gap: 0;
+  }
+
+  .update-manager-tabs .nav-link {
+    width: 100%;
+    justify-content: center;
+    font-size: 0.78rem;
+    padding: 0.5rem 0.35rem;
+    white-space: nowrap;
+  }
+
+  .update-manager-tab-label {
+    font-size: 0.72rem;
+  }
+
+  .update-manager-tab-content {
+    margin-top: 0.5rem !important;
   }
 
   .update-manager-pane-head {
     flex-direction: column;
     align-items: stretch;
+    gap: 0.35rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .update-target-eyebrow {
+    display: none;
+  }
+
+  .update-manager-pane-head h6 {
+    font-size: 0.82rem;
+  }
+
+  .update-history-retention-note {
+    font-size: 0.72rem;
   }
 
   .update-manager-pane-actions {
     width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.35rem;
+  }
+
+  .update-manager-pane-actions .btn {
+    width: 100%;
+    font-size: 0.72rem;
+    padding: 0.4rem 0.5rem;
+    justify-content: center;
+  }
+
+  .update-manager-pane-actions .btn .bi {
+    display: none;
+  }
+
+  .update-manager-modal .modal-body {
+    padding-top: 0.75rem;
+  }
+
+  .update-manager-modal .modal-header {
+    padding-bottom: 0.5rem;
+  }
+
+  .update-manager-modal .settings-subtitle {
+    display: none;
   }
 
   .update-entry-head {
@@ -2802,14 +2919,8 @@ nav.navbar {
     max-width: none;
   }
 
-  .update-manager-search,
-  .update-manager-sort,
-  .update-manager-filter {
-    width: 100%;
-  }
-
-  .update-manager-sort select {
-    width: 100%;
+  #notifPanel.mobile-notif-visible {
+    display: block !important;
   }
 
   .hero-cards-grid {
@@ -2918,8 +3029,7 @@ nav.navbar {
     justify-content: center;
   }
 
-  .settings-modal .nav-tabs,
-  .update-manager-tabs {
+  .settings-modal .nav-tabs {
     flex-wrap: nowrap;
     overflow-x: auto;
     padding-bottom: 0.25rem;

@@ -494,6 +494,7 @@ export function createNotificationController(ctx) {
   }
 
   function hidePanel() {
+    ctx.elements.notifPanel.classList.remove('mobile-notif-visible');
     ctx.elements.notifPanel.style.display = 'none';
   }
 
@@ -507,6 +508,7 @@ export function createNotificationController(ctx) {
   }
 
   function resetPanelInlineStyle() {
+    ctx.elements.notifPanel.classList.remove('mobile-notif-visible');
     Object.assign(ctx.elements.notifPanel.style, {
       position: '',
       top: '',

@@ -14,5 +14,7 @@ htmlcov/
 node_modules/
 test-results/
 playwright-report/
+package-lock.json
 package-lock.json.bak
+users.db
 reload.txt

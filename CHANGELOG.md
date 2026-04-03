@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.9.16
+
+### Fixed
+- Fixed mobile notification panel not displaying when opened from the sidebar menu. The document-level click handler was immediately closing the panel due to event propagation; the sidebar toggle now stops propagation correctly.
+- Fixed notification panel remaining in a visible ghost state after being dismissed. The `hidePanel()` and `resetPanelInlineStyle()` functions in the notification controller now clear the `mobile-notif-visible` CSS class, preventing the `!important` display override from re-showing the panel and blocking pointer events.
+- Fixed excessive vertical gap between the Update Manager toolbar text and controls on mobile by reducing the column flex gap and tightening spacing.
+- Added a CSS class-based visibility override (`mobile-notif-visible`) for the notification panel to ensure reliable display above all other layers on mobile.
+
+### Changed
+- Redesigned the Update Manager mobile layout for a compact, grouped vertical flow:
+  - Removed the experimental warning banner and verbose subtitle on mobile to reclaim space.
+  - Hidden the toolbar heading; the meta summary line now serves as a compact status indicator with a subtle themed background.
+  - Search bar takes full width; sort, hide-blocked, and refresh controls now align in a single horizontal row below it.
+  - Update Manager tabs render as a 2×2 grid instead of a scrollable row on mobile.
+  - Per-tab action buttons display in a two-column grid with smaller text and hidden icons for compactness.
+  - Pane-head eyebrow labels are hidden and heading font sizes reduced.
+  - Modal header subtitle and body top padding tightened for additional space savings.
+- All changes are scoped to mobile breakpoints (`max-width: 768px`); the desktop experience is unchanged.
+
 ## v0.9.15
 
 ### Added
