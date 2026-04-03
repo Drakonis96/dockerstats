@@ -36,6 +36,12 @@ services:
       NVIDIA_VISIBLE_DEVICES: all
       GPU_METRICS_ENABLED: true
       DOCKER_SOCKET_URL: ${DOCKER_SOCKET_URL:-unix:///var/run/docker.sock}
+      # Deployment hardening – uncomment and adjust for reverse-proxy / production use
+      # APP_ENV: "production"
+      # APP_SECRET_KEY_FILE: /run/secrets/statainer_app_secret
+      # SESSION_IDLE_MINUTES: "30"
+      # SESSION_COOKIE_SECURE: "true"
+      # TRUSTED_PROXY_HOPS: "1"
     # For hosts with an NVIDIA GPU and the NVIDIA Container Toolkit, you can uncomment the deploy/resources/devices section.
     # deploy:
     #   resources:

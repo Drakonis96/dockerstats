@@ -106,6 +106,44 @@ Once started, open:
 http://localhost:5001
 ```
 
+### Recommended Production Compose
+
+For reverse-proxy deployments (e.g. behind Nginx / Caddy / Cloudflare Tunnel), uncomment and adjust the hardening variables already present in `docker-compose.yml`:
+
+```yaml
+services:
+  statainer:
+    image: drakonis96/statainer:latest
+    environment:
+      AUTH_ENABLED: "true"
+      AUTH_USER: admin
+      AUTH_PASSWORD_FILE: /run/secrets/auth_password
+      APP_ENV: "production"
+      APP_SECRET_KEY_FILE: /run/secrets/statainer_app_secret
+      LOGIN_MODE: "page"
+      SESSION_IDLE_MINUTES: "30"
+      SESSION_COOKIE_SECURE: "true"
+      TRUSTED_PROXY_HOPS: "1"
+      CADVISOR_URL: http://cadvisor:8080
+    ports:
+      - "5001:5000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./data:/app/data
+    secrets:
+      - auth_password
+      - statainer_app_secret
+    restart: unless-stopped
+
+secrets:
+  auth_password:
+    file: ./secrets/auth_password.txt
+  statainer_app_secret:
+    file: ./secrets/app_secret.txt
+```
+
+Generate a strong secret with `openssl rand -hex 32 > ./secrets/app_secret.txt`.
+
 ## Default Deployment Notes
 
 The bundled [docker-compose.yml](docker-compose.yml) exposes:
@@ -133,7 +171,7 @@ It also mounts:
 | `APP_ENV` | Runtime mode. Use `production` behind a reverse proxy | `development` |
 | `REQUIRE_EXPLICIT_SECRET_KEY` | Refuses startup with an ephemeral secret | `true` in production |
 | `LOGIN_MODE` | Login flow: `popup` or `page` | `popup` |
-| `APP_VERSION` | Version shown in the UI footer | repository `VERSION` file (`v0.9.13`) |
+| `APP_VERSION` | Version shown in the UI footer | repository `VERSION` file (`v0.9.14`) |
 | `DOCKER_SOCKET_URL` | Docker socket URL | `unix:///var/run/docker.sock` |
 | `CADVISOR_URL` | cAdvisor endpoint | `http://cadvisor:8080` |
 | `GPU_METRICS_ENABLED` | Enables GPU collection | `true` in bundled compose |
