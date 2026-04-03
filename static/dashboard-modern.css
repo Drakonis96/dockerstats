@@ -1457,7 +1457,7 @@ nav.navbar {
 }
 
 .update-manager-toolbar-actions {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 0.85rem;
@@ -1485,13 +1485,15 @@ nav.navbar {
 
 .update-manager-search i {
   color: var(--ds-muted);
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .update-manager-search input,
 .update-manager-sort select {
   min-width: 0;
   border: 0;
-  background: transparent;
+  background-color: transparent;
   box-shadow: none;
   padding: 0;
   color: var(--ds-text);
@@ -1527,6 +1529,7 @@ nav.navbar {
 .update-manager-sort select {
   width: 6rem;
   font-weight: 700;
+  padding-right: 1.5rem;
 }
 
 .update-manager-filter {
@@ -1572,11 +1575,10 @@ nav.navbar {
 }
 
 .update-manager-pane-actions {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
-  flex-shrink: 0;
 }
 
 .update-manager-pane-actions--auto {
@@ -1659,6 +1661,14 @@ nav.navbar {
 .update-entry-select {
   margin: 0;
   cursor: pointer;
+  width: 1.15em;
+  height: 1.15em;
+  border: 2px solid rgba(21, 111, 99, 0.4) !important;
+}
+
+.update-entry-select:checked {
+  background-color: #156f63 !important;
+  border-color: #156f63 !important;
 }
 
 .update-entry-toggle:focus-visible {
@@ -2582,6 +2592,11 @@ nav.navbar {
 [data-bs-theme="dark"] .update-entry {
   background: rgba(16, 27, 24, 0.74);
   border-color: rgba(255, 255, 255, 0.08);
+}
+
+[data-bs-theme="dark"] .update-entry-select {
+  border-color: rgba(21, 111, 99, 0.55) !important;
+  background-color: rgba(255, 255, 255, 0.08) !important;
 }
 
 [data-bs-theme="dark"] .update-entry[data-update-state="blocked"],

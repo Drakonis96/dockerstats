@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.9.14
+
+### Fixed
+- Fixed login page logo overflow and disproportionate sizing by consolidating all styles into the external stylesheet and adding `max-width` constraint.
+- Removed conflicting inline `<style>` block from the login template that overrode the modern design (old purple button, missing text colors).
+- Fixed Update Manager desktop button layout by switching toolbar and pane actions from `inline-flex` to `flex` and removing rigid `flex-shrink: 0` so buttons wrap correctly.
+- Restored the sort dropdown arrow indicator that was hidden by a CSS `background` shorthand override removing the Bootstrap background-image.
+- Improved search icon alignment inside the toolbar pill with explicit `line-height` and `flex-shrink` properties.
+- Enhanced Update Manager checkboxes with larger size, themed green border, and dark-mode visibility so selection controls are clearly visible in all tabs.
+
 ## v0.9.13
 
 ### Added
