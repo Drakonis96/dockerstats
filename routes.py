@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 
+import collections
 import datetime
+import threading
 import time  # Add time import
 import requests  # Añadido para peticiones HTTP a cAdvisor
 from flask import Blueprint, current_app, jsonify, request, render_template, Response, stream_with_context, session, redirect, url_for
@@ -28,6 +30,56 @@ from pushover_client import get_configured_services, send as send_notification
 
 # Crear un Blueprint para las rutas
 main_routes = Blueprint('main_routes', __name__, template_folder='templates', static_folder='static')
+
+# ---------------------------------------------------------------------------
+# Login rate limiter (in-memory, per-IP)
+# ---------------------------------------------------------------------------
+_login_attempts_lock = threading.Lock()
+_login_attempts: dict[str, collections.deque] = {}
+
+
+def _get_rate_limit_config():
+    max_attempts = current_app.config.get('LOGIN_RATE_LIMIT_MAX_ATTEMPTS', 5)
+    window = current_app.config.get('LOGIN_RATE_LIMIT_WINDOW_SECONDS', 300)
+    return int(max_attempts), int(window)
+
+
+def _prune_attempts(timestamps, cutoff):
+    while timestamps and timestamps[0] <= cutoff:
+        timestamps.popleft()
+
+
+def is_login_rate_limited(ip_addr):
+    max_attempts, window = _get_rate_limit_config()
+    if max_attempts <= 0:
+        return False, 0
+    now = time.monotonic()
+    cutoff = now - window
+    with _login_attempts_lock:
+        timestamps = _login_attempts.get(ip_addr)
+        if timestamps is None:
+            return False, 0
+        _prune_attempts(timestamps, cutoff)
+        if len(timestamps) >= max_attempts:
+            retry_after = int(timestamps[0] + window - now) + 1
+            return True, max(retry_after, 1)
+        return False, 0
+
+
+def record_failed_login(ip_addr):
+    max_attempts, _ = _get_rate_limit_config()
+    if max_attempts <= 0:
+        return
+    now = time.monotonic()
+    with _login_attempts_lock:
+        if ip_addr not in _login_attempts:
+            _login_attempts[ip_addr] = collections.deque()
+        _login_attempts[ip_addr].append(now)
+
+
+def reset_login_attempts(ip_addr):
+    with _login_attempts_lock:
+        _login_attempts.pop(ip_addr, None)
 
 def auth_enabled():
     return bool(current_app.config.get('AUTH_ENABLED', True))
@@ -176,16 +228,35 @@ def login():
             error = "Invalid or expired session. Reload the page and try again."
             return render_template('login.html', csrf_token=generate_csrf_token(), error=error), 403
 
+        client_ip = get_request_remote_addr()
+        limited, retry_after = is_login_rate_limited(client_ip)
+        if limited:
+            error = f"Too many failed login attempts. Try again in {retry_after} seconds."
+            record_audit_event(
+                action='login',
+                target_type='session',
+                status='failure',
+                actor_username=request.form.get('username'),
+                actor_role=None,
+                target_id=request.form.get('username'),
+                remote_addr=client_ip,
+                details={'mode': 'page', 'reason': 'rate_limited'},
+            )
+            response = render_template('login.html', csrf_token=generate_csrf_token(), error=error)
+            return response, 429
+
         username = request.form.get('username')
         password = request.form.get('password')
         
         if validate_user(username, password):
+            reset_login_attempts(client_ip)
             session.permanent = True
             session['authenticated'] = True
             session['username'] = username
             audit_event('login', 'session', 'success', target_id=username, details={'mode': 'page'})
             return redirect(url_for('main_routes.index'))
         else:
+            record_failed_login(client_ip)
             record_audit_event(
                 action='login',
                 target_type='session',
@@ -193,7 +264,7 @@ def login():
                 actor_username=username,
                 actor_role=get_user_role(username) if username and user_exists(username) else None,
                 target_id=username,
-                remote_addr=get_request_remote_addr(),
+                remote_addr=client_ip,
                 details={'mode': 'page', 'reason': 'invalid_credentials'},
             )
             error = "Invalid username or password"
@@ -264,13 +335,22 @@ def require_auth():
                 return redirect(url_for('main_routes.login'))
     else:
         # For popup-based auth (HTTP Basic), check Authorization header
+        client_ip = get_request_remote_addr()
+        limited, retry_after = is_login_rate_limited(client_ip)
+        if limited:
+            if request.path.startswith('/api/'):
+                return jsonify({"error": "rate_limited", "message": f"Too many failed login attempts. Try again in {retry_after} seconds."}), 429
+            return Response(f'Too many failed login attempts. Try again in {retry_after} seconds.', 429)
         auth = request.authorization
         if not auth or not validate_user(auth.username, auth.password):
+            if auth and auth.username:
+                record_failed_login(client_ip)
             # If requesting API endpoint, return JSON 401 error
             if request.path.startswith('/api/'):
                 return jsonify({"error": "auth", "message": "Authentication required"}), 401
             # Otherwise return standard HTTP 401 with Basic auth prompt
             return Response('Authentication required', 401, {'WWW-Authenticate': 'Basic realm="Login Required"'})
+        reset_login_attempts(client_ip)
 
 # --- Ruta Index ---
 @main_routes.route('/')

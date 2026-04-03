@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copia todos los módulos Python del directorio raíz para evitar omitir
 # nuevas dependencias top-level en futuros releases.
 COPY *.py ./
+COPY VERSION ./
 
 # Copia las carpetas de templates y static
 # Asegúrate de que tu logo.png está DENTRO de la carpeta 'static' en tu máquina local antes de construir

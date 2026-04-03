@@ -799,3 +799,136 @@ def test_export_csv_returns_downloadable_csv(client):
     body = response.get_data(as_text=True).splitlines()
     assert body[0] in {"name,cpu", "cpu,name"}
     assert set(body[1:]) == {"web,12.5", "db,8.0"} or set(body[1:]) == {"12.5,web", "8.0,db"}
+
+
+# ---------------------------------------------------------------------------
+# Login rate limiting
+# ---------------------------------------------------------------------------
+
+def _clear_rate_limiter():
+    """Reset the in-memory rate limiter state between tests."""
+    with routes._login_attempts_lock:
+        routes._login_attempts.clear()
+
+
+def _make_rate_limit_client(tmp_path, monkeypatch, max_attempts=3, window=300, login_mode="page"):
+    db_path = tmp_path / "ratelimit_users.db"
+    monkeypatch.setenv("USERS_DB_PATH", str(db_path))
+    users_db.migrate_add_columns_and_role_and_settings()
+    users_db.init_db("admin", "adminpass")
+    return make_test_client(
+        LOGIN_RATE_LIMIT_MAX_ATTEMPTS=max_attempts,
+        LOGIN_RATE_LIMIT_WINDOW_SECONDS=window,
+        LOGIN_MODE=login_mode,
+    )
+
+
+def test_page_login_rate_limit_blocks_after_max_failures(tmp_path, monkeypatch):
+    _clear_rate_limiter()
+    client = _make_rate_limit_client(tmp_path, monkeypatch, max_attempts=3)
+
+    # Set a CSRF token in the session
+    with client.session_transaction() as sess:
+        sess["csrf_token"] = "rate-csrf"
+
+    # 3 failed attempts should be accepted (returns 200 with error message)
+    for i in range(3):
+        resp = client.post("/login", data={
+            "username": "admin",
+            "password": "wrong",
+            "csrf_token": "rate-csrf",
+        })
+        assert resp.status_code == 200, f"Attempt {i+1} should return 200"
+
+    # 4th attempt should be rate limited (429)
+    resp = client.post("/login", data={
+        "username": "admin",
+        "password": "wrong",
+        "csrf_token": "rate-csrf",
+    })
+    assert resp.status_code == 429
+    assert b"Too many failed login attempts" in resp.data
+    _clear_rate_limiter()
+
+
+def test_page_login_successful_login_resets_rate_limiter(tmp_path, monkeypatch):
+    _clear_rate_limiter()
+    client = _make_rate_limit_client(tmp_path, monkeypatch, max_attempts=3)
+
+    with client.session_transaction() as sess:
+        sess["csrf_token"] = "rate-csrf"
+
+    # 2 failed attempts
+    for _ in range(2):
+        client.post("/login", data={
+            "username": "admin",
+            "password": "wrong",
+            "csrf_token": "rate-csrf",
+        })
+
+    # Successful login should reset counter
+    resp = client.post("/login", data={
+        "username": "admin",
+        "password": "adminpass",
+        "csrf_token": "rate-csrf",
+    }, follow_redirects=False)
+    assert resp.status_code == 302  # redirect on success
+
+    # After reset, further failed attempts should be allowed again
+    with client.session_transaction() as sess:
+        sess.pop("authenticated", None)
+        sess["csrf_token"] = "rate-csrf"
+
+    for _ in range(3):
+        resp = client.post("/login", data={
+            "username": "admin",
+            "password": "wrong",
+            "csrf_token": "rate-csrf",
+        })
+        assert resp.status_code == 200
+    _clear_rate_limiter()
+
+
+def test_popup_basic_auth_rate_limit_blocks_after_max_failures(tmp_path, monkeypatch):
+    _clear_rate_limiter()
+    client = _make_rate_limit_client(tmp_path, monkeypatch, max_attempts=3, login_mode="popup")
+
+    # 3 failed attempts (with bad credentials)
+    for i in range(3):
+        resp = client.get("/api/system-status", headers=basic_auth_header("admin", "wrong"))
+        assert resp.status_code == 401, f"Attempt {i+1} should return 401"
+
+    # 4th attempt should be rate limited
+    resp = client.get("/api/system-status", headers=basic_auth_header("admin", "wrong"))
+    assert resp.status_code == 429
+    _clear_rate_limiter()
+
+
+def test_popup_basic_auth_successful_login_resets_limiter(tmp_path, monkeypatch):
+    _clear_rate_limiter()
+    client = _make_rate_limit_client(tmp_path, monkeypatch, max_attempts=3, login_mode="popup")
+
+    # 2 failed attempts
+    for _ in range(2):
+        client.get("/api/system-status", headers=basic_auth_header("admin", "wrong"))
+
+    # Successful request should reset
+    resp = client.get("/api/system-status", headers=basic_auth_header("admin", "adminpass"))
+    assert resp.status_code == 200
+
+    # Counter reset – 3 more failures allowed
+    for _ in range(3):
+        resp = client.get("/api/system-status", headers=basic_auth_header("admin", "wrong"))
+        assert resp.status_code == 401
+    _clear_rate_limiter()
+
+
+def test_rate_limit_disabled_when_max_attempts_zero(tmp_path, monkeypatch):
+    _clear_rate_limiter()
+    client = _make_rate_limit_client(tmp_path, monkeypatch, max_attempts=0, login_mode="popup")
+
+    # Should never block, even after many failures
+    for _ in range(20):
+        resp = client.get("/api/system-status", headers=basic_auth_header("admin", "wrong"))
+        assert resp.status_code == 401
+    _clear_rate_limiter()

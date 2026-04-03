@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.9.15
+
+### Added
+- Added in-app login rate limiting: after a configurable number of failed attempts (default 5) from the same IP address, further login requests are blocked for a sliding window (default 5 minutes). Works for both page-based and Basic Auth (popup) login modes.
+- New environment variables `LOGIN_RATE_LIMIT_MAX_ATTEMPTS` (default `5`) and `LOGIN_RATE_LIMIT_WINDOW_SECONDS` (default `300`) to tune the rate limiter. Set `LOGIN_RATE_LIMIT_MAX_ATTEMPTS=0` to disable.
+
+### Fixed
+- Fixed the version footer displaying "dev" instead of the actual version number when running in Docker. The `VERSION` file is now included in the container image.
+
 ## v0.9.14
 
 ### Fixed

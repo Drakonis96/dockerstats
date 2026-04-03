@@ -55,6 +55,8 @@ from config import (
     SESSION_IDLE_MINUTES,
     STREAM_HEARTBEAT_SECONDS,
     WAITRESS_THREADS,
+    LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
+    LOGIN_RATE_LIMIT_WINDOW_SECONDS,
 )
 from docker_client import get_docker_status, initialize_docker_clients
 from routes import main_routes
@@ -155,6 +157,8 @@ def create_app(test_config=None):
         SESSION_COOKIE_SAMESITE=SESSION_COOKIE_SAMESITE,
         SESSION_IDLE_MINUTES=SESSION_IDLE_MINUTES,
         STREAM_HEARTBEAT_SECONDS=STREAM_HEARTBEAT_SECONDS,
+        LOGIN_RATE_LIMIT_MAX_ATTEMPTS=LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
+        LOGIN_RATE_LIMIT_WINDOW_SECONDS=LOGIN_RATE_LIMIT_WINDOW_SECONDS,
     )
     if test_config:
         flask_app.config.update(test_config)

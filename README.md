@@ -171,13 +171,15 @@ It also mounts:
 | `APP_ENV` | Runtime mode. Use `production` behind a reverse proxy | `development` |
 | `REQUIRE_EXPLICIT_SECRET_KEY` | Refuses startup with an ephemeral secret | `true` in production |
 | `LOGIN_MODE` | Login flow: `popup` or `page` | `popup` |
-| `APP_VERSION` | Version shown in the UI footer | repository `VERSION` file (`v0.9.14`) |
+| `APP_VERSION` | Version shown in the UI footer | repository `VERSION` file (`v0.9.15`) |
 | `DOCKER_SOCKET_URL` | Docker socket URL | `unix:///var/run/docker.sock` |
 | `CADVISOR_URL` | cAdvisor endpoint | `http://cadvisor:8080` |
 | `GPU_METRICS_ENABLED` | Enables GPU collection | `true` in bundled compose |
 | `SESSION_IDLE_MINUTES` | Inactivity timeout for page sessions | `30` |
 | `SESSION_COOKIE_SECURE` | Marks the session cookie as HTTPS-only | `true` in production |
 | `TRUSTED_PROXY_HOPS` | Number of trusted proxy hops for forwarded headers | `0` |
+| `LOGIN_RATE_LIMIT_MAX_ATTEMPTS` | Failed login attempts before blocking an IP | `5` |
+| `LOGIN_RATE_LIMIT_WINDOW_SECONDS` | Sliding window (seconds) for the attempt counter | `300` |
 
 ### Authentication Recommendations
 
